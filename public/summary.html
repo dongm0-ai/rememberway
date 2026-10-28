@@ -41,7 +41,7 @@
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary } from "/lib/priority.js";
-  import { loadKakao, findPlace, findHome } from "/js/kakao.js";
+  import { loadMap, findPlace, findHome, createMap } from "/js/map.js";
 
   const clue = store.sget(KEYS.clue);
   if (!clue) location.replace("/report");
@@ -82,47 +82,32 @@
   }
   renderRank();
 
-  // 지도 (카카오). 키 없으면 목록만.
-  let map = null, kakao = null, overlays = [];
-  const cfg = await loadConfig();
-  kakao = await loadKakao(cfg.kakaoJsKey);
-  if (!kakao) {
-    $("#map").textContent = cfg.kakaoJsKey ? "지도를 불러오지 못했어요 (카카오 개발자 콘솔에 이 도메인이 등록됐는지 확인)" : "지도 키가 없어 목록만 표시합니다 (관리자: KAKAO_JS_KEY)";
+  // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim으로 찾는다.
+  let view = null;
+  const L = await loadMap();
+  if (!L) {
+    $("#map").textContent = "지도를 불러오지 못했어요 (인터넷 연결 확인). 목록은 아래에 있습니다.";
     $("#map-note").textContent = "거리를 알 수 없어 점수에 반경을 반영하지 못했습니다.";
   } else {
     const homeName = profile?.home_dong || clue.last_seen?.place;
-    const home = homeName ? await findHome(kakao, homeName) : null;
-    const center = home ? new kakao.maps.LatLng(home.lat, home.lng) : new kakao.maps.LatLng(36.3504, 127.3845);
+    const home = homeName ? await findHome(homeName) : null;
+    const center = home ?? { lat: 36.3504, lng: 127.3845 };
     $("#map").textContent = "";
-    map = new kakao.maps.Map($("#map"), { center, level: 6 });
-    if (home) {
-      new kakao.maps.Circle({ map, center, radius: rMax, strokeWeight: 2, strokeColor: "#1f5a95", strokeOpacity: .6, fillColor: "#1f5a95", fillOpacity: .08 });
-      new kakao.maps.Marker({ map, position: center, title: "집·마지막 본 곳" });
-      $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 도보 경로·교차로는 아직 지도에 없습니다.`;
-    } else $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경 원을 그리지 못했습니다. 평소 등록에서 동 이름을 적어 주세요.";
-    // 장소 좌표 찾기 → 거리 → 점수 다시 계산
-    await Promise.all(places.map(async (p) => {
-      if (p.lat && p.lng) return;
-      const f = await findPlace(kakao, p.name, home ? center : null);
+    view = createMap(L, $("#map"), center, home ? rMax : 0);
+    if (home) $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 도보 경로·교차로는 아직 지도에 없습니다. 지도: OpenStreetMap`;
+    else $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경 원을 그리지 못했습니다. 평소 등록에서 '시 구 동'까지 적어 주세요.";
+    // 장소 좌표 찾기 → 거리 → 점수 다시 계산 (Nominatim 규칙상 1초에 1곳씩)
+    for (const p of places) {
+      if (p.lat && p.lng) continue;
+      const f = await findPlace(p.name, home);
       if (f) { p.lat = f.lat; p.lng = f.lng; p.found_name = f.found_name; }
-    }));
+    }
     for (const p of places) if (home && p.lat) p.distance_m = haversineM(home.lat, home.lng, p.lat, p.lng);
     renderRank(); drawMarkers();
+    const notFound = places.filter((p) => !p.lat).map((p) => p.name);
+    if (notFound.length) $("#map-note").textContent += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
   }
-  function drawMarkers() {
-    if (!map) return;
-    overlays.forEach((o) => o.setMap(null)); overlays = [];
-    const bounds = new kakao.maps.LatLngBounds();
-    let any = false;
-    ranked.forEach((c, i) => {
-      if (!c.lat) return;
-      const pos = new kakao.maps.LatLng(c.lat, c.lng);
-      const m = new kakao.maps.Marker({ map, position: pos, title: c.name });
-      const o = new kakao.maps.CustomOverlay({ map, position: pos, yAnchor: 2.2, content: `<div style="background:#1f5a95;color:#fff;font-weight:800;border-radius:999px;padding:2px 8px;font-size:13px;white-space:nowrap">${i + 1} ${c.name}</div>` });
-      overlays.push(m, o); bounds.extend(pos); any = true;
-    });
-    if (any) { bounds.extend(map.getCenter()); map.setBounds(bounds, 40); }
-  }
+  function drawMarkers() { if (view) view.setMarkers(ranked); }
 
   // "찾았어요" → 사건 기록으로 (현재 단서를 보관)
   $("#found").onclick = () => {

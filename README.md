@@ -29,21 +29,21 @@
 
 - [x] 화면 1 상황 입력 (Web Speech API + 글 입력, 경과 시간·걸음 속도)
 - [x] 화면 2 확인·되묻기 (`/api/extract`, `/api/followup`, ⚠·✎·[모름]·[건너뛰고 요약])
-- [x] 화면 3 요약(복사·공유) + 카카오맵(반경 원·마커) + 우선 확인 순서 + 가중치 표 + 지금 할 일 3가지
+- [x] 화면 3 요약(복사·공유) + 지도(OpenStreetMap, 반경 원·마커) + 우선 확인 순서 + 가중치 표 + 지금 할 일 3가지
 - [x] 서식 모드 (AI 10초 타임아웃·키 없음·오프라인 → 서식만으로 화면 3)
 - [x] 화면 0 첫 등록 + 매일 일지(칩) + 30일 분류 + 주간 요약 (`/api/diary`, `/api/weekly`, localStorage)
 - [x] 화면 4 찾은 뒤 기록 → 예방 계획 → 확인할 곳 추가 (`/api/record`)
 - [x] PWA (manifest, 서비스워커, 아이콘)
 - [ ] **실제 Gemini API로 검증** — 키 입력 후 `npm run mock` 결과를 `docs/실험기록.md`에 기록 (지금까지는 MOCK_AI 모의 응답으로 화면 흐름만 확인)
-- [ ] **카카오맵 실기기 확인** — 키 입력·도메인 등록 후
-- [ ] 도보 길찾기·교차로 (길찾기 API 미연동. 거리는 직선거리)
+- [ ] **지도 실기기 확인** — 동네 장소 검색 정확도(OSM Nominatim) 기록
+- [ ] 도보 길찾기·교차로 (미연동. 거리는 직선거리)
 - [ ] 환자 모드 (어르신 폰 큰 버튼 → 서버 푸시) — 미구현
 - [ ] 사진 → 인상착의 (본선)
 
 ## 실행
 
 ```bash
-cp .env.example .env.local   # 키 입력 (GEMINI_API_KEY, KAKAO_JS_KEY)
+cp .env.example .env.local   # 키 입력 (GEMINI_API_KEY)
 npm run dev                  # http://localhost:3000  (설치할 패키지 없음, Node 20+)
 npm run mock                 # 모의 사례 3개를 실제 AI로 실행 → data/results_<날짜>.json
 npm run mock:fake            # 키 없이 모의 응답으로 흐름만 점검 (MOCK_AI=1)
@@ -53,8 +53,8 @@ npm run mock:fake            # 키 없이 모의 응답으로 흐름만 점검 (
 
 1. 이 저장소를 GitHub에 올린다.
 2. Vercel → Add New Project → 저장소 선택. Framework Preset은 **Other**(자동 감지됨). Build Command 없음.
-3. Environment Variables: `GEMINI_API_KEY`, `GEMINI_MODEL`(예: gemini-3.8-flash), `KAKAO_JS_KEY` (MOCK_AI는 넣지 않는다). Claude를 쓰려면 `AI_PROVIDER=claude`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`.
-4. Deploy. 주소가 나오면 카카오 개발자 콘솔 → 앱 → 플랫폼 → Web 사이트 도메인에 그 주소를 추가한다.
+3. Environment Variables: `GEMINI_API_KEY`, `GEMINI_MODEL`(예: gemini-3-flash-preview) (MOCK_AI는 넣지 않는다). Claude를 쓰려면 `AI_PROVIDER=claude`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`.
+4. Deploy.
 5. 폰에서 주소 열기 → "홈 화면에 추가".
 
 `public/` 이 화면, `api/*.js` 가 서버 함수다. AI 키는 서버 함수에서만 읽는다. 환경변수를 바꾼 뒤에는 Vercel에서 Redeploy 한 번.

@@ -30,9 +30,9 @@ public/lib/diary.js     일지 → 장소 4분류, 주간 집계 (규칙)
 lib/prompts.js          호출 ①②④⑤⑥ 시스템 프롬프트  ← "없으면 null", "원문에 없는 사실 금지"는 삭제 금지
 lib/claude.js           생성형 AI 호출 — Gemini(기본) 또는 Claude, fetch, 서버 전용, 15초 타임아웃·대체 모델, MOCK_AI
 lib/http.js             서버 함수 공통 (POST 파싱, 오류 → ok:false)
-api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤  api/weekly.js ⑥  api/config.js(카카오 키만)
+api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤  api/weekly.js ⑥  api/config.js(AI 상태만)
 public/*.html           화면. 빌드 없음. 각 화면의 스크립트는 그 HTML 안에 있다
-public/js/common.js     저장·API 호출·음성 입력·공통 UI   public/js/kakao.js  지도 SDK·좌표 찾기
+public/js/common.js     저장·API 호출·음성 입력·공통 UI   public/js/map.js  지도(OSM/Leaflet)·좌표 찾기(Nominatim)
 data/                   모의 사례·정답표·실험 결과       docs/  결정표·화면 구성·확정안·실험기록 (여기와 어긋나면 docs가 우선)
 ```
 
@@ -57,7 +57,7 @@ data/                   모의 사례·정답표·실험 결과       docs/  결
 
 ## 기술
 
-순수 HTML/CSS/JS PWA (ES 모듈, 빌드 없음) · Vercel 서버리스 함수 `api/*.js` (Node 20+, ESM) · Gemini API(기본, `AI_PROVIDER=gemini`) 또는 Claude Messages API를 `fetch`로 직접 호출 · 카카오맵 JS(`KAKAO_JS_KEY`, `/api/config`로 전달) · Web Speech API(STT, 미지원 브라우저는 글쓰기) · localStorage.
+순수 HTML/CSS/JS PWA (ES 모듈, 빌드 없음) · Vercel 서버리스 함수 `api/*.js` (Node 20+, ESM) · Gemini API(기본, `AI_PROVIDER=gemini`) 또는 Claude Messages API를 `fetch`로 직접 호출 · OpenStreetMap+Leaflet(키 없음, Nominatim 지오코딩) · Web Speech API(STT, 미지원 브라우저는 글쓰기) · localStorage.
 2026-10-28에 Next.js에서 이 구조로 바꿨고, 같은 날 AI를 Claude에서 Gemini(교육용 키)로 바꿨다 (이유: docs/결정표 "추가 결정").
 
 ## 실험

@@ -24,7 +24,7 @@ export async function api(name, body, timeoutMs = 16000) { // 서버 15초 + 여
 export async function loadConfig() {
   const cached = store.sget(KEYS.config);
   if (cached) return cached;
-  try { const c = await (await fetch("/api/config")).json(); store.sset(KEYS.config, c); return c; } catch { return { kakaoJsKey: null, ai: {} }; }
+  try { const c = await (await fetch("/api/config")).json(); store.sset(KEYS.config, c); return c; } catch { return { ai: {} }; }
 }
 
 /** Web Speech API (ko-KR). 미지원 브라우저면 null */

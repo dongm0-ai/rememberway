@@ -9,7 +9,7 @@ export const store = {
 export const KEYS = { profile: "rw_profile", diary: "rw_diary", incidents: "rw_incidents", clue: "rw_clue", utterance: "rw_utterance", mode: "rw_mode", config: "rw_config" };
 
 /** 서버 함수 호출. 10초 넘으면 {ok:false, reason:"TIMEOUT"}. 네트워크 끊김도 ok:false → 서식 모드 */
-export async function api(name, body, timeoutMs = 10000) {
+export async function api(name, body, timeoutMs = 16000) { // 서버 15초 + 여유. 넘으면 서식 모드
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
   try {

@@ -112,3 +112,4 @@ README.md, .env.example, .gitignore, package.json
 | 길찾기·교차로 | 미연동. 지도는 집 기준 직선 반경 원 + 장소 마커만. 교차로 가중치(+2)는 표에 남기되 "미연동 시 미적용" 표기 | 카카오 도보 길찾기 권한 미확인 |
 | 환자 모드 | 미구현 (README 상태표에 표기) | 1~4 우선 |
 | 생성형 AI 제공자 (2026-10-28 저녁) | **Claude API → Gemini API(교육용 계정 키, `gemini-3.8-flash` 기본 (2.5는 신규 사용자에게 제공 종료))**. `AI_PROVIDER` 환경변수로 Claude로도 전환 가능 | 지도교사가 교육용 Gemini 키를 보유해 비용 부담 없음. 프롬프트·검증·화면은 변경 없음. 기획안 5쪽 모델명은 `npm run mock` 비교 뒤 확정 |
+| AI 타임아웃·대체 모델 (2026-10-28 밤) | 타임아웃 10초 → **15초**. 환경변수 모델이 종료(404)·혼잡(503)이면 `gemini-3.8-flash → gemini-3-flash-preview → gemini-3.5-flash-lite → gemini-3.1-flash-lite` 순으로 자동 대체 (`GEMINI_FALLBACKS`). 성공한 모델이 다음 호출 1순위 | 교육용(무료 등급) 키는 저녁 시간대 503이 잦음을 실측. 15초 넘으면 여전히 서식 모드 |

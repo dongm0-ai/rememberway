@@ -28,7 +28,7 @@ public/lib/verify.js    스키마 검사·missing 재계산·환각 대조 (브�
 public/lib/priority.js  R_max, 우선 확인 순서, 지금 할 일 3가지, 요약문 조립 (규칙)
 public/lib/diary.js     일지 → 장소 4분류, 주간 집계 (규칙)
 lib/prompts.js          호출 ①②④⑤⑥ 시스템 프롬프트  ← "없으면 null", "원문에 없는 사실 금지"는 삭제 금지
-lib/claude.js           생성형 AI 호출 — Gemini(기본) 또는 Claude, fetch, 서버 전용, 10초 타임아웃, MOCK_AI
+lib/claude.js           생성형 AI 호출 — Gemini(기본) 또는 Claude, fetch, 서버 전용, 15초 타임아웃·대체 모델, MOCK_AI
 lib/http.js             서버 함수 공통 (POST 파싱, 오류 → ok:false)
 api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤  api/weekly.js ⑥  api/config.js(카카오 키만)
 public/*.html           화면. 빌드 없음. 각 화면의 스크립트는 그 HTML 안에 있다
@@ -53,7 +53,7 @@ data/                   모의 사례·정답표·실험 결과       docs/  결
 
 ## AI 장애 시
 
-`/api/*`가 `{ok:false}`를 주면 화면은 **고정 서식 입력 모드**로 전환한다. 서식만으로도 화면 3 요약이 만들어져야 한다. 10초 타임아웃은 `lib/claude.js`와 `public/js/common.js`(api 함수) 양쪽에 있다.
+`/api/*`가 `{ok:false}`를 주면 화면은 **고정 서식 입력 모드**로 전환한다. 서식만으로도 화면 3 요약이 만들어져야 한다. 15초 타임아웃은 `lib/claude.js`와 `public/js/common.js`(api 함수) 양쪽에 있다.
 
 ## 기술
 

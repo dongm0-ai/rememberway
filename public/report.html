@@ -89,7 +89,7 @@
   }
   $("#to-form").onclick = () => showForm("AI 없이 서식으로 입력합니다. 아는 것만 적고 모르는 칸은 비워 두세요.");
 
-  const reasonText = { TIMEOUT: "AI 응답이 10초 안에 오지 않아 서식으로 받습니다.", NETWORK: "인터넷 연결이 끊겨 서식으로 받습니다.", NO_KEY: "AI 키가 설정되지 않아 서식으로 받습니다 (관리자: Vercel 환경변수 GEMINI_API_KEY).", AI_UNAVAILABLE: "AI 서버에 문제가 있어 서식으로 받습니다.", BAD_JSON: "AI 응답을 읽을 수 없어 서식으로 받습니다.", NO_JSON: "AI 응답을 읽을 수 없어 서식으로 받습니다." };
+  const reasonText = { TIMEOUT: "AI 응답이 10초 안에 오지 않아 서식으로 받습니다.", NETWORK: "인터넷 연결이 끊겨 서식으로 받습니다.", NO_KEY: "AI 키가 설정되지 않아 서식으로 받습니다 (관리자: Vercel 환경변수 GEMINI_API_KEY).", AI_UNAVAILABLE: "AI 서버에 문제가 있어 서식으로 받습니다.", BAD_JSON: "AI 응답을 읽을 수 없어 서식으로 받습니다.", NO_JSON: "AI 응답을 읽을 수 없어 서식으로 받습니다.", RATE_LIMIT: "잠시 호출이 너무 많아 서식으로 받습니다. 1분 뒤 다시 시도할 수 있습니다.", FORBIDDEN: "허용되지 않은 주소에서 열려 AI를 쓸 수 없습니다. 서식으로 받습니다." };
 
   $("#go").onclick = async () => {
     const elapsedMin = Number(chosen("#elapsed .chip", "min") ?? 60), gait = chosen("#gait .chip", "g") ?? "normal";

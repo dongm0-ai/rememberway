@@ -41,7 +41,7 @@
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary } from "/lib/priority.js";
-  import { loadMap, findPlace, findHome, createMap } from "/js/map.js";
+  import { loadMap, findPlaceLoose, findHome, createMap } from "/js/map.js";
 
   const clue = store.sget(KEYS.clue);
   if (!clue) location.replace("/report");
@@ -94,16 +94,19 @@
     const center = home ?? { lat: 36.3504, lng: 127.3845 };
     $("#map").textContent = "";
     view = createMap(L, $("#map"), center, home ? rMax : 0);
+    view.setMarkers([]);
     if (home) $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 도보 경로·교차로는 아직 지도에 없습니다. 지도: OpenStreetMap`;
     else $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경 원을 그리지 못했습니다. 평소 등록에서 '시 구 동'까지 적어 주세요.";
     // 장소 좌표 찾기 → 거리 → 점수 다시 계산 (Nominatim 규칙상 1초에 1곳씩)
     for (const p of places) {
       if (p.lat && p.lng) continue;
-      const f = await findPlace(p.name, home);
-      if (f) { p.lat = f.lat; p.lng = f.lng; p.found_name = f.found_name; }
+      const f = await findPlaceLoose(p.name, home);
+      if (f) { p.lat = f.lat; p.lng = f.lng; p.found_name = f.found_name; p.approx = f.approx; }
     }
     for (const p of places) if (home && p.lat) p.distance_m = haversineM(home.lat, home.lng, p.lat, p.lng);
     renderRank(); drawMarkers();
+    const approx = places.filter((p) => p.approx).map((p) => `${p.name}→${p.found_name}`);
+    if (approx.length) $("#map-note").textContent += ` · 근처로 표시: ${approx.join(", ")}`;
     const notFound = places.filter((p) => !p.lat).map((p) => p.name);
     if (notFound.length) $("#map-note").textContent += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
   }

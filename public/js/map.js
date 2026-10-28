@@ -36,6 +36,16 @@ export async function findPlace(name, near) {
   } catch { return null; }
 }
 
+/** 장소 이름으로 못 찾으면 더 단순한 이름으로 다시: "삼성동 옛 동네" → "삼성동", "중앙시장 정육점" → "중앙시장" */
+export async function findPlaceLoose(name, near) {
+  const direct = await findPlace(name, near);
+  if (direct) return { ...direct, approx: false };
+  const tokens = name.split(/\s+/).filter(Boolean);
+  const core = tokens.find((t) => /(동|읍|면|리|시장|역|병원|공원|학교|교회|성당|절|마트|터미널|정류장|경로당|센터)$/.test(t));
+  if (core && core !== name) { const f = await findPlace(core, near); if (f) return { ...f, approx: true }; }
+  return null;
+}
+
 /** 집(동 단위) 좌표. "대전 중구 석교동"처럼 시·구까지 적으면 정확도가 올라간다 */
 export async function findHome(dong) {
   return (await findPlace(dong, null)) ?? (await findPlace(dong.split(/\s+/).slice(-1)[0], null));
@@ -60,6 +70,7 @@ export function createMap(L, el, center, rMax) {
         L.marker([c.lat, c.lng], { icon }).addTo(layer); pts.push([c.lat, c.lng]);
       });
       if (pts.length > 1) map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
+      else if (circle) map.fitBounds(circle.getBounds(), { padding: [10, 10] });
     },
   };
 }

@@ -111,3 +111,4 @@ README.md, .env.example, .gitignore, package.json
 | 카카오 키 전달 | 서버 함수 `/api/config`가 JavaScript 키를 내려 줌 (도메인 제한 공개 키). Claude 키는 절대 내려 주지 않음 | 빌드 없이 환경변수를 화면에 전달 |
 | 길찾기·교차로 | 미연동. 지도는 집 기준 직선 반경 원 + 장소 마커만. 교차로 가중치(+2)는 표에 남기되 "미연동 시 미적용" 표기 | 카카오 도보 길찾기 권한 미확인 |
 | 환자 모드 | 미구현 (README 상태표에 표기) | 1~4 우선 |
+| 생성형 AI 제공자 (2026-10-28 저녁) | **Claude API → Gemini API(교육용 계정 키, `gemini-2.5-flash` 기본)**. `AI_PROVIDER` 환경변수로 Claude로도 전환 가능 | 지도교사가 교육용 Gemini 키를 보유해 비용 부담 없음. 프롬프트·검증·화면은 변경 없음. 기획안 5쪽 모델명은 `npm run mock` 비교 뒤 확정 |

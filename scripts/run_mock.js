@@ -7,13 +7,13 @@ import path from "node:path";
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 loadEnv(path.join(root, ".env.local"));
 
-const { askJSON, MODEL, isMock } = await import("../lib/claude.js");
+const { askJSON, MODEL, PROVIDER, isMock } = await import("../lib/claude.js");
 const { SYSTEM_EXTRACT, userExtract, SYSTEM_FOLLOWUP, userFollowup } = await import("../lib/prompts.js");
 const { coerceClue, flagHallucinations, computeMissing, getPath } = await import("../public/lib/verify.js");
 
 const { cases } = JSON.parse(fs.readFileSync(path.join(root, "data/mock_cases.json"), "utf8"));
 const results = [];
-console.log(`모델: ${isMock() ? "모의 응답(MOCK_AI=1, 실제 AI 아님)" : MODEL}`);
+console.log(`모델: ${isMock() ? "모의 응답(MOCK_AI=1, 실제 AI 아님)" : PROVIDER + " / " + MODEL}`);
 for (const c of cases) {
   const t0 = Date.now();
   let raw;
@@ -38,7 +38,7 @@ for (const c of cases) {
   console.log(`${c.id}: ${latency}ms, 채움 ${filled.length}/${Object.keys(c.expected_present ?? {}).length}, 환각 ${hallucinated.length}건${hallucinated.length ? ` (${hallucinated.join(",")})` : ""}, ⚠ ${Object.keys(flagged.flags ?? {}).length}건, 첫 되묻기 ${fu?.[0]?.key ?? "-"} ${fu?.[0]?.key === c.expected_followup_first ? "✓" : "✗(정답 " + c.expected_followup_first + ")"}`);
 }
 const out = path.join(root, `data/results_${new Date().toISOString().slice(0, 10)}${isMock() ? "_mock" : ""}.json`);
-fs.writeFileSync(out, JSON.stringify({ model: isMock() ? "MOCK" : MODEL, ran_at: new Date().toISOString(), results }, null, 2));
+fs.writeFileSync(out, JSON.stringify({ model: isMock() ? "MOCK" : `${PROVIDER}/${MODEL}`, ran_at: new Date().toISOString(), results }, null, 2));
 console.log("saved", path.relative(root, out));
 
 function loadEnv(file) {

@@ -8,7 +8,7 @@
 
 ## AI가 하는 것 / 하지 않는 것
 
-| 하는 것 (생성형 AI, Gemini API) | 하지 않는 것 (코드·사람) |
+| 하는 것 (생성형 AI: Upstage Solar 또는 Gemini) | 하지 않는 것 (코드·사람) |
 |---|---|
 | 보호자의 두서없는 말 → 단서 JSON (호출 ①) | 즉시 신고 안내 (고정 문구) |
 | 빠진 항목을 돌려 묻는 질문 생성 (호출 ②) | 우선 확인 순서 점수 (가중치 공개, `public/lib/priority.js`) |
@@ -43,7 +43,7 @@
 ## 실행
 
 ```bash
-cp .env.example .env.local   # 키 입력 (GEMINI_API_KEY)
+cp .env.example .env.local   # 키 입력 (UPSTAGE_API_KEY 또는 GEMINI_API_KEY)
 npm run dev                  # http://localhost:3000  (설치할 패키지 없음, Node 20+)
 npm run mock                 # 모의 사례 3개를 실제 AI로 실행 → data/results_<날짜>.json
 npm run mock:fake            # 키 없이 모의 응답으로 흐름만 점검 (MOCK_AI=1)
@@ -53,7 +53,7 @@ npm run mock:fake            # 키 없이 모의 응답으로 흐름만 점검 (
 
 1. 이 저장소를 GitHub에 올린다.
 2. Vercel → Add New Project → 저장소 선택. Framework Preset은 **Other**(자동 감지됨). Build Command 없음.
-3. Environment Variables: `GEMINI_API_KEY`, `GEMINI_MODEL`(예: gemini-3-flash-preview) (MOCK_AI는 넣지 않는다). Claude를 쓰려면 `AI_PROVIDER=claude`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`.
+3. Environment Variables: `AI_PROVIDER`(upstage/gemini/claude) + 그 제공자의 키·모델 — Upstage: `UPSTAGE_API_KEY`, `UPSTAGE_MODEL`(solar-pro4) / Gemini: `GEMINI_API_KEY`, `GEMINI_MODEL`(gemini-3-flash-preview) / Claude: `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`. (MOCK_AI는 넣지 않는다)
 4. Deploy.
 5. 폰에서 주소 열기 → "홈 화면에 추가".
 

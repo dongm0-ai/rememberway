@@ -4,7 +4,15 @@ import { PROVIDER, hasKey, currentModel, geminiBody } from "../lib/claude.js";
 export default async function handler(req, res) {
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("cache-control", "no-store");
-  if (PROVIDER !== "gemini" || !hasKey()) return res.end(JSON.stringify({ ok: false, reason: "NO_KEY", provider: PROVIDER }));
+  if (!hasKey()) return res.end(JSON.stringify({ ok: false, reason: "NO_KEY", provider: PROVIDER }));
+  if (PROVIDER === "upstage") {
+    try {
+      const r = await fetch("https://api.upstage.ai/v1/models", { headers: { authorization: `Bearer ${process.env.UPSTAGE_API_KEY}` } });
+      const data = await r.json();
+      return res.end(JSON.stringify({ ok: r.ok, provider: "upstage", using: currentModel(), models: (data.data ?? []).map((m) => ({ name: m.id })), error: data.error?.message }));
+    } catch (e) { return res.end(JSON.stringify({ ok: false, reason: "AI_UNAVAILABLE", detail: String(e.message ?? e).slice(0, 200) })); }
+  }
+  if (PROVIDER !== "gemini") return res.end(JSON.stringify({ ok: false, reason: "NOT_SUPPORTED", provider: PROVIDER }));
   try {
     const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=100", { headers: { "x-goog-api-key": process.env.GEMINI_API_KEY } });
     const data = await r.json();

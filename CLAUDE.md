@@ -14,7 +14,7 @@
 - **생성형 AI에게 판단을 맡기지 않는다.** 점수·순위·위험도·"지금 할 일"은 전부 코드(`public/lib/priority.js`, `public/lib/diary.js`)가 정한다. AI는 말 → 구조화, 되묻기 질문, 패턴 문장만 만든다.
 - **AI 출력을 검증 없이 쓰지 않는다.** 모든 AI 응답은 `public/lib/verify.js`(스키마 검사, 원문 대조 ⚠)를 거친 뒤에만 화면에 쓴다. `missing`은 AI 값을 믿지 않고 `computeMissing`으로 다시 계산한다.
 - **이름을 입력받지 않는다.** 호칭(아버지·어머니·어르신)만. 주소는 동 단위. 복용약은 성분명 없이 "복용 여부"만. 사진은 저장하지 않는다.
-- **API 키를 브라우저에 두지 않는다.** `GEMINI_API_KEY`/`ANTHROPIC_API_KEY`는 서버 함수(`api/*.js`, `lib/claude.js`)에서만 읽는다. `.env.local`은 커밋하지 않는다.
+- **API 키를 브라우저에 두지 않는다.** `UPSTAGE_API_KEY`/`GEMINI_API_KEY`/`ANTHROPIC_API_KEY`는 서버 함수(`api/*.js`, `lib/claude.js`)에서만 읽는다. `.env.local`은 커밋하지 않는다.
 - **서버 DB를 만들지 않는다.** 프로필·일지·사건 기록은 보호자 기기 `localStorage`에만. (예외: 환자 모드 푸시 구독, 맨 마지막 단계)
 - **녹화 결과를 실시간인 척하지 않는다.** 미리 저장한 결과를 보여 줄 때는 화면에 "녹화 결과"라고 표시한다.
 - **MOCK_AI=1 모의 응답을 실제 AI 결과처럼 쓰지 않는다.** 모의 응답이면 화면 상단 배너(`mockBanner`)를 지우지 않는다.
@@ -28,7 +28,7 @@ public/lib/verify.js    스키마 검사·missing 재계산·환각 대조 (브�
 public/lib/priority.js  R_max, 우선 확인 순서, 지금 할 일 3가지, 요약문 조립 (규칙)
 public/lib/diary.js     일지 → 장소 4분류, 주간 집계 (규칙)
 lib/prompts.js          호출 ①②④⑤⑥ 시스템 프롬프트  ← "없으면 null", "원문에 없는 사실 금지"는 삭제 금지
-lib/claude.js           생성형 AI 호출 — Gemini(기본) 또는 Claude, fetch, 서버 전용, 15초 타임아웃·대체 모델, MOCK_AI
+lib/claude.js           생성형 AI 호출 — Upstage Solar / Gemini / Claude (AI_PROVIDER), fetch, 서버 전용, 15초 타임아웃·대체 모델, MOCK_AI
 lib/http.js             서버 함수 공통 (POST 파싱, 오류 → ok:false)
 api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤  api/weekly.js ⑥  api/config.js(AI 상태만)
 public/*.html           화면. 빌드 없음. 각 화면의 스크립트는 그 HTML 안에 있다
@@ -57,7 +57,7 @@ data/                   모의 사례·정답표·실험 결과       docs/  결
 
 ## 기술
 
-순수 HTML/CSS/JS PWA (ES 모듈, 빌드 없음) · Vercel 서버리스 함수 `api/*.js` (Node 20+, ESM) · Gemini API(기본, `AI_PROVIDER=gemini`) 또는 Claude Messages API를 `fetch`로 직접 호출 · OpenStreetMap+Leaflet(키 없음, Nominatim 지오코딩) · Web Speech API(STT, 미지원 브라우저는 글쓰기) · localStorage.
+순수 HTML/CSS/JS PWA (ES 모듈, 빌드 없음) · Vercel 서버리스 함수 `api/*.js` (Node 20+, ESM) · Upstage Solar(OpenAI 호환) / Gemini / Claude 중 `AI_PROVIDER`로 선택, `fetch`로 직접 호출 · OpenStreetMap+Leaflet(키 없음, Nominatim 지오코딩) · Web Speech API(STT, 미지원 브라우저는 글쓰기) · localStorage.
 2026-10-28에 Next.js에서 이 구조로 바꿨고, 같은 날 AI를 Claude에서 Gemini(교육용 키)로 바꿨다 (이유: docs/결정표 "추가 결정").
 
 ## 실험

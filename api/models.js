@@ -11,7 +11,25 @@ export default async function handler(req, res) {
     const models = (data.models ?? [])
       .filter((m) => (m.supportedGenerationMethods ?? []).includes("generateContent"))
       .map((m) => ({ name: m.name.replace(/^models\//, ""), display: m.displayName, in: m.inputTokenLimit, out: m.outputTokenLimit }));
-    res.end(JSON.stringify({ ok: r.ok, status: r.status, using: currentModel(), models, error: data.error?.message }));
+    // ?test=a,b,c → 각 모델로 짧은 JSON 추출을 한 번씩 돌려 응답 시간을 잰다 (모델 선택·기획안 5쪽 근거용)
+    const test = new URL(req.url, "http://x").searchParams.get("test");
+    let timings;
+    if (test) {
+      timings = [];
+      for (const name of test.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 6)) {
+        const t0 = Date.now();
+        try {
+          const rr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(name)}:generateContent`, {
+            method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+            body: JSON.stringify({ system_instruction: { parts: [{ text: "보호자의 말에서 오늘 목적지만 JSON {\"today_destination\": string|null} 로. 원문에 없으면 null." }] }, contents: [{ role: "user", parts: [{ text: "아버지가 시장 간다고 나가셨어요" }] }], generationConfig: { temperature: 0, maxOutputTokens: 200, responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } } }),
+            signal: AbortSignal.timeout(12000),
+          });
+          const d = await rr.json();
+          timings.push({ name, ms: Date.now() - t0, status: rr.status, text: (d.candidates?.[0]?.content?.parts ?? []).map((p) => p.text).join("").slice(0, 80), error: d.error?.message?.slice(0, 100) });
+        } catch (e) { timings.push({ name, ms: Date.now() - t0, error: String(e.message ?? e).slice(0, 100) }); }
+      }
+    }
+    res.end(JSON.stringify({ ok: r.ok, status: r.status, using: currentModel(), models, timings, error: data.error?.message }));
   } catch (e) {
     res.end(JSON.stringify({ ok: false, reason: "AI_UNAVAILABLE", detail: String(e.message ?? e).slice(0, 200) }));
   }

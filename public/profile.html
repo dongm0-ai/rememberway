@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>평소 등록 — REMEMBER WAY AI</title>
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#1f5a95">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main>
+  <div class="topbar"><a class="back" href="/">← 처음</a><span class="step">화면 0 · 평소 등록 (선택)</span></div>
+  <h1>한 번만 등록해 두세요</h1>
+  <p class="muted">실종 때 되묻는 질문이 줄고, 확인할 곳이 바로 지도에 뜹니다. 이름은 묻지 않고, 이 기기에만 저장됩니다.</p>
+
+  <div class="card">
+    <label>어르신을 뭐라고 부르세요?</label>
+    <div class="chips" id="hon"><button class="chip" aria-pressed="true">아버지</button><button class="chip">어머니</button><button class="chip">할아버지</button><button class="chip">할머니</button><button class="chip">어르신</button></div>
+    <label>사시는 동 (지도 기준점. 상세 주소는 적지 마세요)</label>
+    <input type="text" id="dong" placeholder="예) 대전 중구 석교동">
+    <label>걸음 속도</label>
+    <div class="chips" id="gait"><button class="chip" data-g="slow">느림</button><button class="chip" data-g="normal" aria-pressed="true">보통</button><button class="chip" data-g="fast">빠름</button></div>
+    <input type="text" id="gait-note" placeholder="예) 지팡이, 한쪽 다리 절음 (선택)" style="margin-top:8px">
+    <label>평소 습관 (쉼표로 구분, 선택)</label>
+    <input type="text" id="habits" placeholder="예) 오후에 외출, 버스 타는 걸 좋아함">
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">평소에 가시는 곳·가고 싶어 하시는 곳</h3>
+    <p class="small muted">옛 동네, 단골 가게, 경로당, 교회, 자주 말씀하시는 곳. 말로 해도 되고 하나씩 적어도 됩니다.</p>
+    <button class="mic" id="mic" aria-pressed="false" aria-label="말로 입력">🎙️</button>
+    <p class="small muted" id="interim" style="text-align:center;min-height:1.2em"></p>
+    <textarea id="spoken" style="min-height:90px" placeholder="예) 옛날에 삼성동 살았어요. 중앙시장 단골 정육점이 있고, 석교동 경로당에 거의 매일 가세요. 요즘 자꾸 고향 얘기를 하세요."></textarea>
+    <button class="btn-secondary" id="extract" style="margin-top:8px">말한 내용에서 장소 뽑기 (AI)</button>
+    <div id="places" class="stack" style="margin-top:12px"></div>
+    <div class="row" style="margin-top:8px"><input type="text" id="place-new" placeholder="장소 직접 추가"><button class="btn-secondary" id="place-add" style="width:auto">추가</button></div>
+  </div>
+
+  <div class="fixed-bottom"><div class="inner"><button class="btn-primary" id="save">저장하고 일지 시작 →</button></div></div>
+</main>
+<script type="module">
+  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner } from "/js/common.js";
+  const existing = store.get(KEYS.profile);
+  let places = existing?.places?.map((p) => ({ ...p })) ?? [];
+  if (existing) {
+    $$("#hon .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.textContent === existing.honorific)));
+    $("#dong").value = existing.home_dong ?? ""; $("#gait-note").value = existing.gait_note ?? ""; $("#habits").value = (existing.habits ?? []).join(", ");
+    $$("#gait .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.g === existing.gait)));
+    $("#save").textContent = "수정 저장 →";
+  }
+  const pick = (sel) => $$(sel).forEach((c) => c.onclick = () => $$(sel).forEach((x) => x.setAttribute("aria-pressed", String(x === c))));
+  pick("#hon .chip"); pick("#gait .chip");
+  const chosen = (sel) => $$(sel).find((c) => c.getAttribute("aria-pressed") === "true");
+
+  const ta = $("#spoken");
+  const speech = createSpeech({ onText: (fin, interim) => { ta.value = fin; $("#interim").textContent = interim; }, onState: (on) => $("#mic").setAttribute("aria-pressed", String(on)) });
+  if (!speech) { $("#mic").disabled = true; } else $("#mic").onclick = () => (speech.listening ? speech.stop() : speech.start(ta.value));
+
+  function render() {
+    const box = $("#places"); box.innerHTML = "";
+    if (!places.length) box.append(el("p", { class: "muted small" }, "아직 등록된 곳이 없어요."));
+    places.forEach((p, i) => box.append(el("div", { class: "field", style: "grid-template-columns:1fr auto" },
+      el("div", { class: "v" }, p.name, p.evidence && p.evidence !== "직접 입력" ? el("div", { class: "small muted" }, `"${p.evidence}"`) : ""),
+      el("button", { class: "edit", onclick: () => { places.splice(i, 1); render(); } }, "삭제"))));
+  }
+  render();
+  $("#place-add").onclick = () => { const n = $("#place-new").value.trim(); if (!n || places.some((p) => p.name === n)) return; places.push({ name: n, source: "memory", evidence: "직접 입력" }); $("#place-new").value = ""; render(); };
+  $("#extract").onclick = async () => {
+    const spoken = ta.value.trim(); if (spoken.length < 4) return alert("가시는 곳을 말하거나 적어 주세요.");
+    speech?.stop(); $("#extract").disabled = true; $("#extract").innerHTML = '<span class="spinner"></span> 뽑는 중';
+    const res = await api("diary", { spoken, knownPlaces: places.map((p) => p.name), date: new Date().toISOString().slice(0, 10) });
+    $("#extract").disabled = false; $("#extract").textContent = "말한 내용에서 장소 뽑기 (AI)";
+    if (!res.ok) return alert("AI를 쓸 수 없어요 (" + res.reason + "). 아래에서 직접 추가해 주세요.");
+    mockBanner(res);
+    for (const p of res.extracted.new_places) if (!places.some((x) => x.name === p.name)) places.push({ name: p.name, source: "memory", evidence: p.evidence });
+    for (const m of res.extracted.mentions) if (!places.some((x) => x.name === m.place)) places.push({ name: m.place, source: "memory", evidence: m.evidence, mentions: 1 });
+    if (!res.extracted.new_places.length && !res.extracted.mentions.length) alert("장소를 찾지 못했어요. 직접 추가해 주세요.");
+    render();
+  };
+  $("#save").onclick = () => {
+    const profile = {
+      honorific: chosen("#hon .chip")?.textContent ?? "어르신",
+      home_dong: $("#dong").value.trim() || null,
+      gait: chosen("#gait .chip")?.dataset.g ?? "normal",
+      gait_note: $("#gait-note").value.trim() || null,
+      habits: $("#habits").value.split(",").map((s) => s.trim()).filter(Boolean),
+      places,
+      created_at: existing?.created_at ?? new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    store.set(KEYS.profile, profile);
+    location.href = "/diary";
+  };
+</script>
+</body>
+</html>

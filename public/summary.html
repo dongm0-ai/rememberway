@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>요약·지도 — REMEMBER WAY AI</title>
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#1f5a95">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main>
+  <div class="topbar"><a class="back" href="/confirm">← 단서 수정</a><span class="step">화면 3 / 3 · 요약·지도</span></div>
+  <div class="alert">아직 신고 전이라면 지금 <a href="tel:112">112</a>. 아래 요약을 그대로 읽어 주면 됩니다.</div>
+
+  <h2>경찰에 전달할 요약</h2>
+  <pre class="summary" id="summary"></pre>
+  <div class="row"><button class="btn-primary" id="copy">복사</button><button class="btn-secondary" id="share">공유</button></div>
+  <p class="small muted" id="missing-note"></p>
+
+  <h2>지금 할 일 3가지</h2>
+  <ol id="steps" class="card" style="margin:0;padding-left:34px"></ol>
+
+  <h2>확인할 곳</h2>
+  <div id="map">지도 불러오는 중…</div>
+  <p class="small muted" id="map-note"></p>
+  <div class="card">
+    <p class="small" style="margin-top:0"><b>어르신은 목적지에 도착하지 못하고 가는 길에서 발견되는 경우가 많습니다. 이 지도는 보호자가 말한 것을 정리한 것입니다.</b></p>
+    <p class="small muted">이동 가능 반경(직선): <b id="rmax"></b> = 경과 <span id="elapsed"></span>분 × 걸음 속도 <span id="speed"></span>m/s</p>
+    <ol class="rank" id="rank"></ol>
+    <p class="small muted">"가 봤어요"를 누르면 목록에서 빠집니다. 오늘 가려던 곳은 이미 확인했다고 보고 추억 장소를 먼저 둡니다.</p>
+  </div>
+
+  <details class="card tight"><summary class="small"><b>우선 확인 순서는 어떻게 정하나요?</b> (가중치 공개)</summary>
+    <table style="margin-top:8px"><thead><tr><th>요소</th><th class="num">점수</th></tr></thead><tbody id="weights"></tbody></table>
+    <p class="small muted">임의 설정, 실험으로 조정. 점수가 같으면 가까운 곳 먼저. 이 순서는 코드(규칙)가 정하고 AI는 관여하지 않습니다. 위치를 예측하는 것이 아닙니다.</p>
+  </details>
+
+  <div class="fixed-bottom"><div class="inner"><a class="btn btn-primary" href="/record" id="found">찾았어요 → 기록하기</a></div></div>
+</main>
+<script type="module">
+  import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
+  import { WEIGHTS, WALK_SPEED, SOURCE_LABELS } from "/lib/schema.js";
+  import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary } from "/lib/priority.js";
+  import { loadKakao, findPlace, findHome } from "/js/kakao.js";
+
+  const clue = store.sget(KEYS.clue);
+  if (!clue) location.replace("/report");
+  const mode = store.sget(KEYS.mode, { elapsedMin: 60, gait: "normal" });
+  const profile = store.get(KEYS.profile);
+  if (mode.source === "mock") mockBanner({ mock: true });
+  if (mode.source === "form") document.querySelector("main").prepend(el("div", { class: "notice", style: "margin-bottom:10px" }, "서식 입력으로 만든 요약입니다 (AI 미사용)."));
+
+  // 요약문 (코드 조립)
+  const text = buildSummary(clue, profile, mode.elapsedMin);
+  $("#summary").textContent = text;
+  const missing = clue.missing ?? [];
+  $("#missing-note").textContent = missing.length ? `아직 모름: ${missing.length}개 항목. 경찰이 물으면 "모른다"고 답하면 됩니다.` : "주요 항목이 모두 채워졌습니다.";
+  $("#copy").onclick = async () => { try { await navigator.clipboard.writeText(text); $("#copy").textContent = "복사됨 ✓"; } catch { prompt("길게 눌러 복사하세요", text); } };
+  $("#share").onclick = async () => { if (navigator.share) { try { await navigator.share({ title: "실종 어르신 정리 내용", text }); } catch {} } else $("#copy").click(); };
+
+  // 반경
+  const rMax = maxRadiusM(mode.elapsedMin, mode.gait);
+  $("#rmax").textContent = fmtM(rMax); $("#elapsed").textContent = mode.elapsedMin; $("#speed").textContent = WALK_SPEED[mode.gait] ?? WALK_SPEED.normal;
+  for (const [k, label] of [["memory", "추억 장소"], ["rising", "최근 자주 가기 시작한 곳"], ["frequent", "자주 가는 곳"], ["new", "새로운 곳"], ["guardian", "기타 보호자 입력"], ["intersection", "경로 위 교차로 (길찾기 API 미연동 시 미적용)"], ["outOfRadius", "반경 밖"]])
+    $("#weights").append(el("tr", {}, el("td", {}, label), el("td", { class: "num" }, (WEIGHTS[k] > 0 ? "+" : "") + WEIGHTS[k])));
+
+  // 후보 장소: 보호자가 말한 곳 + 등록·일지 장소. 오늘 목적지는 "이미 가 봤다"로 취급 (결정표)
+  const places = clue.memory_places.map((p) => ({ ...p }));
+  const checked = new Set(clue.today_destination ? [clue.today_destination] : []);
+  if (clue.today_destination && !places.some((p) => p.name === clue.today_destination)) places.push({ name: clue.today_destination, source: "guardian", evidence: "오늘 가려던 곳" });
+  let ranked = [];
+  function renderRank() {
+    ranked = rankCandidates(places, [], rMax, [...checked]);
+    const box = $("#rank"); box.innerHTML = "";
+    if (!ranked.length) box.append(el("li", {}, el("span"), el("span", { class: "muted" }, "확인할 곳이 없어요. 화면 2에서 가실 만한 곳을 추가하세요.")));
+    ranked.forEach((c, i) => box.append(el("li", {},
+      el("span", { class: "n" }, i + 1),
+      el("div", {}, el("div", {}, c.name, " ", el("span", { class: "small muted" }, fmtM(c.distance_m))), el("div", { class: "why" }, c.reason)),
+      el("div", {}, el("div", { class: "pts" }, `${c.score > 0 ? "+" : ""}${c.score}점`), el("button", { class: "edit", onclick: () => { checked.add(c.name); renderRank(); drawMarkers(); } }, "가 봤어요")))));
+    const steps = actionSteps(clue.items?.phone, ranked);
+    $("#steps").innerHTML = ""; steps.forEach((s) => $("#steps").append(el("li", { style: "margin:6px 0" }, s)));
+  }
+  renderRank();
+
+  // 지도 (카카오). 키 없으면 목록만.
+  let map = null, kakao = null, overlays = [];
+  const cfg = await loadConfig();
+  kakao = await loadKakao(cfg.kakaoJsKey);
+  if (!kakao) {
+    $("#map").textContent = cfg.kakaoJsKey ? "지도를 불러오지 못했어요 (카카오 개발자 콘솔에 이 도메인이 등록됐는지 확인)" : "지도 키가 없어 목록만 표시합니다 (관리자: KAKAO_JS_KEY)";
+    $("#map-note").textContent = "거리를 알 수 없어 점수에 반경을 반영하지 못했습니다.";
+  } else {
+    const homeName = profile?.home_dong || clue.last_seen?.place;
+    const home = homeName ? await findHome(kakao, homeName) : null;
+    const center = home ? new kakao.maps.LatLng(home.lat, home.lng) : new kakao.maps.LatLng(36.3504, 127.3845);
+    $("#map").textContent = "";
+    map = new kakao.maps.Map($("#map"), { center, level: 6 });
+    if (home) {
+      new kakao.maps.Circle({ map, center, radius: rMax, strokeWeight: 2, strokeColor: "#1f5a95", strokeOpacity: .6, fillColor: "#1f5a95", fillOpacity: .08 });
+      new kakao.maps.Marker({ map, position: center, title: "집·마지막 본 곳" });
+      $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 도보 경로·교차로는 아직 지도에 없습니다.`;
+    } else $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경 원을 그리지 못했습니다. 평소 등록에서 동 이름을 적어 주세요.";
+    // 장소 좌표 찾기 → 거리 → 점수 다시 계산
+    await Promise.all(places.map(async (p) => {
+      if (p.lat && p.lng) return;
+      const f = await findPlace(kakao, p.name, home ? center : null);
+      if (f) { p.lat = f.lat; p.lng = f.lng; p.found_name = f.found_name; }
+    }));
+    for (const p of places) if (home && p.lat) p.distance_m = haversineM(home.lat, home.lng, p.lat, p.lng);
+    renderRank(); drawMarkers();
+  }
+  function drawMarkers() {
+    if (!map) return;
+    overlays.forEach((o) => o.setMap(null)); overlays = [];
+    const bounds = new kakao.maps.LatLngBounds();
+    let any = false;
+    ranked.forEach((c, i) => {
+      if (!c.lat) return;
+      const pos = new kakao.maps.LatLng(c.lat, c.lng);
+      const m = new kakao.maps.Marker({ map, position: pos, title: c.name });
+      const o = new kakao.maps.CustomOverlay({ map, position: pos, yAnchor: 2.2, content: `<div style="background:#1f5a95;color:#fff;font-weight:800;border-radius:999px;padding:2px 8px;font-size:13px;white-space:nowrap">${i + 1} ${c.name}</div>` });
+      overlays.push(m, o); bounds.extend(pos); any = true;
+    });
+    if (any) { bounds.extend(map.getCenter()); map.setBounds(bounds, 40); }
+  }
+
+  // "찾았어요" → 사건 기록으로 (현재 단서를 보관)
+  $("#found").onclick = () => {
+    const inc = store.get(KEYS.incidents, []);
+    inc.push({ id: Date.now(), date: new Date().toISOString().slice(0, 10), started_at: mode.started_at, elapsedMin: mode.elapsedMin, clue, source: mode.source, ranked: ranked.map((c) => ({ name: c.name, score: c.score, distance_m: c.distance_m })), record: null });
+    store.set(KEYS.incidents, inc);
+  };
+</script>
+</body>
+</html>

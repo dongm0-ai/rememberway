@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>실종 직후 입력 — REMEMBER WAY AI</title>
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#1f5a95">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main>
+  <div class="topbar"><a class="back" href="/">← 처음</a><span class="step">화면 1 / 3 · 상황 입력</span></div>
+  <div class="alert">치매 어르신은 즉시 신고 대상입니다.<br>먼저 <a href="tel:112">112</a>에 전화하세요.</div>
+
+  <section id="talk">
+    <h1>어떻게 된 일인지 말씀해 주세요</h1>
+    <p class="muted">생각나는 대로 두서없이 말해도 됩니다. 언제 나가셨는지, 어디 가신다고 했는지, 무슨 옷이었는지, 평소 가던 곳이 있는지.</p>
+    <div class="card">
+      <button class="mic" id="mic" aria-pressed="false" aria-label="말로 입력">🎙️</button>
+      <p class="muted small" id="mic-hint" style="text-align:center;margin-top:8px">눌러서 말하기 · 다시 누르면 멈춤</p>
+      <p class="small muted" id="interim" style="min-height:1.2em;margin:0 0 6px"></p>
+      <textarea id="utter" placeholder="예) 아버지가 점심 드시고 한 시쯤 나가셨는데 안 오세요. 시장 간다고 하셨나… 회색 점퍼였던 것 같고 다리를 좀 저세요. 핸드폰은 두고 가셨어요."></textarea>
+    </div>
+
+    <div class="card">
+      <label>마지막으로 본 게 얼마나 지났나요? (확인할 반경 계산에 씁니다)</label>
+      <div class="chips" id="elapsed">
+        <button class="chip" data-min="30">30분</button><button class="chip" data-min="60" aria-pressed="true">1시간</button><button class="chip" data-min="120">2시간</button><button class="chip" data-min="180">3시간</button><button class="chip" data-min="360">6시간+</button>
+      </div>
+      <label>걸음 속도</label>
+      <div class="chips" id="gait">
+        <button class="chip" data-g="slow">느림 (지팡이·절음)</button><button class="chip" data-g="normal" aria-pressed="true">보통</button><button class="chip" data-g="fast">빠름</button>
+      </div>
+      <p class="small muted" id="profile-note"></p>
+    </div>
+  </section>
+
+  <section id="form" class="hidden">
+    <div class="callout" id="form-why">AI 정리를 쓸 수 없어 서식으로 받습니다. 아는 것만 적고 모르는 칸은 비워 두세요.</div>
+    <h2>서식 입력</h2>
+    <div class="card" id="form-fields"></div>
+    <div class="card">
+      <label>가실 만한 곳 (쉼표로 구분: 옛 동네, 단골 가게, 경로당…)</label>
+      <input type="text" id="form-places" placeholder="예) 삼성동 옛 동네, 중앙시장">
+    </div>
+  </section>
+
+  <div class="fixed-bottom"><div class="inner stack">
+    <button class="btn-primary" id="go">단서 정리하기 →</button>
+    <button class="btn-ghost small" id="to-form">AI 없이 서식으로 입력</button>
+  </div></div>
+</main>
+<script type="module">
+  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner } from "/js/common.js";
+  import { EMPTY_CLUE, FIELD_LABELS } from "/lib/schema.js";
+  import { classifyPlaces } from "/lib/diary.js";
+  import { computeMissing } from "/lib/verify.js";
+
+  const profile = store.get(KEYS.profile), diary = store.get(KEYS.diary, []);
+  const known = classifyPlaces(profile, diary);
+  if (profile) {
+    $("#profile-note").textContent = `${profile.honorific} 등록 정보(장소 ${known.length}곳)를 함께 씁니다.`;
+    if (profile.gait) { $$("#gait .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.g === profile.gait))); }
+  }
+  const pickChip = (sel) => $$(sel).forEach((c) => c.onclick = () => $$(sel).forEach((x) => x.setAttribute("aria-pressed", String(x === c))));
+  pickChip("#elapsed .chip"); pickChip("#gait .chip");
+  const chosen = (sel, attr) => $$(sel).find((c) => c.getAttribute("aria-pressed") === "true")?.dataset[attr];
+
+  // 음성 입력
+  const ta = $("#utter");
+  const speech = createSpeech({
+    onText: (fin, interim) => { ta.value = fin; $("#interim").textContent = interim; },
+    onState: (on) => { $("#mic").setAttribute("aria-pressed", String(on)); $("#mic-hint").textContent = on ? "듣고 있어요… 다시 누르면 멈춤" : "눌러서 말하기 · 다시 누르면 멈춤"; },
+  });
+  if (!speech) { $("#mic").disabled = true; $("#mic-hint").textContent = "이 브라우저는 음성 입력을 지원하지 않아요. 글로 적어 주세요. (크롬·삼성 인터넷 권장)"; }
+  else $("#mic").onclick = () => (speech.listening ? speech.stop() : speech.start(ta.value));
+
+  // 서식 모드
+  const formKeys = ["last_seen.time", "last_seen.place", "today_destination", "route", "clothing.top", "clothing.bottom", "clothing.shoes", "clothing.hat", "gait", "meds", "dementia_signs", "prior_incidents"];
+  const boolKeys = ["items.phone", "items.wallet", "items.cane"];
+  const ff = $("#form-fields");
+  for (const k of formKeys) ff.append(el("label", {}, FIELD_LABELS[k]), el("input", { type: "text", "data-k": k, placeholder: "모르면 비워 두세요" }));
+  for (const k of boolKeys) ff.append(el("label", {}, FIELD_LABELS[k] + " 소지"), el("select", { "data-k": k }, el("option", { value: "" }, "모름"), el("option", { value: "true" }, "있음"), el("option", { value: "false" }, "없음")));
+  let mode = "talk";
+  function showForm(why) {
+    mode = "form"; $("#talk").classList.add("hidden"); $("#form").classList.remove("hidden"); $("#to-form").classList.add("hidden");
+    if (why) $("#form-why").textContent = why;
+    $("#go").textContent = "요약 만들기 →"; window.scrollTo(0, 0);
+  }
+  $("#to-form").onclick = () => showForm("AI 없이 서식으로 입력합니다. 아는 것만 적고 모르는 칸은 비워 두세요.");
+
+  const reasonText = { TIMEOUT: "AI 응답이 10초 안에 오지 않아 서식으로 받습니다.", NETWORK: "인터넷 연결이 끊겨 서식으로 받습니다.", NO_KEY: "AI 키가 설정되지 않아 서식으로 받습니다 (관리자: Vercel 환경변수 ANTHROPIC_API_KEY).", AI_UNAVAILABLE: "AI 서버에 문제가 있어 서식으로 받습니다.", BAD_JSON: "AI 응답을 읽을 수 없어 서식으로 받습니다.", NO_JSON: "AI 응답을 읽을 수 없어 서식으로 받습니다." };
+
+  $("#go").onclick = async () => {
+    const elapsedMin = Number(chosen("#elapsed .chip", "min") ?? 60), gait = chosen("#gait .chip", "g") ?? "normal";
+    const ctx = { elapsedMin, gait, started_at: new Date().toISOString() };
+    if (mode === "form") {
+      const clue = structuredClone(EMPTY_CLUE);
+      for (const inp of $$("#form-fields input")) { const v = inp.value.trim(); if (v) setPath(clue, inp.dataset.k, v); }
+      for (const s of $$("#form-fields select")) { if (s.value) setPath(clue, s.dataset.k, s.value === "true"); }
+      const extra = $("#form-places").value.split(",").map((s) => s.trim()).filter(Boolean).map((name) => ({ name, source: "guardian", evidence: "서식 입력" }));
+      clue.memory_places = mergePlaces(extra, known);
+      clue.missing = computeMissing(clue); clue.flags = {};
+      store.sset(KEYS.clue, clue); store.sset(KEYS.mode, { ...ctx, source: "form" }); store.sset(KEYS.utterance, "");
+      location.href = "/summary"; return;
+    }
+    const utterance = ta.value.trim();
+    if (utterance.length < 5) { alert("조금만 더 말씀해 주세요. 언제 나가셨는지, 어디 가신다고 했는지부터요."); return; }
+    speech?.stop();
+    $("#go").disabled = true; $("#go").innerHTML = '<span class="spinner"></span> 정리하는 중 (최대 10초)';
+    const registered = profile ? { honorific: profile.honorific, gait: profile.gait_note || profile.gait, habits: profile.habits, memory_places: known.map((p) => ({ name: p.name, source: p.source, evidence: p.evidence })) } : undefined;
+    const res = await api("extract", { utterance, now: new Date().toISOString(), registered });
+    $("#go").disabled = false; $("#go").textContent = "단서 정리하기 →";
+    if (!res.ok) { showForm(reasonText[res.reason] ?? "AI 정리를 쓸 수 없어 서식으로 받습니다."); return; }
+    mockBanner(res);
+    const clue = res.clue;
+    clue.memory_places = mergePlaces(clue.memory_places, known);
+    store.sset(KEYS.clue, clue); store.sset(KEYS.utterance, utterance); store.sset(KEYS.mode, { ...ctx, source: res.mock ? "mock" : "ai" });
+    location.href = "/confirm";
+  };
+
+  // 당일 발화 장소 + 등록·일지 장소 합치기 (이름 같으면 등록 쪽 분류·좌표 유지)
+  function mergePlaces(spoken, registered) {
+    const out = [...registered.map((p) => ({ ...p }))];
+    for (const p of spoken) { const i = out.findIndex((x) => x.name === p.name); if (i < 0) out.push({ ...p }); else out[i].evidence = p.evidence || out[i].evidence; }
+    return out;
+  }
+  function setPath(obj, path, value) { const ks = path.split("."); let o = obj; for (let i = 0; i < ks.length - 1; i++) o = o[ks[i]]; o[ks[ks.length - 1]] = value; }
+</script>
+</body>
+</html>

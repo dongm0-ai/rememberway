@@ -1,0 +1,77 @@
+{
+  "_note": "모의 사례 3개. 전부 가명·가짜 주소. 실제 인물·사건 아님. 정답표(expected_present / expected_null)는 환각 측정 기준: AI가 expected_null 항목을 채우면 환각 1건.",
+  "cases": [
+    {
+      "id": "C1",
+      "title": "시장 가신다던 아버지, 옷 색 불확실",
+      "utterance": "아버지가 점심 드시고 나가셨는데 안 오세요. 한 시쯤이요. 시장 간다고 하셨나… 회색 점퍼였나 남색이었나. 다리를 좀 저시고요, 천천히 걸으세요. 핸드폰은 두고 가셨어요. 옛날에 삼성동 살 때 동네도 가끔 가고 싶어 하세요.",
+      "now": "2026-10-27T14:30:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "last_seen.time": "13시경 (한 시쯤)",
+        "last_seen.place": "자택",
+        "today_destination": "시장 (불확실)",
+        "clothing.top": "회색 또는 남색 점퍼 (불확실)",
+        "gait": "한쪽 다리 절음, 천천히",
+        "items.phone": false,
+        "memory_places": [{ "name": "옛 삼성동 동네", "source": "memory" }]
+      },
+      "expected_null": ["route", "clothing.bottom", "clothing.shoes", "clothing.hat", "meds", "dementia_signs", "prior_incidents", "items.wallet", "items.cane"],
+      "expected_missing_order": ["route", "meds", "dementia_signs", "prior_incidents"],
+      "expected_followup_first": "route",
+      "hallucination_traps": ["빨간 모자", "지팡이", "지갑", "약 이름", "정확한 시장 이름"]
+    },
+    {
+      "id": "C2",
+      "title": "어머니, 등록 정보 있음, 딸 집 가려다",
+      "utterance": "어머니가 아침에 나가셨어요. 아홉 시 반쯤. 딸네 간다고, 그러니까 제 동생 집이요, 근데 거기 혼자 못 가세요. 베이지색 코트에 검정 바지. 지팡이 짚으세요. 약은 드시는데 오늘 아침 거는 드셨어요. 전에도 한 번 이런 적 있었어요, 작년에.",
+      "now": "2026-10-27T11:00:00+09:00",
+      "registered": {
+        "memory_places": [
+          { "name": "○○경로당", "source": "memory", "evidence": "평소 등록" },
+          { "name": "△△교회", "source": "memory", "evidence": "평소 등록" }
+        ],
+        "gait": "느림, 지팡이"
+      },
+      "expected_present": {
+        "last_seen.time": "09시 30분경",
+        "last_seen.place": "자택",
+        "today_destination": "딸(동생) 집",
+        "clothing.top": "베이지색 코트",
+        "clothing.bottom": "검정 바지",
+        "gait": "지팡이, 느림",
+        "items.cane": true,
+        "meds": "복용 중 (오늘 아침 복용)",
+        "prior_incidents": "작년에 한 번",
+        "memory_places": [{ "name": "○○경로당", "source": "memory" }, { "name": "△△교회", "source": "memory" }]
+      },
+      "expected_null": ["route", "clothing.shoes", "clothing.hat", "dementia_signs", "items.phone", "items.wallet"],
+      "expected_missing_order": ["route", "dementia_signs", "items.phone"],
+      "expected_followup_first": "route",
+      "hallucination_traps": ["딸 집 주소", "버스 번호", "약 이름", "휴대전화 소지 여부를 임의로 채움"]
+    },
+    {
+      "id": "C3",
+      "title": "할아버지, 거의 정보 없음 (되묻기 시험용)",
+      "utterance": "할아버지가 없어졌어요. 아까 봤는데… 모르겠어요. 그냥 나가신 것 같아요.",
+      "now": "2026-10-27T16:10:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "last_seen.place": "자택 (추정 아님, '나가신 것 같다'를 그대로)"
+      },
+      "expected_null": ["last_seen.time", "today_destination", "route", "clothing.top", "clothing.bottom", "clothing.shoes", "clothing.hat", "gait", "meds", "dementia_signs", "prior_incidents", "items.phone", "items.wallet", "items.cane"],
+      "expected_missing_order": ["today_destination", "route", "clothing.top", "meds", "dementia_signs", "items.phone", "prior_incidents"],
+      "expected_followup_first": "today_destination",
+      "expected_followup_count": 3,
+      "hallucination_traps": ["아무 장소나 만들어 넣기", "시각을 '아까'에서 추정해 채우기", "옷차림 지어내기"]
+    }
+  ],
+  "metrics": {
+    "filled_correct": "expected_present 중 맞게 채운 수",
+    "hallucination": "expected_null인데 값이 들어간 수 (+ flags.unverified 수)",
+    "followup_first_ok": "첫 되묻기 키가 expected_followup_first와 같은가",
+    "followup_count_ok": "되묻기 수가 3 이하인가",
+    "latency_ms": "호출 ①+② 왕복 시간",
+    "baseline": "같은 사례를 고정 서식에 사람이 직접 입력했을 때 채운 칸 수·시간 (비교 기준)"
+  }
+}

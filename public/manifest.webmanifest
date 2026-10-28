@@ -1,0 +1,20 @@
+{
+  "name": "REMEMBER WAY AI",
+  "short_name": "REMEMBER WAY",
+  "description": "치매 어르신 실종 때 보호자의 기억을 경찰이 쓸 정보로 정리하고 확인할 곳을 지도에 모읍니다",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f5f2",
+  "theme_color": "#1f5a95",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "지금 실종됐어요", "url": "/report", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "오늘 일지", "url": "/diary" }
+  ]
+}

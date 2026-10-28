@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>REMEMBER WAY AI</title>
+  <meta name="description" content="기기도 등록도 없이 사라진 치매 어르신을, 보호자의 기억만으로 찾게 돕는 실종 대응 도우미">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#1f5a95">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="REMEMBER WAY">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main>
+  <div class="topbar"><span class="step">REMEMBER WAY AI</span><a class="btn-ghost" href="/about">이 앱은?</a></div>
+  <h1>어르신이 안 보이시나요?</h1>
+  <p class="muted">보호자가 기억하는 것을 경찰이 쓸 정보로 정리하고, 확인할 곳을 지도에 모읍니다.</p>
+
+  <div class="alert" style="margin-top:14px">치매 어르신은 즉시 신고 대상입니다.<br>먼저 <a href="tel:112">112</a>에 전화하세요.
+    <div class="sub">신고하면서 이 앱을 같이 쓰면 됩니다. 신고를 늦추지 마세요.</div></div>
+
+  <div class="home-grid">
+    <a class="btn btn-primary btn-xl" href="/report"><span>🚨 지금 실종됐어요<small>말하거나 쓰면 단서를 정리합니다</small></span></a>
+    <a class="btn btn-secondary" href="/profile" id="btn-profile"><span>📝 평소 등록·매일 일지<small id="profile-sub">한 번 등록하면 다음부터 10초</small></span></a>
+    <a class="btn btn-secondary" href="/record"><span>✅ 찾은 뒤 기록<small>다음 실종을 막는 계획을 만듭니다</small></span></a>
+  </div>
+
+  <div class="card tight" style="margin-top:20px">
+    <div class="small"><b>개인정보</b></div>
+    <ul class="plain small muted">
+      <li>이름은 묻지 않습니다 (호칭만)</li>
+      <li>사진은 저장하지 않습니다</li>
+      <li>등록 내용은 이 기기에만 저장되고 언제든 지울 수 있습니다</li>
+    </ul>
+  </div>
+  <p class="footer-note">이 앱은 보호자가 말한 것을 정리합니다. 위치를 예측하지 않으며, 안전을 보장하는 제품이 아닙니다. 2026 AI 동행 프로젝트 · 생성형AI 분과 · 그럴게요 팀</p>
+  <p class="footer-note"><a href="#" id="btn-wipe">이 기기의 등록 정보 모두 지우기</a> · <span id="ai-status" class="muted"></span></p>
+</main>
+<script type="module">
+  import { store, KEYS, $, loadConfig } from "/js/common.js";
+  const p = store.get(KEYS.profile);
+  const d = store.get(KEYS.diary, []);
+  if (p) $("#profile-sub").textContent = `${p.honorific} 등록됨 · 일지 ${d.length}일 · 오늘 기록하기`;
+  if (p) $("#btn-profile").href = "/diary";
+  $("#btn-wipe").onclick = (e) => { e.preventDefault(); if (confirm("이 기기에 저장된 등록·일지·기록을 모두 지울까요?")) { [KEYS.profile, KEYS.diary, KEYS.incidents].forEach(store.del); location.reload(); } };
+  loadConfig().then((c) => { $("#ai-status").textContent = c.ai?.mock ? "모의 응답 모드" : c.ai?.hasKey ? "AI 연결됨" : "AI 키 없음 → 서식 모드"; });
+</script>
+</body>
+</html>

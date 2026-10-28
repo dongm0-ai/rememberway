@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>찾은 뒤 기록 — REMEMBER WAY AI</title>
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#1f5a95">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main>
+  <div class="topbar"><a class="back" href="/">← 처음</a><span class="step">화면 4 · 찾은 뒤 기록</span></div>
+  <div class="notice">다행입니다. 지금 적어 두면 다음 실종을 막는 계획이 됩니다. 2~3분이면 됩니다.</div>
+  <h1>어떻게 찾으셨어요?</h1>
+  <p class="muted" id="inc-note"></p>
+  <div class="card">
+    <button class="mic" id="mic" aria-pressed="false" aria-label="말로 입력">🎙️</button>
+    <p class="small muted" id="interim" style="text-align:center;min-height:1.2em"></p>
+    <textarea id="narr" placeholder="예) 세 시간 만에 옛날 살던 삼성동 쪽 버스 정류장에서 경찰이 찾았어요. 시장 가려다 버스를 잘못 타신 것 같아요."></textarea>
+    <button class="btn-primary" id="go" style="margin-top:10px">정리하고 예방 계획 만들기</button>
+    <p class="small muted" id="fail" style="margin-top:8px"></p>
+  </div>
+
+  <section id="result" class="hidden">
+    <h2>정리된 사건</h2>
+    <div class="card" id="rec"></div>
+    <h2>다음에 막으려면</h2>
+    <div class="card"><ul class="plain" id="prev"></ul><p class="small muted">AI가 이번 사건과 연결해 제안한 것입니다. 의료·약에 관한 것은 담당 의사와 상의하세요.</p></div>
+    <h2>확인할 곳에 추가</h2>
+    <div class="card" id="add"></div>
+    <button class="btn-primary" id="save">기록 저장</button>
+    <p class="small muted" id="saved" style="text-align:center"></p>
+  </section>
+
+  <h2>지난 기록</h2>
+  <div class="card" id="history"></div>
+</main>
+<script type="module">
+  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner } from "/js/common.js";
+  const profile = store.get(KEYS.profile);
+  let incidents = store.get(KEYS.incidents, []);
+  let current = incidents.length && !incidents[incidents.length - 1].record ? incidents[incidents.length - 1] : null;
+  $("#inc-note").textContent = current ? `${current.date} 실종 건 (경과 약 ${current.elapsedMin}분 기준으로 정리했던 단서가 있습니다)` : "저장된 실종 건이 없어도 기록할 수 있습니다.";
+  const ta = $("#narr");
+  const speech = createSpeech({ onText: (fin, interim) => { ta.value = fin; $("#interim").textContent = interim; }, onState: (on) => $("#mic").setAttribute("aria-pressed", String(on)) });
+  if (!speech) $("#mic").disabled = true; else $("#mic").onclick = () => (speech.listening ? speech.stop() : speech.start(ta.value));
+  let rec = null;
+  $("#go").onclick = async () => {
+    const narrative = ta.value.trim(); if (narrative.length < 5) return;
+    speech?.stop(); $("#go").disabled = true; $("#go").innerHTML = '<span class="spinner"></span> 정리 중';
+    const res = await api("record", { narrative, clue: current?.clue, date: new Date().toISOString().slice(0, 10) });
+    $("#go").disabled = false; $("#go").textContent = "정리하고 예방 계획 만들기";
+    if (!res.ok) { $("#fail").textContent = "AI를 쓸 수 없어요 (" + res.reason + "). 말씀하신 내용은 그대로 저장할 수 있습니다."; rec = { found_place: null, found_by: null, went_toward: null, prevention: [], add_places: [], flags: {}, narrative }; }
+    else { mockBanner(res); rec = { ...res.record, narrative }; }
+    render();
+  };
+  function render() {
+    $("#result").classList.remove("hidden");
+    const box = $("#rec"); box.innerHTML = "";
+    const f = (label, v, flag) => box.append(el("div", { class: "field" }, el("div", { class: "k" }, label, flag ? el("span", { class: "badge warn" }, "⚠ 확인 필요") : ""), el("div", { class: "v" + (v ? "" : " empty") }, v ?? "모름")));
+    f("발견된 곳", rec.found_place, rec.flags?.found_place); f("누가 찾았나", rec.found_by); f("가려던 곳·방향", rec.went_toward, rec.flags?.went_toward); if (rec.elapsed_note) f("시간", rec.elapsed_note);
+    $("#prev").innerHTML = ""; if (!rec.prevention.length) $("#prev").append(el("li", { class: "muted" }, "제안 없음"));
+    rec.prevention.forEach((p) => $("#prev").append(el("li", {}, el("b", {}, p.action), p.because ? el("div", { class: "small muted" }, p.because) : "")));
+    const add = $("#add"); add.innerHTML = "";
+    if (!rec.add_places.length) add.append(el("p", { class: "muted small" }, "추가할 곳이 없어요."));
+    rec.add_places.forEach((p, i) => add.append(el("label", { style: "display:flex;gap:8px;align-items:center;font-size:16px;color:inherit" }, el("input", { type: "checkbox", checked: "", "data-i": i }), `${p.name} `, el("span", { class: "small muted" }, `"${p.evidence}"`))));
+  }
+  $("#save").onclick = () => {
+    const chosen = $$("#add input:checked").map((c) => rec.add_places[Number(c.dataset.i)]);
+    if (profile && chosen.length) { for (const p of chosen) if (!profile.places.some((x) => x.name === p.name)) profile.places.push({ name: p.name, source: "memory", evidence: `실종 기록: ${p.evidence}` }); store.set(KEYS.profile, profile); }
+    if (current) current.record = rec; else incidents.push({ id: Date.now(), date: new Date().toISOString().slice(0, 10), clue: null, record: rec });
+    store.set(KEYS.incidents, incidents);
+    $("#saved").textContent = `저장됨 ✓${chosen.length ? ` · 확인할 곳 ${chosen.length}개 추가` : ""}`; renderHistory();
+  };
+  function renderHistory() {
+    const h = $("#history"); h.innerHTML = "";
+    if (!incidents.length) h.append(el("p", { class: "muted small" }, "아직 기록이 없어요."));
+    [...incidents].reverse().forEach((inc) => h.append(el("div", { class: "field", style: "grid-template-columns:1fr" }, el("div", { class: "v" }, inc.date, " · ", inc.record?.found_place ? `${inc.record.found_place}에서 발견` : inc.record ? "발견 장소 모름" : "기록 안 됨"), inc.record?.prevention?.length ? el("div", { class: "small muted" }, inc.record.prevention.map((p) => p.action).join(" / ")) : "")));
+  }
+  renderHistory();
+</script>
+</body>
+</html>

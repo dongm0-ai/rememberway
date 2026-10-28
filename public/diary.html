@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>매일 일지 — REMEMBER WAY AI</title>
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#1f5a95">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main>
+  <div class="topbar"><a class="back" href="/">← 처음</a><span class="step">화면 0 · 매일 일지 (10초)</span></div>
+  <h1 id="title">오늘 어디 다녀오셨어요?</h1>
+  <p class="muted">아는 곳은 눌러서 표시하세요. AI 호출 없이 저장됩니다. 새로운 곳만 말로 추가하세요.</p>
+
+  <div class="card">
+    <div class="chips" id="chips"></div>
+    <div class="chips" style="margin-top:10px"><button class="chip" id="home">🏠 안 나가심</button><button class="chip" id="unknown">모름</button></div>
+    <details style="margin-top:12px"><summary class="small"><b>다른 곳이 있어요 / 특별한 말씀을 하셨어요</b> (AI가 장소만 뽑습니다)</summary>
+      <textarea id="spoken" style="min-height:80px;margin-top:8px" placeholder="예) 오늘은 약국에 들르셨고, 자꾸 고향 바닷가 얘기를 하셨어요."></textarea>
+      <button class="btn-secondary" id="extract" style="margin-top:8px">장소 뽑기</button>
+      <div id="extracted" class="small" style="margin-top:8px"></div>
+    </details>
+    <button class="btn-primary" id="save" style="margin-top:12px">오늘 기록 저장</button>
+    <p class="small muted" id="saved-note" style="text-align:center"></p>
+  </div>
+
+  <h2>지난 30일 정리 <span class="small muted" id="days"></span></h2>
+  <div class="callout hidden" id="low">기록이 적어 패턴 신뢰도가 낮습니다 (7일 이상 기록되면 분류가 안정됩니다).</div>
+  <div class="card" id="classified"></div>
+  <div class="card">
+    <h3 style="margin-top:0">주간 요약 (AI 문장, 숫자는 코드 집계)</h3>
+    <p id="weekly" class="small muted">기록이 쌓이면 여기서 요약을 만듭니다.</p>
+    <button class="btn-secondary" id="weekly-btn">지난 7일 요약 만들기</button>
+  </div>
+  <details class="card tight"><summary class="small"><b>분류 기준</b> (임의 설정, 실험으로 조정)</summary>
+    <ul class="plain small muted" id="rules"></ul>
+  </details>
+  <p class="footer-note"><a href="/profile">등록 정보 수정</a> · <a href="#" id="demo">7일치 모의 일지 넣기 (시험용)</a> · <a href="#" id="clear-diary">일지 지우기</a></p>
+</main>
+<script type="module">
+  import { store, KEYS, api, $, $$, el, today, mockBanner } from "/js/common.js";
+  import { DIARY_RULES, SOURCE_LABELS } from "/lib/schema.js";
+  import { classifyPlaces, recordedDays, weeklyAggregate } from "/lib/diary.js";
+
+  const profile = store.get(KEYS.profile);
+  if (!profile) location.replace("/profile");
+  let diary = store.get(KEYS.diary, []);
+  $("#title").textContent = `${profile.honorific}, 오늘 어디 다녀오셨어요?`;
+  const d = today();
+  let entry = diary.find((e) => e.date === d) ?? { date: d, visited: [] };
+  let extracted = null;
+
+  function knownNames() { return classifyPlaces(profile, diary).map((p) => p.name); }
+  function renderChips() {
+    const box = $("#chips"); box.innerHTML = "";
+    for (const n of knownNames()) box.append(el("button", { class: "chip", "aria-pressed": String(entry.visited.includes(n)), onclick: (e) => { const on = e.target.getAttribute("aria-pressed") !== "true"; e.target.setAttribute("aria-pressed", String(on)); entry.visited = on ? [...new Set([...entry.visited, n])] : entry.visited.filter((x) => x !== n); entry.stayed_home = false; entry.unknown = false; syncFlags(); } }, n));
+    syncFlags();
+  }
+  function syncFlags() { $("#home").setAttribute("aria-pressed", String(!!entry.stayed_home)); $("#unknown").setAttribute("aria-pressed", String(!!entry.unknown)); }
+  $("#home").onclick = () => { entry.stayed_home = !entry.stayed_home; if (entry.stayed_home) { entry.visited = []; entry.unknown = false; } renderChips(); };
+  $("#unknown").onclick = () => { entry.unknown = !entry.unknown; if (entry.unknown) { entry.visited = []; entry.stayed_home = false; } renderChips(); };
+  $("#extract").onclick = async () => {
+    const spoken = $("#spoken").value.trim(); if (spoken.length < 4) return;
+    $("#extract").disabled = true; $("#extract").innerHTML = '<span class="spinner"></span>';
+    const res = await api("diary", { spoken, knownPlaces: knownNames(), date: d });
+    $("#extract").disabled = false; $("#extract").textContent = "장소 뽑기";
+    if (!res.ok) { $("#extracted").textContent = "AI를 쓸 수 없어요 (" + res.reason + "). 장소를 등록 정보 수정에서 직접 추가해 주세요."; return; }
+    mockBanner(res); extracted = res.extracted; entry.spoken = spoken; entry.extracted = extracted;
+    $("#extracted").innerHTML = "";
+    $("#extracted").append(el("div", {}, "새로 다녀온 곳: ", extracted.new_places.map((p) => p.name).join(", ") || "없음"), el("div", {}, "말로만 나온 곳: ", extracted.mentions.map((m) => `${m.place}(${{ wish: "가고 싶다", memory: "옛날 얘기", person: "아는 사람" }[m.kind]})`).join(", ") || "없음"), extracted.notes ? el("div", {}, "특이사항: ", extracted.notes) : "");
+  };
+  $("#save").onclick = () => {
+    diary = diary.filter((e) => e.date !== d); diary.push(entry); diary.sort((a, b) => a.date.localeCompare(b.date));
+    store.set(KEYS.diary, diary); $("#saved-note").textContent = `${d} 저장됨 ✓`; renderClassified(); renderChips();
+  };
+  function renderClassified() {
+    const places = classifyPlaces(profile, diary), days = recordedDays(diary);
+    $("#days").textContent = `· 기록 ${days}일`;
+    $("#low").classList.toggle("hidden", days >= DIARY_RULES.MIN_DAYS_FOR_PATTERN);
+    const box = $("#classified"); box.innerHTML = "";
+    if (!places.length) box.append(el("p", { class: "muted small" }, "등록된 장소가 없어요."));
+    for (const p of places.sort((a, b) => (b.visits_30d ?? 0) - (a.visits_30d ?? 0)))
+      box.append(el("div", { class: "field", style: "grid-template-columns:1fr auto" }, el("div", { class: "v" }, p.name, el("span", { class: "badge src" }, SOURCE_LABELS[p.source])), el("div", { class: "small muted" }, `30일 ${p.visits_30d ?? 0}회${p.mentions ? ` · 언급 ${p.mentions}` : ""}`)));
+  }
+  $("#weekly-btn").onclick = async () => {
+    $("#weekly-btn").disabled = true;
+    const res = await api("weekly", { summary: weeklyAggregate(profile, diary) });
+    $("#weekly-btn").disabled = false;
+    $("#weekly").textContent = res.ok ? res.text : "AI를 쓸 수 없어 요약을 만들지 못했어요 (" + res.reason + ").";
+    if (res.ok) mockBanner(res);
+  };
+  for (const [k, v] of [["자주 가는 곳", `30일 중 ${DIARY_RULES.FREQUENT_MIN}회 이상`], ["최근 자주 가기 시작한 곳", `최근 14일 방문이 그 전 14일의 ${DIARY_RULES.RISING_RATIO}배 이상`], ["새로운 곳", `30일 내 처음 나왔고 ${DIARY_RULES.NEW_MAX}회 이하`], ["추억 장소", "첫 등록에서 말한 곳, 또는 가고 싶다고만 한 곳"], ["신뢰도 낮음", `기록일 ${DIARY_RULES.MIN_DAYS_FOR_PATTERN}일 미만`]]) $("#rules").append(el("li", {}, `${k}: ${v}`));
+  $("#demo").onclick = (e) => {
+    e.preventDefault(); if (!confirm("7일치 모의 일지를 넣을까요? (시험용 가짜 데이터)")) return;
+    const names = knownNames(); const first = names[0] ?? "경로당", second = names[1] ?? "시장";
+    const fake = []; for (let i = 7; i >= 1; i--) { const dt = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10); fake.push({ date: dt, visited: i % 2 ? [first] : [first, second], ...(i === 2 ? { extracted: { new_places: [{ name: "약국", evidence: "모의 일지" }], mentions: [{ place: "고향 바닷가", kind: "memory", evidence: "모의 일지" }], notes: null } } : {}) }); }
+    diary = [...diary.filter((x) => !fake.some((f) => f.date === x.date)), ...fake].sort((a, b) => a.date.localeCompare(b.date)); store.set(KEYS.diary, diary); renderClassified(); renderChips();
+  };
+  $("#clear-diary").onclick = (e) => { e.preventDefault(); if (confirm("일지를 모두 지울까요?")) { diary = []; store.set(KEYS.diary, diary); entry = { date: d, visited: [] }; renderClassified(); renderChips(); } };
+  renderChips(); renderClassified();
+</script>
+</body>
+</html>

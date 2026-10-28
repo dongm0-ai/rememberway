@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>단서 확인 — REMEMBER WAY AI</title>
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#1f5a95">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main>
+  <div class="topbar"><a class="back" href="/report">← 다시 말하기</a><span class="step">화면 2 / 3 · 확인·되묻기</span></div>
+  <h1>이렇게 정리했어요. 맞나요?</h1>
+  <p class="muted">AI가 보호자 말에서 뽑은 것입니다. <span class="badge warn">⚠</span>는 원문에서 확인되지 않은 값이니 꼭 봐 주세요. ✎로 고칠 수 있습니다.</p>
+
+  <section id="ask" class="card hidden">
+    <div class="small muted" id="ask-count"></div>
+    <div class="progress"><div id="ask-bar" style="width:0%"></div></div>
+    <div class="q" id="ask-q"></div>
+    <div id="ask-input"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn-primary" id="ask-answer">답하기</button>
+      <button class="btn-secondary" id="ask-unknown">모름</button>
+    </div>
+  </section>
+  <div id="ask-loading" class="card hidden"><span class="spinner"></span> 빠진 것을 확인하는 중…</div>
+
+  <div class="card" id="fields"></div>
+  <div class="card">
+    <h3 style="margin-top:0">가실 만한 곳</h3>
+    <div id="places" class="stack"></div>
+    <div class="row" style="margin-top:8px"><input type="text" id="place-new" placeholder="추가할 곳"><button class="btn-secondary" id="place-add" style="width:auto">추가</button></div>
+  </div>
+
+  <div class="fixed-bottom"><div class="inner stack">
+    <button class="btn-primary" id="go">요약·지도 보기 →</button>
+    <button class="btn-ghost small" id="skip">질문 건너뛰고 바로 요약</button>
+  </div></div>
+</main>
+<script type="module">
+  import { store, KEYS, api, $, $$, el, mockBanner } from "/js/common.js";
+  import { FIELD_LABELS, SOURCE_LABELS } from "/lib/schema.js";
+  import { computeMissing, getPath, setPath } from "/lib/verify.js";
+
+  const clue = store.sget(KEYS.clue);
+  if (!clue) location.replace("/report");
+  const mode = store.sget(KEYS.mode, {});
+  if (mode.source === "mock") mockBanner({ mock: true });
+  const utter = store.sget(KEYS.utterance, "");
+
+  const keys = ["last_seen.time", "last_seen.place", "today_destination", "route", "clothing.top", "clothing.bottom", "clothing.shoes", "clothing.hat", "gait", "items.phone", "items.wallet", "items.cane", "meds", "dementia_signs", "prior_incidents"];
+  const isBool = (k) => k.startsWith("items.");
+  const show = (k) => { const v = getPath(clue, k); return isBool(k) ? (v === true ? "있음" : v === false ? "없음" : null) : v; };
+
+  function renderFields() {
+    const box = $("#fields"); box.innerHTML = "";
+    for (const k of keys) {
+      const v = show(k), flagged = clue.flags?.[k];
+      box.append(el("div", { class: "field" },
+        el("div", { class: "k" }, FIELD_LABELS[k], flagged ? el("span", { class: "badge warn", title: "보호자 말에서 확인되지 않음" }, "⚠ 확인 필요") : ""),
+        el("div", { class: "v" + (v ? "" : " empty") }, v ?? "아직 모름"),
+        el("button", { class: "edit", onclick: () => edit(k) }, "✎")));
+    }
+    save();
+  }
+  function edit(k) {
+    if (isBool(k)) { const a = prompt(`${FIELD_LABELS[k]}: 있음(1) / 없음(0) / 모름(비움)`, show(k) === "있음" ? "1" : show(k) === "없음" ? "0" : ""); if (a === null) return; setPath(clue, k, a.trim() === "1" ? true : a.trim() === "0" ? false : null); }
+    else { const a = prompt(FIELD_LABELS[k], getPath(clue, k) ?? ""); if (a === null) return; setPath(clue, k, a.trim() || null); }
+    if (clue.flags) delete clue.flags[k]; // 보호자가 직접 확인·수정한 값은 ⚠ 해제
+    renderFields();
+  }
+  function renderPlaces() {
+    const box = $("#places"); box.innerHTML = "";
+    if (!clue.memory_places.length) box.append(el("p", { class: "muted small" }, "아직 없어요. 옛 동네, 단골 가게, 경로당처럼 가실 만한 곳을 추가하세요."));
+    clue.memory_places.forEach((p, i) => box.append(el("div", { class: "field", style: "grid-template-columns:1fr auto auto" },
+      el("div", { class: "v" }, p.name, el("span", { class: "badge src" }, SOURCE_LABELS[p.source] ?? "보호자가 말한 곳"), clue.flags?.[`memory_places.${i}`] ? el("span", { class: "badge warn" }, "⚠") : ""),
+      el("button", { class: "edit", onclick: () => { const a = prompt("장소 이름", p.name); if (a === null) return; p.name = a.trim() || p.name; delete clue.flags?.[`memory_places.${i}`]; renderPlaces(); } }, "✎"),
+      el("button", { class: "edit", onclick: () => { clue.memory_places.splice(i, 1); renderPlaces(); } }, "삭제"))));
+    save();
+  }
+  $("#place-add").onclick = () => { const n = $("#place-new").value.trim(); if (!n) return; clue.memory_places.push({ name: n, source: "guardian", evidence: "화면 2에서 추가" }); $("#place-new").value = ""; renderPlaces(); };
+  function save() { clue.missing = computeMissing(clue); store.sset(KEYS.clue, clue); }
+  renderFields(); renderPlaces();
+
+  // ---- 되묻기 (호출 ②) : 최대 3개, 하나씩
+  let questions = [], qi = 0;
+  const unknownKeys = new Set();
+  async function loadQuestions() {
+    if (computeMissing(clue).length === 0) return;
+    $("#ask-loading").classList.remove("hidden");
+    const res = await api("followup", { clue });
+    $("#ask-loading").classList.add("hidden");
+    if (!res.ok || !res.questions?.length) return; // AI 실패면 되묻기 없이 넘어감 (화면 3은 서식 값으로 가능)
+    mockBanner(res);
+    questions = res.questions; qi = 0; showQ();
+  }
+  function showQ() {
+    if (qi >= questions.length) { $("#ask").classList.add("hidden"); return; }
+    const q = questions[qi];
+    $("#ask").classList.remove("hidden");
+    $("#ask-count").textContent = `되묻기 ${qi + 1} / ${questions.length} · ${FIELD_LABELS[q.key] ?? q.key}`;
+    $("#ask-bar").style.width = `${(qi / questions.length) * 100}%`;
+    $("#ask-q").textContent = q.question;
+    const box = $("#ask-input"); box.innerHTML = "";
+    if (isBool(q.key)) box.append(el("div", { class: "chips" }, el("button", { class: "chip", "data-v": "true", onclick: pickBool }, "있음"), el("button", { class: "chip", "data-v": "false", onclick: pickBool }, "없음")));
+    else box.append(el("input", { type: "text", id: "ask-text", placeholder: "답을 적어 주세요", autofocus: "" }));
+    $("#ask-text")?.focus();
+  }
+  function pickBool(e) { $$("#ask-input .chip").forEach((c) => c.setAttribute("aria-pressed", String(c === e.target))); }
+  $("#ask-answer").onclick = () => {
+    const q = questions[qi];
+    if (isBool(q.key)) { const c = $$("#ask-input .chip").find((x) => x.getAttribute("aria-pressed") === "true"); if (!c) return; setPath(clue, q.key, c.dataset.v === "true"); }
+    else { const v = $("#ask-text").value.trim(); if (!v) return; setPath(clue, q.key, v); }
+    qi++; renderFields(); showQ();
+  };
+  $("#ask-unknown").onclick = () => { const q = questions[qi]; unknownKeys.add(q.key); if (!isBool(q.key)) setPath(clue, q.key, "모름"); qi++; renderFields(); showQ(); };
+  $("#ask-input").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#ask-answer").click(); });
+  $("#skip").onclick = () => { save(); location.href = "/summary"; };
+  $("#go").onclick = () => { save(); location.href = "/summary"; };
+  loadQuestions();
+</script>
+</body>
+</html>

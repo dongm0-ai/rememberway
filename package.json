@@ -1,0 +1,13 @@
+{
+  "name": "rememberway-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "REMEMBER WAY AI — 치매 어르신 실종 대응 보호자용 시뮬레이터 (2026 AI 동행 · 생성형AI 분과 · 그럴게요 팀)",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "mock": "node scripts/run_mock.js",
+    "mock:fake": "MOCK_AI=1 node scripts/run_mock.js"
+  }
+}

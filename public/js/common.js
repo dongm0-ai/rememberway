@@ -1,0 +1,77 @@
+// 공통: 저장(localStorage/sessionStorage), API 호출(10초 타임아웃), 음성 입력, 작은 UI 도우미
+export const store = {
+  get(key, fallback = null) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
+  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} },
+  del(key) { try { localStorage.removeItem(key); } catch {} },
+  sget(key, fallback = null) { try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
+  sset(key, value) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch {} },
+};
+export const KEYS = { profile: "rw_profile", diary: "rw_diary", incidents: "rw_incidents", clue: "rw_clue", utterance: "rw_utterance", mode: "rw_mode", config: "rw_config" };
+
+/** 서버 함수 호출. 10초 넘으면 {ok:false, reason:"TIMEOUT"}. 네트워크 끊김도 ok:false → 서식 모드 */
+export async function api(name, body, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`/api/${name}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+    if (!res.ok) return { ok: false, reason: `HTTP_${res.status}` };
+    return await res.json();
+  } catch (e) {
+    return { ok: false, reason: e.name === "AbortError" ? "TIMEOUT" : "NETWORK" };
+  } finally { clearTimeout(t); }
+}
+
+export async function loadConfig() {
+  const cached = store.sget(KEYS.config);
+  if (cached) return cached;
+  try { const c = await (await fetch("/api/config")).json(); store.sset(KEYS.config, c); return c; } catch { return { kakaoJsKey: null, ai: {} }; }
+}
+
+/** Web Speech API (ko-KR). 미지원 브라우저면 null */
+export function createSpeech({ onText, onState }) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const rec = new SR();
+  rec.lang = "ko-KR"; rec.continuous = true; rec.interimResults = true;
+  let finalText = "", listening = false;
+  rec.onresult = (ev) => {
+    let interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) finalText += r[0].transcript + " "; else interim += r[0].transcript;
+    }
+    onText(finalText, interim);
+  };
+  rec.onend = () => { listening = false; onState(false); };
+  rec.onerror = () => { listening = false; onState(false); };
+  return {
+    start(seed = "") { finalText = seed ? seed.trim() + " " : ""; try { rec.start(); listening = true; onState(true); } catch {} },
+    stop() { try { rec.stop(); } catch {} listening = false; onState(false); },
+    get listening() { return listening; },
+  };
+}
+
+export const $ = (sel, root = document) => root.querySelector(sel);
+export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+export function el(tag, attrs = {}, ...children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else if (v !== null && v !== undefined) n.setAttribute(k, v);
+  }
+  for (const c of children.flat()) n.append(c instanceof Node ? c : document.createTextNode(String(c ?? "")));
+  return n;
+}
+export const today = () => new Date().toISOString().slice(0, 10);
+export const fmtM = (m) => (typeof m !== "number" ? "거리 모름" : m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`);
+
+/** 모의 응답이면 화면 상단에 표시 (실제 AI 결과로 오해하지 않도록) */
+export function mockBanner(res) {
+  if (!res?.mock) return;
+  if ($("#mock-banner")) return;
+  document.querySelector("main")?.prepend(el("div", { id: "mock-banner", class: "callout", style: "margin-bottom:10px" }, "⚠ 모의 응답(실제 AI 아님) — MOCK_AI=1 상태입니다. 시연 전에 끄세요."));
+}
+
+/** PWA 서비스워커 등록 */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}

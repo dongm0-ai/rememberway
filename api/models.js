@@ -1,5 +1,5 @@
 // GET /api/models — 현재 키로 쓸 수 있는 Gemini 모델 목록 (기획안 5쪽 모델 비교·모델명 확인용). 키 값은 내보내지 않는다.
-import { PROVIDER, hasKey, currentModel } from "../lib/claude.js";
+import { PROVIDER, hasKey, currentModel, geminiBody } from "../lib/claude.js";
 
 export default async function handler(req, res) {
   res.setHeader("content-type", "application/json; charset=utf-8");
@@ -19,13 +19,15 @@ export default async function handler(req, res) {
       for (const name of test.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 6)) {
         const t0 = Date.now();
         try {
-          const rr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(name)}:generateContent`, {
+          const sys = "보호자의 말에서 오늘 목적지만 JSON {\"today_destination\": string|null} 로. 원문에 없으면 null.";
+          const call = (off) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(name)}:generateContent`, {
             method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
-            body: JSON.stringify({ system_instruction: { parts: [{ text: "보호자의 말에서 오늘 목적지만 JSON {\"today_destination\": string|null} 로. 원문에 없으면 null." }] }, contents: [{ role: "user", parts: [{ text: "아버지가 시장 간다고 나가셨어요" }] }], generationConfig: { temperature: 0, maxOutputTokens: 200, responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } } }),
-            signal: AbortSignal.timeout(12000),
+            body: JSON.stringify(geminiBody(sys, "아버지가 시장 간다고 나가셨어요", 200, true, off)), signal: AbortSignal.timeout(12000),
           });
+          let rr = await call(true), thinking = "off";
+          if (rr.status === 400) { rr = await call(false); thinking = "default"; }
           const d = await rr.json();
-          timings.push({ name, ms: Date.now() - t0, status: rr.status, text: (d.candidates?.[0]?.content?.parts ?? []).map((p) => p.text).join("").slice(0, 80), error: d.error?.message?.slice(0, 100) });
+          timings.push({ name, ms: Date.now() - t0, status: rr.status, thinking, text: (d.candidates?.[0]?.content?.parts ?? []).map((p) => p.text).join("").slice(0, 80), error: d.error?.message?.slice(0, 100) });
         } catch (e) { timings.push({ name, ms: Date.now() - t0, error: String(e.message ?? e).slice(0, 100) }); }
       }
     }

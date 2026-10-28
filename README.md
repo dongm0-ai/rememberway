@@ -83,3 +83,7 @@ docs/              결정표·화면 구성·확정안·실험기록
 - 실종경보 발견의 23.2%가 시민 제보 (경찰청 2026.8)
 
 전체 출처는 `docs/` 참고.
+
+## 실험을 웹에서 바로 하기
+
+앱을 연 브라우저에서 `https://rememberway.vercel.app/api/experiment` 를 열면 모의 사례 3개를 실제 AI로 돌린 결과(JSON)가 나온다 (`?case=C1` 으로 하나만). `latency_ms`, `filled`, `hallucinated_keys`, `unverified_flags`, `followup_first_ok` 를 `docs/실험기록.md` 표에 옮겨 적는다. 모델 비교는 Vercel 환경변수 `GEMINI_MODEL` 을 바꾸고 Redeploy 한 뒤 다시 연다. 쓸 수 있는 모델 목록·응답 시간은 `/api/models?test=모델1,모델2`.

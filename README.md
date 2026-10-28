@@ -53,7 +53,7 @@ npm run mock:fake            # 키 없이 모의 응답으로 흐름만 점검 (
 
 1. 이 저장소를 GitHub에 올린다.
 2. Vercel → Add New Project → 저장소 선택. Framework Preset은 **Other**(자동 감지됨). Build Command 없음.
-3. Environment Variables: `GEMINI_API_KEY`, `GEMINI_MODEL`(예: gemini-2.5-flash), `KAKAO_JS_KEY` (MOCK_AI는 넣지 않는다). Claude를 쓰려면 `AI_PROVIDER=claude`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`.
+3. Environment Variables: `GEMINI_API_KEY`, `GEMINI_MODEL`(예: gemini-3.8-flash), `KAKAO_JS_KEY` (MOCK_AI는 넣지 않는다). Claude를 쓰려면 `AI_PROVIDER=claude`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`.
 4. Deploy. 주소가 나오면 카카오 개발자 콘솔 → 앱 → 플랫폼 → Web 사이트 도메인에 그 주소를 추가한다.
 5. 폰에서 주소 열기 → "홈 화면에 추가".
 

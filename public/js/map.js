@@ -188,7 +188,7 @@ export function tourOrder(home, candidates, matrix = null) {
   return bestOpenPath(0, list.map((_, i) => i + 1), D).map((i) => list[i - 1]);
 }
 
-/** 우선순위를 지키는 동선: 점수(tierOf)가 높은 묶음부터 차례로 들르고, 같은 묶음 안에서만 걷는 거리가 가장 짧은 순서로.
+/** 우선순위를 지키는 동선: 점수(tierOf)가 높은 묶음부터 차례로 들르고, 묶음 안에서는 1순위를 먼저 간 뒤 나머지를 걷는 거리가 가장 짧은 순서로.
  *  예비 후보를 따로 두지 않는다 — 점수 낮은 곳도 맨 뒤에 반드시 들른다. 다음 묶음은 앞 묶음의 마지막 지점에서 출발 */
 export function tourOrderByPriority(home, candidates, matrix = null, tierOf = (c) => c.score ?? 0) {
   const list = candidates.filter((c) => c.lat && c.lng);
@@ -198,7 +198,9 @@ export function tourOrderByPriority(home, candidates, matrix = null, tierOf = (c
   const order = []; let cur = 0;
   for (const t of tiers) {
     const idx = list.map((_, i) => i + 1).filter((i) => tierOf(list[i - 1]) === t);
-    const part = bestOpenPath(cur, idx, D);
+    // 묶음의 첫 번째(우선 확인 순서 1위, candidates 순서 기준)는 먼저 간다. 나머지만 최단 순서로
+    const first = idx[0], rest = idx.slice(1);
+    const part = [first, ...bestOpenPath(first, rest, D)];
     order.push(...part); cur = part[part.length - 1];
   }
   return order.map((i) => list[i - 1]);

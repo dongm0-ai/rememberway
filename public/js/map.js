@@ -1,5 +1,7 @@
-// 지도: OpenStreetMap + Leaflet (키·계정 불필요). 장소 이름 → 좌표는 Nominatim(OSM 공개 지오코더).
-// 카카오맵은 2026-10-28 밤에 제외 (계정·도메인·쿼터 결정 부담). 도보 경로·교차로는 여전히 미연동 (직선거리).
+// 지도: OpenStreetMap + Leaflet (키·계정 불필요, 한국어 일반 지도).
+//  - 장소 이름 → 좌표: Nominatim (OSM 공개 지오코더). "카페·편의점·세탁소"처럼 종류만 말한 곳은 집 근처에서 여러 개 찾는다.
+//  - 도보 길찾기: OSRM 공개 서버 (foot). 경로선·거리·교차로(갈림길)를 받아 "경로 위 교차로" 가중치에 쓴다.
+//  이 둘은 공개 데모 서버라 호출을 아끼고(1초 1회), 실패하면 직선거리로 내려간다. 결정표 2026-10-29.
 const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 let loading = null;
@@ -16,27 +18,42 @@ export function loadMap() {
   return loading;
 }
 
+// ---------------------------------------------------------------- 장소 찾기 (Nominatim)
 const cache = new Map();
 let lastCall = 0;
-/** Nominatim 검색 (이용 규칙: 1초에 1회 이하). near={lat,lng}가 있으면 그 주변 약 10km를 우선 */
-export async function findPlace(name, near) {
-  const key = `${name}|${near ? near.lat.toFixed(2) + "," + near.lng.toFixed(2) : ""}`;
+async function throttle() { const wait = 1100 - (Date.now() - lastCall); if (wait > 0) await new Promise((r) => setTimeout(r, wait)); lastCall = Date.now(); }
+
+async function nominatim(params) {
+  const key = params.toString();
   if (cache.has(key)) return cache.get(key);
-  const wait = 1100 - (Date.now() - lastCall);
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastCall = Date.now();
-  const p = new URLSearchParams({ q: name, format: "jsonv2", limit: "1", countrycodes: "kr", "accept-language": "ko" });
-  if (near) { p.set("viewbox", `${near.lng - 0.1},${near.lat + 0.1},${near.lng + 0.1},${near.lat - 0.1}`); p.set("bounded", "0"); }
+  await throttle();
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?${p}`, { headers: { accept: "application/json" } });
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { headers: { accept: "application/json" } });
     const arr = await r.json();
-    const d = arr?.[0];
-    const out = d ? { lat: Number(d.lat), lng: Number(d.lon), found_name: d.display_name?.split(",")[0] ?? name, address: d.display_name } : null;
-    cache.set(key, out); return out;
-  } catch { return null; }
+    cache.set(key, arr); return arr;
+  } catch { return []; }
+}
+const toPlace = (d, name) => ({ lat: Number(d.lat), lng: Number(d.lon), found_name: d.namedetails?.["name:ko"] || d.namedetails?.name || d.display_name?.split(",")[0] || name, address: d.display_name, category: d.type });
+
+/** 이름 하나 → 좌표 하나. near={lat,lng}면 그 주변(±0.1도 ≈ 10km) 우선 */
+export async function findPlace(name, near, limit = 1) {
+  const p = new URLSearchParams({ q: name, format: "jsonv2", limit: String(limit), countrycodes: "kr", "accept-language": "ko", namedetails: "1" });
+  if (near) { p.set("viewbox", `${near.lng - 0.1},${near.lat + 0.1},${near.lng + 0.1},${near.lat - 0.1}`); p.set("bounded", "0"); }
+  const arr = await nominatim(p);
+  return arr?.[0] ? toPlace(arr[0], name) : null;
 }
 
-/** 장소 이름으로 못 찾으면 더 단순한 이름으로 다시: "삼성동 옛 동네" → "삼성동", "중앙시장 정육점" → "중앙시장" */
+/** "카페", "편의점"처럼 종류만 말한 곳 → 집 반경 안(radiusM)에서 최대 n곳. 결과 이름에 실제 가게 이름이 붙는다 */
+const GENERIC = /^(카페|커피숍|커피|편의점|세탁소|무인세탁|세탁|빨래방|약국|병원|의원|마트|슈퍼|시장|경로당|노인정|교회|성당|절|공원|은행|우체국|목욕탕|사우나|미용실|이발소|정류장|버스정류장|지하철역|역|학교|놀이터|주민센터|복지관)$/;
+export function isGeneric(name) { return GENERIC.test(name.replace(/\s+/g, "")); }
+export async function findNearby(kind, home, radiusM = 1500, n = 3) {
+  const d = Math.max(0.005, radiusM / 111000);
+  const p = new URLSearchParams({ q: kind, format: "jsonv2", limit: String(n), countrycodes: "kr", "accept-language": "ko", namedetails: "1", bounded: "1", viewbox: `${home.lng - d},${home.lat + d},${home.lng + d},${home.lat - d}` });
+  const arr = await nominatim(p);
+  return (arr ?? []).map((x) => toPlace(x, kind));
+}
+
+/** 이름으로 못 찾으면 더 단순한 이름으로 다시: "삼성동 옛 동네" → "삼성동", "중앙시장 정육점" → "중앙시장" */
 export async function findPlaceLoose(name, near) {
   const direct = await findPlace(name, near);
   if (direct) return { ...direct, approx: false };
@@ -51,14 +68,56 @@ export async function findHome(dong) {
   return (await findPlace(dong, null)) ?? (await findPlace(dong.split(/\s+/).slice(-1)[0], null));
 }
 
-/** 지도 만들기. 반환: { map, setMarkers(list), circle } */
+// ---------------------------------------------------------------- 도보 길찾기 (OSRM)
+/** points: [{lat,lng}, ...] 순서대로 걷는 경로. 반환 { geometry:[[lat,lng]...], distance_m, duration_s, legs:[{distance_m,duration_s}], intersections:[{lat,lng,name,distance_m}] } | null */
+export async function walkRoute(points) {
+  if (points.length < 2) return null;
+  const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
+  try {
+    const r = await fetch(`https://router.project-osrm.org/route/v1/foot/${coords}?overview=full&geometries=geojson&steps=true`, { signal: AbortSignal.timeout(8000) });
+    const data = await r.json();
+    const route = data.routes?.[0];
+    if (!route) return null;
+    const geometry = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+    const intersections = [];
+    let acc = 0;
+    for (const leg of route.legs) {
+      for (const step of leg.steps) {
+        // 갈림길: 길이 3갈래 이상 만나는 지점에서 방향을 바꾸는 곳 (배회가 시작되기 쉬운 곳)
+        const m = step.maneuver;
+        const big = (step.intersections ?? []).some((x) => (x.bearings ?? []).length >= 3);
+        if (big && !["depart", "arrive"].includes(m.type)) {
+          intersections.push({ lat: m.location[1], lng: m.location[0], name: step.name ? `${step.name} 갈림길` : "갈림길", distance_m: Math.round(acc) });
+        }
+        acc += step.distance;
+      }
+    }
+    return { geometry, distance_m: Math.round(route.distance), duration_s: Math.round(route.duration), legs: route.legs.map((l) => ({ distance_m: Math.round(l.distance), duration_s: Math.round(l.duration) })), intersections };
+  } catch { return null; }
+}
+
+/** 집에서 출발해 후보들을 가까운 순으로 차례로 도는 순서 (탐욕적 최근접). 반환 후보 배열 */
+export function tourOrder(home, candidates) {
+  const left = candidates.filter((c) => c.lat && c.lng).map((c) => ({ ...c }));
+  const order = []; let cur = home;
+  while (left.length) {
+    left.sort((a, b) => dist2(cur, a) - dist2(cur, b));
+    const next = left.shift(); order.push(next); cur = next;
+  }
+  return order;
+}
+const dist2 = (a, b) => (a.lat - b.lat) ** 2 + ((a.lng - b.lng) * Math.cos((a.lat * Math.PI) / 180)) ** 2;
+
+// ---------------------------------------------------------------- 지도 그리기
 export function createMap(L, el, center, rMax) {
-  const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([center.lat, center.lng], 14);
+  const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([center.lat, center.lng], 15);
+  // OSM 표준 타일: 한국 지역은 한국어 지명으로 표시되는 일반(도로) 지도. 위성 아님.
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
   let circle = null;
-  if (rMax) circle = L.circle([center.lat, center.lng], { radius: rMax, color: "#1f5a95", weight: 2, opacity: .6, fillColor: "#1f5a95", fillOpacity: .08 }).addTo(map);
-  const home = L.marker([center.lat, center.lng], { title: "집·마지막 본 곳" }).addTo(map).bindTooltip("집", { permanent: true, direction: "top" });
-  let layer = L.layerGroup().addTo(map);
+  if (rMax) circle = L.circle([center.lat, center.lng], { radius: rMax, color: "#1f5a95", weight: 2, opacity: .6, fillColor: "#1f5a95", fillOpacity: .06 }).addTo(map);
+  L.marker([center.lat, center.lng], { title: "집·마지막 본 곳" }).addTo(map).bindTooltip("집", { permanent: true, direction: "top" });
+  const layer = L.layerGroup().addTo(map);
+  const routeLayer = L.layerGroup().addTo(map);
   return {
     map, circle,
     setMarkers(list) {
@@ -66,11 +125,24 @@ export function createMap(L, el, center, rMax) {
       const pts = [[center.lat, center.lng]];
       list.forEach((c, i) => {
         if (!c.lat) return;
-        const icon = L.divIcon({ className: "", html: `<div style="background:#1f5a95;color:#fff;font-weight:800;border-radius:999px;padding:2px 8px;font-size:13px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">${i + 1} ${c.name}</div>`, iconAnchor: [10, 10] });
-        L.marker([c.lat, c.lng], { icon }).addTo(layer); pts.push([c.lat, c.lng]);
+        const isX = c.kind === "intersection";
+        const icon = L.divIcon({ className: "", html: `<div style="background:${isX ? "#8a5a00" : "#1f5a95"};color:#fff;font-weight:800;border-radius:999px;padding:2px 8px;font-size:${isX ? 11 : 13}px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">${isX ? "✕ " : i + 1 + " "}${c.name}</div>`, iconAnchor: [10, 10] });
+        L.marker([c.lat, c.lng], { icon }).addTo(layer); if (!isX) pts.push([c.lat, c.lng]);
       });
       if (pts.length > 1) map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
       else if (circle) map.fitBounds(circle.getBounds(), { padding: [10, 10] });
     },
+    setRoute(geometry) {
+      routeLayer.clearLayers();
+      if (geometry?.length) L.polyline(geometry, { color: "#b3261e", weight: 5, opacity: .75 }).addTo(routeLayer);
+    },
   };
+}
+
+/** 두 좌표 사이 직선거리(m) */
+export function haversineM(lat1, lng1, lat2, lng2) {
+  const R = 6371000, toRad = (x) => (x * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(a)));
 }

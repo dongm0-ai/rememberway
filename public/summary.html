@@ -30,6 +30,12 @@
     <p class="small muted">"가 봤어요"를 누르면 목록에서 빠집니다. 오늘 가려던 곳은 이미 확인했다고 보고 추억 장소를 먼저 둡니다.</p>
   </div>
 
+  <h2>돌아볼 동선</h2>
+  <div class="card">
+    <p class="small muted" style="margin-top:0">집에서 출발해 가까운 순서로 도는 도보 경로입니다 (지도의 빨간 선). 우선 확인 순서와는 별개로 "한 바퀴 돌 때" 쓰세요.</p>
+    <ol class="rank" id="tour"><li><span></span><span class="muted">동선을 만드는 중…</span></li></ol>
+    <p class="small muted" id="tour-total"></p>
+  </div>
   <details class="card tight"><summary class="small"><b>우선 확인 순서는 어떻게 정하나요?</b> (가중치 공개)</summary>
     <table style="margin-top:8px"><thead><tr><th>요소</th><th class="num">점수</th></tr></thead><tbody id="weights"></tbody></table>
     <p class="small muted">임의 설정, 실험으로 조정. 점수가 같으면 가까운 곳 먼저. 이 순서는 코드(규칙)가 정하고 AI는 관여하지 않습니다. 위치를 예측하는 것이 아닙니다.</p>
@@ -41,7 +47,7 @@
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary } from "/lib/priority.js";
-  import { loadMap, findPlaceLoose, findHome, createMap } from "/js/map.js";
+  import { loadMap, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, tourOrder } from "/js/map.js";
 
   const clue = store.sget(KEYS.clue);
   if (!clue) location.replace("/report");
@@ -61,7 +67,7 @@
   // 반경
   const rMax = maxRadiusM(mode.elapsedMin, mode.gait);
   $("#rmax").textContent = fmtM(rMax); $("#elapsed").textContent = mode.elapsedMin; $("#speed").textContent = WALK_SPEED[mode.gait] ?? WALK_SPEED.normal;
-  for (const [k, label] of [["memory", "추억 장소"], ["rising", "최근 자주 가기 시작한 곳"], ["frequent", "자주 가는 곳"], ["new", "새로운 곳"], ["guardian", "기타 보호자 입력"], ["intersection", "경로 위 교차로 (길찾기 API 미연동 시 미적용)"], ["outOfRadius", "반경 밖"]])
+  for (const [k, label] of [["memory", "추억 장소"], ["rising", "최근 자주 가기 시작한 곳"], ["frequent", "자주 가는 곳"], ["new", "새로운 곳"], ["guardian", "기타 보호자 입력"], ["intersection", "경로 위 갈림길(교차로)"], ["outOfRadius", "반경 밖"]])
     $("#weights").append(el("tr", {}, el("td", {}, label), el("td", { class: "num" }, (WEIGHTS[k] > 0 ? "+" : "") + WEIGHTS[k])));
 
   // 후보 장소: 보호자가 말한 곳 + 등록·일지 장소. 오늘 목적지는 "이미 가 봤다"로 취급 (결정표)
@@ -69,8 +75,9 @@
   const checked = new Set(clue.today_destination ? [clue.today_destination] : []);
   if (clue.today_destination && !places.some((p) => p.name === clue.today_destination)) places.push({ name: clue.today_destination, source: "guardian", evidence: "오늘 가려던 곳" });
   let ranked = [];
+  var intersections = [];
   function renderRank() {
-    ranked = rankCandidates(places, [], rMax, [...checked]);
+    ranked = rankCandidates(places, intersections ?? [], rMax, [...checked]);
     const box = $("#rank"); box.innerHTML = "";
     if (!ranked.length) box.append(el("li", {}, el("span"), el("span", { class: "muted" }, "확인할 곳이 없어요. 화면 2에서 가실 만한 곳을 추가하세요.")));
     ranked.forEach((c, i) => box.append(el("li", {},
@@ -82,8 +89,8 @@
   }
   renderRank();
 
-  // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim으로 찾는다.
-  let view = null;
+  // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim, 도보 경로·교차로는 OSRM.
+  let view = null, tour = null;
   const L = await loadMap();
   if (!L) {
     $("#map").textContent = "지도를 불러오지 못했어요 (인터넷 연결 확인). 목록은 아래에 있습니다.";
@@ -95,22 +102,55 @@
     $("#map").textContent = "";
     view = createMap(L, $("#map"), center, home ? rMax : 0);
     view.setMarkers([]);
-    if (home) $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 도보 경로·교차로는 아직 지도에 없습니다. 지도: OpenStreetMap`;
-    else $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경 원을 그리지 못했습니다. 평소 등록에서 '시 구 동'까지 적어 주세요.";
-    // 장소 좌표 찾기 → 거리 → 점수 다시 계산 (Nominatim 규칙상 1초에 1곳씩)
+    if (!home) $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경 원을 그리지 못했습니다. 평소 등록에서 '시 구 동'까지 적어 주세요.";
+    else $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 장소를 찾는 중…`;
+
+    // 1) 장소 좌표. "카페·편의점·세탁소"처럼 종류만 말한 곳은 집 반경 안에서 실제 가게 2~3곳으로 펼친다
+    const expanded = [];
     for (const p of places) {
       if (p.lat && p.lng) continue;
+      if (home && isGeneric(p.name)) {
+        const found = await findNearby(p.name, home, Math.min(rMax, 2000), 3);
+        if (found.length) { p.skip = true; found.forEach((f) => expanded.push({ ...p, name: `${p.name}: ${f.found_name}`, lat: f.lat, lng: f.lng, evidence: p.evidence, kindOf: p.name })); continue; }
+      }
       const f = await findPlaceLoose(p.name, home);
       if (f) { p.lat = f.lat; p.lng = f.lng; p.found_name = f.found_name; p.approx = f.approx; }
     }
+    for (let i = places.length - 1; i >= 0; i--) if (places[i].skip) places.splice(i, 1);
+    places.push(...expanded);
     for (const p of places) if (home && p.lat) p.distance_m = haversineM(home.lat, home.lng, p.lat, p.lng);
     renderRank(); drawMarkers();
+
+    // 2) 동선: 집에서 출발해 상위 후보(반경 안, 최대 5곳)를 가까운 순으로 도는 도보 경로 (OSRM). 경로 위 갈림길을 교차로 후보로
+    if (home) await buildTour(home);
     const approx = places.filter((p) => p.approx).map((p) => `${p.name}→${p.found_name}`);
-    if (approx.length) $("#map-note").textContent += ` · 근처로 표시: ${approx.join(", ")}`;
     const notFound = places.filter((p) => !p.lat).map((p) => p.name);
-    if (notFound.length) $("#map-note").textContent += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
+    let note = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 지도: OpenStreetMap, 길찾기: OSRM(도보)`;
+    if (approx.length) note += ` · 근처로 표시: ${approx.join(", ")}`;
+    if (notFound.length) note += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
+    $("#map-note").textContent = note;
   }
-  function drawMarkers() { if (view) view.setMarkers(ranked); }
+  function drawMarkers() { if (view) view.setMarkers([...ranked, ...(tour?.intersections ?? [])]); }
+
+  async function buildTour(home) {
+    const top = ranked.filter((c) => c.kind === "place" && c.lat && (c.distance_m ?? Infinity) <= rMax * 1.2).slice(0, 5);
+    const box = $("#tour"); box.innerHTML = "";
+    if (!top.length) { box.append(el("p", { class: "muted small" }, "반경 안에서 좌표를 찾은 후보가 없어 동선을 만들지 못했습니다.")); return; }
+    const order = tourOrder(home, top);
+    const route = await walkRoute([home, ...order]);
+    if (!route) { box.append(el("p", { class: "muted small" }, "길찾기 서버에 연결하지 못해 동선 대신 직선거리만 표시합니다.")); return; }
+    tour = route; view.setRoute(route.geometry);
+    // 교차로를 가중치에 반영해 순위 다시 계산
+    intersections = route.intersections.slice(0, 6);
+    ranked = rankCandidates(places, intersections, rMax, [...checked]);
+    renderRank(); drawMarkers();
+    let acc = 0;
+    order.forEach((c, i) => {
+      acc += route.legs[i]?.distance_m ?? 0;
+      box.append(el("li", {}, el("span", { class: "n" }, i + 1), el("div", {}, el("div", {}, c.name), el("div", { class: "why" }, `집에서 걸어서 누적 ${fmtM(acc)} · 약 ${Math.round(acc / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분`)), el("div", { class: "pts" }, fmtM(route.legs[i]?.distance_m))));
+    });
+    $("#tour-total").textContent = `전체 ${fmtM(route.distance_m)}, 걸어서 약 ${Math.round(route.distance_m / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분 (${mode.gait === "slow" ? "느린" : mode.gait === "fast" ? "빠른" : "보통"} 걸음 기준). 갈림길 ${intersections.length}곳은 지도에 ✕로 표시.`;
+  }
 
   // "찾았어요" → 사건 기록으로 (현재 단서를 보관)
   $("#found").onclick = () => {

@@ -32,21 +32,31 @@ export function createSpeech({ onText, onState }) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
   const rec = new SR();
-  rec.lang = "ko-KR"; rec.continuous = true; rec.interimResults = true;
-  let finalText = "", listening = false;
+  rec.lang = "ko-KR"; rec.interimResults = true; rec.maxAlternatives = 1;
+  // 안드로이드 크롬은 continuous=true 에서 같은 문장을 결과마다 다시 보내 "아버지가 아버지가 …"처럼 쌓인다.
+  // 그래서 (1) 매번 ev.results 전체를 처음부터 다시 조립하고(이어 붙이지 않음), (2) continuous=false 로 짧게 듣고
+  // 세션이 끝나면 자동으로 다시 시작해 길게 말해도 끊기지 않게 한다. 세션마다 확정된 문장은 seed 에 모아 둔다.
+  rec.continuous = false;
+  let seed = "", sessionFinal = "", listening = false, restartTimer = null;
   rec.onresult = (ev) => {
-    let interim = "";
-    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+    let fin = "", interim = "";
+    for (let i = 0; i < ev.results.length; i++) {
       const r = ev.results[i];
-      if (r.isFinal) finalText += r[0].transcript + " "; else interim += r[0].transcript;
+      if (r.isFinal) fin += r[0].transcript + " "; else interim += r[0].transcript;
     }
-    onText(finalText, interim);
+    sessionFinal = fin.trim();
+    onText((seed + " " + sessionFinal).trim(), interim.trim());
   };
-  rec.onend = () => { listening = false; onState(false); };
-  rec.onerror = () => { listening = false; onState(false); };
+  rec.onend = () => {
+    if (sessionFinal) seed = (seed + " " + sessionFinal).trim();
+    sessionFinal = "";
+    if (listening) { restartTimer = setTimeout(() => { try { rec.start(); } catch { listening = false; onState(false); } }, 150); } // 계속 듣기
+    else onState(false);
+  };
+  rec.onerror = (e) => { if (e.error === "no-speech" || e.error === "aborted") return; listening = false; onState(false); };
   return {
-    start(seed = "") { finalText = seed ? seed.trim() + " " : ""; try { rec.start(); listening = true; onState(true); } catch {} },
-    stop() { try { rec.stop(); } catch {} listening = false; onState(false); },
+    start(current = "") { seed = (current || "").trim(); sessionFinal = ""; try { rec.start(); listening = true; onState(true); } catch {} },
+    stop() { listening = false; clearTimeout(restartTimer); try { rec.stop(); } catch {} onState(false); },
     get listening() { return listening; },
   };
 }

@@ -55,6 +55,7 @@
   import { EMPTY_CLUE, FIELD_LABELS } from "/lib/schema.js";
   import { classifyPlaces } from "/lib/diary.js";
   import { computeMissing } from "/lib/verify.js";
+  import { buildAnswerInput } from "/js/answer-ui.js";
 
   const profile = store.get(KEYS.profile), diary = store.get(KEYS.diary, []);
   const known = classifyPlaces(profile, diary);
@@ -79,8 +80,12 @@
   const formKeys = ["last_seen.time", "last_seen.place", "today_destination", "route", "clothing.top", "clothing.bottom", "clothing.shoes", "clothing.hat", "gait", "meds", "dementia_signs", "prior_incidents"];
   const boolKeys = ["items.phone", "items.wallet", "items.cane"];
   const ff = $("#form-fields");
-  for (const k of formKeys) ff.append(el("label", {}, FIELD_LABELS[k]), el("input", { type: "text", "data-k": k, placeholder: "모르면 비워 두세요" }));
-  for (const k of boolKeys) ff.append(el("label", {}, FIELD_LABELS[k] + " 소지"), el("select", { "data-k": k }, el("option", { value: "" }, "모름"), el("option", { value: "true" }, "있음"), el("option", { value: "false" }, "없음")));
+  const formUI = {};
+  for (const k of [...formKeys, ...boolKeys]) {
+    const box = el("div", { style: "margin-bottom:6px" });
+    ff.append(el("label", {}, FIELD_LABELS[k] + (boolKeys.includes(k) ? " 소지" : "")), box);
+    formUI[k] = buildAnswerInput(k, box);
+  }
   let mode = "talk";
   function showForm(why) {
     mode = "form"; $("#talk").classList.add("hidden"); $("#form").classList.remove("hidden"); $("#to-form").classList.add("hidden");
@@ -96,8 +101,7 @@
     const ctx = { elapsedMin, gait, started_at: new Date().toISOString() };
     if (mode === "form") {
       const clue = structuredClone(EMPTY_CLUE);
-      for (const inp of $$("#form-fields input")) { const v = inp.value.trim(); if (v) setPath(clue, inp.dataset.k, v); }
-      for (const s of $$("#form-fields select")) { if (s.value) setPath(clue, s.dataset.k, s.value === "true"); }
+      for (const [k, ui] of Object.entries(formUI)) { const v = ui.value(); if (v !== null && v !== undefined) setPath(clue, k, v); }
       const extra = $("#form-places").value.split(",").map((s) => s.trim()).filter(Boolean).map((name) => ({ name, source: "guardian", evidence: "서식 입력" }));
       clue.memory_places = mergePlaces(extra, known);
       clue.missing = computeMissing(clue); clue.flags = {};

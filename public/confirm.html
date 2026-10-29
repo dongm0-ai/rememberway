@@ -32,6 +32,12 @@
     <div class="row" style="margin-top:8px"><input type="text" id="place-new" placeholder="추가할 곳"><button class="btn-secondary" id="place-add" style="width:auto">추가</button></div>
   </div>
 
+  <dialog id="edit-dialog">
+    <h3 id="edit-title" style="margin-top:0"></h3>
+    <div id="edit-body"></div>
+    <div class="row" style="margin-top:14px"><button class="btn-primary" id="edit-ok">저장</button><button class="btn-secondary" id="edit-cancel">취소</button></div>
+    <button class="btn-ghost small" id="edit-clear" style="margin-top:6px">값 지우기 (모름으로)</button>
+  </dialog>
   <div class="fixed-bottom"><div class="inner stack">
     <button class="btn-primary" id="go">요약·지도 보기 →</button>
     <button class="btn-ghost small" id="skip">질문 건너뛰고 바로 요약</button>
@@ -41,6 +47,7 @@
   import { store, KEYS, api, $, $$, el, mockBanner } from "/js/common.js";
   import { FIELD_LABELS, SOURCE_LABELS } from "/lib/schema.js";
   import { computeMissing, getPath, setPath } from "/lib/verify.js";
+  import { buildAnswerInput } from "/js/answer-ui.js";
 
   const clue = store.sget(KEYS.clue);
   if (!clue) location.replace("/report");
@@ -63,11 +70,15 @@
     }
     save();
   }
+  // ✎ 수정: 눌러서 고르는 입력기 (글자 입력은 보충 칸에만)
   function edit(k) {
-    if (isBool(k)) { const a = prompt(`${FIELD_LABELS[k]}: 있음(1) / 없음(0) / 모름(비움)`, show(k) === "있음" ? "1" : show(k) === "없음" ? "0" : ""); if (a === null) return; setPath(clue, k, a.trim() === "1" ? true : a.trim() === "0" ? false : null); }
-    else { const a = prompt(FIELD_LABELS[k], getPath(clue, k) ?? ""); if (a === null) return; setPath(clue, k, a.trim() || null); }
-    if (clue.flags) delete clue.flags[k]; // 보호자가 직접 확인·수정한 값은 ⚠ 해제
-    renderFields();
+    const dlg = $("#edit-dialog");
+    $("#edit-title").textContent = FIELD_LABELS[k];
+    const ui = buildAnswerInput(k, $("#edit-body"), getPath(clue, k));
+    $("#edit-ok").onclick = () => { setPath(clue, k, ui.value()); if (clue.flags) delete clue.flags[k]; dlg.close(); renderFields(); };
+    $("#edit-clear").onclick = () => { setPath(clue, k, null); if (clue.flags) delete clue.flags[k]; dlg.close(); renderFields(); };
+    $("#edit-cancel").onclick = () => dlg.close();
+    dlg.showModal();
   }
   function renderPlaces() {
     const box = $("#places"); box.innerHTML = "";
@@ -101,16 +112,14 @@
     $("#ask-count").textContent = `되묻기 ${qi + 1} / ${questions.length} · ${FIELD_LABELS[q.key] ?? q.key}`;
     $("#ask-bar").style.width = `${(qi / questions.length) * 100}%`;
     $("#ask-q").textContent = q.question;
-    const box = $("#ask-input"); box.innerHTML = "";
-    if (isBool(q.key)) box.append(el("div", { class: "chips" }, el("button", { class: "chip", "data-v": "true", onclick: pickBool }, "있음"), el("button", { class: "chip", "data-v": "false", onclick: pickBool }, "없음")));
-    else box.append(el("input", { type: "text", id: "ask-text", placeholder: "답을 적어 주세요", autofocus: "" }));
-    $("#ask-text")?.focus();
+    askUI = buildAnswerInput(q.key, $("#ask-input"));
   }
-  function pickBool(e) { $$("#ask-input .chip").forEach((c) => c.setAttribute("aria-pressed", String(c === e.target))); }
+  let askUI = null;
   $("#ask-answer").onclick = () => {
     const q = questions[qi];
-    if (isBool(q.key)) { const c = $$("#ask-input .chip").find((x) => x.getAttribute("aria-pressed") === "true"); if (!c) return; setPath(clue, q.key, c.dataset.v === "true"); }
-    else { const v = $("#ask-text").value.trim(); if (!v) return; setPath(clue, q.key, v); }
+    const v = askUI?.value();
+    if (v === null || v === undefined) { alert("하나를 고르거나 적어 주세요. 모르면 [모름]을 누르세요."); return; }
+    setPath(clue, q.key, v);
     qi++; renderFields(); showQ();
   };
   $("#ask-unknown").onclick = () => { const q = questions[qi]; unknownKeys.add(q.key); if (!isBool(q.key)) setPath(clue, q.key, "모름"); qi++; renderFields(); showQ(); };

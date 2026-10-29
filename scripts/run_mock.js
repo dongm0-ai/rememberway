@@ -25,7 +25,7 @@ for (const c of cases) {
   const missing = computeMissing(flagged);
   let fu = [];
   try { fu = await askJSON(SYSTEM_FOLLOWUP, userFollowup(flagged, missing)); } catch (e) { fu = []; }
-  if (!Array.isArray(fu)) fu = Array.isArray(fu?.questions) ? fu.questions : (Object.values(fu ?? {}).find(Array.isArray) ?? []);
+  if (!Array.isArray(fu)) { const raw = fu; fu = Array.isArray(raw) ? raw : Array.isArray(raw?.questions) ? raw.questions : (raw && typeof raw === "object" && typeof raw.key === "string" && typeof raw.question === "string") ? [raw] : (Object.values(raw ?? {}).find(Array.isArray) ?? []); }
   const latency = Date.now() - t0;
   const hallucinated = (c.expected_null ?? []).filter((k) => { const v = getPath(flagged, k); return v !== null && v !== undefined; });
   const filled = Object.keys(c.expected_present ?? {}).filter((k) => { const v = getPath(flagged, k); return v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0); });

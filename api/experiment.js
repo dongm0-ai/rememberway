@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     const missing = computeMissing(flagged);
     let fu = [], fu_raw = null, fu_error = null;
     try { fu = await askJSON(SYSTEM_FOLLOWUP, userFollowup(flagged, missing)); fu_raw = fu; } catch (e) { fu = []; fu_error = `${e.reason ?? e.message}: ${String(e.detail ?? "").slice(0, 200)}`; }
-    if (!Array.isArray(fu)) fu = Array.isArray(fu?.questions) ? fu.questions : (Object.values(fu ?? {}).find(Array.isArray) ?? []);
+    if (!Array.isArray(fu)) { const raw = fu; fu = Array.isArray(raw) ? raw : Array.isArray(raw?.questions) ? raw.questions : (raw && typeof raw === "object" && typeof raw.key === "string" && typeof raw.question === "string") ? [raw] : (Object.values(raw ?? {}).find(Array.isArray) ?? []); }
     const hallucinated = (c.expected_null ?? []).filter((k) => { const v = getPath(flagged, k); return v !== null && v !== undefined; });
     const expected = Object.keys(c.expected_present ?? {});
     const filled = expected.filter((k) => { const v = getPath(flagged, k); return v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0); });

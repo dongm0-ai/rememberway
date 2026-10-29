@@ -189,7 +189,9 @@ export function tourOrder(home, candidates, matrix = null) {
 export function createMap(lib, el, center, rMax) {
   return engine === "naver" ? createNaverMap(lib, el, center, rMax) : createLeafletMap(lib, el, center, rMax);
 }
-// 핀 글자: c.pin — 동선 순서 번호("1"…), 갈림길 "✕", 동선에 없는 후보는 "·"(작은 회색 점). 이름을 핀에 붙이면 가까운 곳끼리 글자가 겹치므로 핀을 누르면 말풍선으로 뜬다.
+// 핀 글자: c.pin — 동선 순서 번호("1"…), 갈림길 "✕", 동선에 없는 후보는 "·"(작은 회색 점).
+// 이름표는 충분히 확대했을 때(줌 ≥ LABEL_ZOOM)만 핀 오른쪽에 붙이고, 화면 픽셀 기준으로 겹치는 이름표는 숨긴다 (번호 핀 → 점 → ✕ 순으로 우선). 핀을 누르면 언제나 말풍선으로 전체 이름.
+const LABEL_ZOOM = 16;
 const pinLabel = (c, i) => c.kind === "intersection" ? "✕" : (c.pin ?? String(i + 1));
 const pinHtml = (c, i) => {
   const lbl = pinLabel(c, i), isX = lbl === "✕", isDot = lbl === "·";
@@ -198,6 +200,25 @@ const pinHtml = (c, i) => {
 };
 const pinTitle = (c, i) => { const l = pinLabel(c, i); return l === "·" ? c.name : `${l}. ${c.name}`; };
 const pinAnchor = (c, i) => { const l = pinLabel(c, i); return l === "✕" ? 10 : l === "·" ? 8 : 14; };
+/** 이름표 글: "편의점: GS25 대전석교중앙점" → "편의점 GS25 대전석교중앙점" 를 14자로 */
+const shortName = (c) => { const t = c.name.replace(/\s*\(.*?\)\s*/g, "").replace(":", "").replace(/\s+/g, " ").trim(); return t.length > 14 ? t.slice(0, 13) + "…" : t; };
+const labelHtml = (c, i) => { const l = pinLabel(c, i); const bg = l === "✕" ? "#fff4d6" : "#fff"; return `<div style="padding:1px 7px;font-size:12px;font-weight:700;color:#1c1b1a;background:${bg};border:1px solid rgba(0,0,0,.25);border-radius:6px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25);line-height:16px">${shortName(c)}</div>`; };
+const labelW = (c) => { let w = 16; for (const ch of shortName(c)) w += ch.charCodeAt(0) > 0x7f ? 12 : 7; return w; };
+const labelPriority = (c, i) => { const l = pinLabel(c, i); return l === "✕" ? 2 : l === "·" ? 1 : 0; };
+/** 겹침 검사: items [{c,i,px,py}] (px,py = 핀 중심 화면 픽셀). 보이게 할 항목의 index 집합을 돌려준다 */
+function pickVisibleLabels(items) {
+  const placed = [], show = new Set();
+  const order = items.map((it, k) => ({ ...it, k })).sort((a, b) => labelPriority(a.c, a.i) - labelPriority(b.c, b.i) || a.i - b.i);
+  const pinBoxes = items.map((it) => { const a = pinAnchor(it.c, it.i); return { x1: it.px - a, y1: it.py - a, x2: it.px + a, y2: it.py + a }; });
+  const hit = (r, q) => !(r.x2 < q.x1 || r.x1 > q.x2 || r.y2 < q.y1 || r.y1 > q.y2);
+  for (const it of order) {
+    const a = pinAnchor(it.c, it.i), w = labelW(it.c), h = 20;
+    const r = { x1: it.px + a + 2, y1: it.py - h / 2, x2: it.px + a + 2 + w, y2: it.py + h / 2 };
+    if (placed.some((q) => hit(r, q)) || pinBoxes.some((q, k) => k !== it.k && hit(r, q))) continue; // 다른 이름표나 다른 핀과 겹치면 숨김
+    placed.push(r); show.add(it.k);
+  }
+  return show;
+}
 
 function createLeafletMap(L, el, center, rMax) {
   const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([center.lat, center.lng], 15);
@@ -207,21 +228,37 @@ function createLeafletMap(L, el, center, rMax) {
   if (rMax) circle = L.circle([center.lat, center.lng], { radius: rMax, color: "#1f5a95", weight: 2, opacity: .6, fillColor: "#1f5a95", fillOpacity: .06 }).addTo(map);
   L.marker([center.lat, center.lng], { title: "집·마지막 본 곳" }).addTo(map).bindTooltip("집", { permanent: true, direction: "top" });
   const layer = L.layerGroup().addTo(map);
+  const labelLayer = L.layerGroup().addTo(map);
   const routeLayer = L.layerGroup().addTo(map);
+  let current = [];
+  function updateLabels() {
+    labelLayer.clearLayers();
+    if (map.getZoom() < LABEL_ZOOM) return;
+    const items = current.map(({ c, i }) => { const p = map.latLngToContainerPoint([c.lat, c.lng]); return { c, i, px: p.x, py: p.y }; });
+    const show = pickVisibleLabels(items);
+    items.forEach((it, k) => {
+      if (!show.has(k)) return;
+      const a = pinAnchor(it.c, it.i);
+      L.marker([it.c.lat, it.c.lng], { icon: L.divIcon({ className: "", html: labelHtml(it.c, it.i), iconSize: null, iconAnchor: [-(a + 2), 10] }), interactive: false }).addTo(labelLayer);
+    });
+  }
+  map.on("zoomend moveend", updateLabels);
   return {
     map, circle,
     setMarkers(list) {
-      layer.clearLayers();
+      layer.clearLayers(); current = [];
       const pts = [[center.lat, center.lng]];
       list.forEach((c, i) => {
         if (!c.lat) return;
         const a = pinAnchor(c, i);
         const icon = L.divIcon({ className: "", html: pinHtml(c, i), iconSize: [a * 2, a * 2], iconAnchor: [a, a] });
         L.marker([c.lat, c.lng], { icon }).addTo(layer).bindTooltip(pinTitle(c, i), { direction: "right", offset: [a, 0] });
+        current.push({ c, i });
         if (c.kind !== "intersection" && pinLabel(c, i) !== "·") pts.push([c.lat, c.lng]); // 화면 맞춤은 동선 핀 기준 (회색 점은 제외)
       });
       if (pts.length > 1) map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
       else if (circle) map.fitBounds(circle.getBounds(), { padding: [10, 10] });
+      updateLabels();
     },
     setRoute(geometry) {
       routeLayer.clearLayers();
@@ -236,26 +273,40 @@ function createNaverMap(naver, el, center, rMax) {
   let circle = null;
   if (rMax) circle = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: rMax, strokeColor: "#1f5a95", strokeWeight: 2, strokeOpacity: .6, fillColor: "#1f5a95", fillOpacity: .06 });
   new M.Marker({ map, position: new M.LatLng(center.lat, center.lng), icon: { content: '<div style="background:#fff;border:2px solid #1f5a95;border-radius:999px;padding:2px 8px;font-weight:800;font-size:13px;color:#1c1b1a">집</div>', anchor: new M.Point(14, 14) } });
-  let markers = [], route = null;
+  let markers = [], labels = [], route = null, current = [];
   const info = new M.InfoWindow({ borderWidth: 1, backgroundColor: "#fff", anchorSize: new M.Size(10, 10) });
   M.Event.addListener(map, "click", () => info.close());
+  function updateLabels() {
+    labels.forEach((m) => m.setMap(null)); labels = [];
+    if (map.getZoom() < LABEL_ZOOM) return;
+    const proj = map.getProjection();
+    const items = current.map(({ c, i }) => { const p = proj.fromCoordToOffset(new M.LatLng(c.lat, c.lng)); return { c, i, px: p.x, py: p.y }; });
+    const show = pickVisibleLabels(items);
+    items.forEach((it, k) => {
+      if (!show.has(k)) return;
+      const a = pinAnchor(it.c, it.i);
+      labels.push(new M.Marker({ map, position: new M.LatLng(it.c.lat, it.c.lng), icon: { content: labelHtml(it.c, it.i), anchor: new M.Point(-(a + 2), 10) }, clickable: false, zIndex: 50 }));
+    });
+  }
+  M.Event.addListener(map, "idle", updateLabels);
   return {
     map, circle,
     setMarkers(list) {
-      markers.forEach((m) => m.setMap(null)); markers = []; info.close();
+      markers.forEach((m) => m.setMap(null)); markers = []; current = []; info.close();
       const bounds = new M.LatLngBounds(new M.LatLng(center.lat, center.lng), new M.LatLng(center.lat, center.lng));
       let any = false;
       list.forEach((c, i) => {
         if (!c.lat) return;
         const pos = new M.LatLng(c.lat, c.lng);
         const a = pinAnchor(c, i);
-        const mk = new M.Marker({ map, position: pos, icon: { content: pinHtml(c, i), anchor: new M.Point(a, a) }, title: c.name });
+        const mk = new M.Marker({ map, position: pos, icon: { content: pinHtml(c, i), anchor: new M.Point(a, a) }, title: c.name, zIndex: 100 });
         M.Event.addListener(mk, "click", () => { info.setContent(`<div style="padding:6px 10px;font-size:14px;font-weight:700;color:#1c1b1a;white-space:nowrap">${pinTitle(c, i)}</div>`); info.open(map, mk); });
-        markers.push(mk);
+        markers.push(mk); current.push({ c, i });
         if (c.kind !== "intersection" && pinLabel(c, i) !== "·") { bounds.extend(pos); any = true; } // 화면 맞춤은 동선 핀 기준
       });
       if (any) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 });
       else if (circle) map.fitBounds(circle.getBounds());
+      updateLabels();
     },
     setRoute(geometry) {
       if (route) { route.setMap(null); route = null; }

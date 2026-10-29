@@ -1,4 +1,4 @@
-/* REMEMBER WAY AI — 모바일 폭 기준. 급한 상황에서 읽히도록 글자 크게, 색은 적게. */
+/* REMEMBER WAY AI — 모바일 폭 기준으로 만들고, 넓은 화면(PC·태블릿)에서는 폭을 넓히고 지도를 크게 (반응형). 급한 상황에서 읽히도록 글자 크게, 색은 적게. */
 :root {
   --bg: #f6f5f2; --card: #ffffff; --ink: #1c1b1a; --muted: #5f5c57; --line: #e2dfd9;
   --accent: #1f5a95; --accent-ink: #ffffff; --alert: #b3261e; --alert-bg: #fdecea; --warn-bg: #fff4d6; --warn: #8a5a00;
@@ -106,3 +106,25 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .leaflet-control-zoom a { background: #fff; color: #1c1b1a; }
 .leaflet-control-attribution { background: rgba(255,255,255,.85); color: #333; }
 .leaflet-control-attribution a { color: #1f5a95; }
+
+/* 모바일에서는 지도가 글 사이에 오도록: col-map 을 "확인할 곳" 위로 올린다 */
+.cols { display: flex; flex-direction: column; }
+.cols .col-map { order: -1; }
+@media (min-width: 1100px) { .cols .col-map { order: 0; } }
+
+/* ---------- 넓은 화면 (PC·태블릿 가로) ---------- */
+@media (min-width: 760px) {
+  :root { --max: 720px; }
+  #map { height: 420px; }
+}
+@media (min-width: 1100px) {
+  :root { --max: 1120px; }
+  main { padding: 24px 32px 110px; }
+  /* 요약 화면: 왼쪽 글·오른쪽 지도 두 칸 */
+  .cols { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(520px, 1.3fr); gap: 28px; align-items: start; }
+  .cols .col-map { position: sticky; top: 16px; }
+  .cols .col-map .map-title { margin-top: 20px; }
+  .cols #map { height: min(72vh, 820px); }
+  .fixed-bottom .inner { max-width: var(--max); display: flex; justify-content: flex-end; }
+  .fixed-bottom .inner .btn { width: 360px; }
+}

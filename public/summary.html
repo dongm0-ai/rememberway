@@ -12,6 +12,8 @@
   <div class="topbar"><a class="back" href="/confirm">← 단서 수정</a><span class="step">화면 3 / 3 · 요약·지도</span></div>
   <div class="alert">아직 신고 전이라면 지금 <a href="tel:112">112</a>. 아래 요약을 그대로 읽어 주면 됩니다.</div>
 
+  <div class="cols">
+  <div class="col-text">
   <h2>경찰에 전달할 요약</h2>
   <pre class="summary" id="summary"></pre>
   <div class="row"><button class="btn-primary" id="copy">복사</button><button class="btn-secondary" id="share">공유</button></div>
@@ -21,8 +23,6 @@
   <ol id="steps" class="card" style="margin:0;padding-left:34px"></ol>
 
   <h2>확인할 곳</h2>
-  <div id="map">지도 불러오는 중…</div>
-  <p class="small muted" id="map-note"></p>
   <div class="card">
     <p class="small" style="margin-top:0"><b>어르신은 목적지에 도착하지 못하고 가는 길에서 발견되는 경우가 많습니다. 이 지도는 보호자가 말한 것을 정리한 것입니다.</b></p>
     <p class="small muted">이동 가능 반경(직선): <b id="rmax"></b> = 경과 <span id="elapsed"></span>분 × 걸음 속도 <span id="speed"></span>m/s</p>
@@ -40,6 +40,15 @@
     <table style="margin-top:8px"><thead><tr><th>요소</th><th class="num">점수</th></tr></thead><tbody id="weights"></tbody></table>
     <p class="small muted">임의 설정, 실험으로 조정. 점수가 같으면 가까운 곳 먼저. 이 순서는 코드(규칙)가 정하고 AI는 관여하지 않습니다. 위치를 예측하는 것이 아닙니다.</p>
   </details>
+  </div>
+
+  <div class="col-map">
+    <h2 class="map-title">지도 · 번호는 들르는 순서, ✕는 갈림길</h2>
+    <div id="map">지도 불러오는 중…</div>
+    <p class="small muted" id="map-note"></p>
+    <p class="small muted" style="margin-top:0">확대하면 핀 옆에 가게 이름이 보입니다 (겹치는 이름은 숨김). 핀을 누르면 전체 이름.</p>
+  </div>
+  </div>
 
   <div class="fixed-bottom"><div class="inner"><a class="btn btn-primary" href="/record" id="found">찾았어요 → 기록하기</a></div></div>
 </main>

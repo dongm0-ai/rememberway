@@ -207,17 +207,19 @@ const labelW = (c) => { let w = 16; for (const ch of shortName(c)) w += ch.charC
 const labelPriority = (c, i) => { const l = pinLabel(c, i); return l === "✕" ? 2 : l === "·" ? 1 : 0; };
 /** 겹침 검사: items [{c,i,px,py}] (px,py = 핀 중심 화면 픽셀). 보이게 할 항목의 index 집합을 돌려준다 */
 function pickVisibleLabels(items) {
-  const placed = [], show = new Set();
+  const placed = [], show = new Map();
   const order = items.map((it, k) => ({ ...it, k })).sort((a, b) => labelPriority(a.c, a.i) - labelPriority(b.c, b.i) || a.i - b.i);
   const pinBoxes = items.map((it) => { const a = pinAnchor(it.c, it.i); return { x1: it.px - a, y1: it.py - a, x2: it.px + a, y2: it.py + a }; });
   const hit = (r, q) => !(r.x2 < q.x1 || r.x1 > q.x2 || r.y2 < q.y1 || r.y1 > q.y2);
   for (const it of order) {
     const a = pinAnchor(it.c, it.i), w = labelW(it.c), h = 20;
-    const r = { x1: it.px + a + 2, y1: it.py - h / 2, x2: it.px + a + 2 + w, y2: it.py + h / 2 };
-    if (placed.some((q) => hit(r, q)) || pinBoxes.some((q, k) => k !== it.k && hit(r, q))) continue; // 다른 이름표나 다른 핀과 겹치면 숨김
-    placed.push(r); show.add(it.k);
+    const right = { x1: it.px + a + 2, y1: it.py - h / 2, x2: it.px + a + 2 + w, y2: it.py + h / 2 };
+    const left = { x1: it.px - a - 2 - w, y1: it.py - h / 2, x2: it.px - a - 2, y2: it.py + h / 2 };
+    const free = (r) => !placed.some((q) => hit(r, q)) && !pinBoxes.some((q, k) => k !== it.k && hit(r, q)); // 다른 이름표·다른 핀과 겹치지 않을 때만
+    if (free(right)) { placed.push(right); show.set(it.k, "right"); }
+    else if (free(left)) { placed.push(left); show.set(it.k, "left"); }
   }
-  return show;
+  return show; // Map(index → "right"|"left")
 }
 
 function createLeafletMap(L, el, center, rMax) {
@@ -238,8 +240,8 @@ function createLeafletMap(L, el, center, rMax) {
     const show = pickVisibleLabels(items);
     items.forEach((it, k) => {
       if (!show.has(k)) return;
-      const a = pinAnchor(it.c, it.i);
-      L.marker([it.c.lat, it.c.lng], { icon: L.divIcon({ className: "", html: labelHtml(it.c, it.i), iconSize: null, iconAnchor: [-(a + 2), 10] }), interactive: false }).addTo(labelLayer);
+      const a = pinAnchor(it.c, it.i), ax = show.get(k) === "left" ? labelW(it.c) + a + 2 : -(a + 2);
+      L.marker([it.c.lat, it.c.lng], { icon: L.divIcon({ className: "", html: labelHtml(it.c, it.i), iconSize: null, iconAnchor: [ax, 10] }), interactive: false }).addTo(labelLayer);
     });
   }
   map.on("zoomend moveend", updateLabels);
@@ -284,8 +286,8 @@ function createNaverMap(naver, el, center, rMax) {
     const show = pickVisibleLabels(items);
     items.forEach((it, k) => {
       if (!show.has(k)) return;
-      const a = pinAnchor(it.c, it.i);
-      labels.push(new M.Marker({ map, position: new M.LatLng(it.c.lat, it.c.lng), icon: { content: labelHtml(it.c, it.i), anchor: new M.Point(-(a + 2), 10) }, clickable: false, zIndex: 50 }));
+      const a = pinAnchor(it.c, it.i), ax = show.get(k) === "left" ? labelW(it.c) + a + 2 : -(a + 2);
+      labels.push(new M.Marker({ map, position: new M.LatLng(it.c.lat, it.c.lng), icon: { content: labelHtml(it.c, it.i), anchor: new M.Point(ax, 10) }, clickable: false, zIndex: 50 }));
     });
   }
   M.Event.addListener(map, "idle", updateLabels);

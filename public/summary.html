@@ -82,10 +82,19 @@
     if (!ranked.length) box.append(el("li", {}, el("span"), el("span", { class: "muted" }, "확인할 곳이 없어요. 화면 2에서 가실 만한 곳을 추가하세요.")));
     ranked.forEach((c, i) => box.append(el("li", {},
       el("span", { class: "n" }, i + 1),
-      el("div", {}, el("div", {}, c.name, " ", el("span", { class: "small muted" }, fmtM(c.distance_m))), el("div", { class: "why" }, c.reason)),
+      el("div", {}, el("div", {}, c.name, " ", el("span", { class: "small muted" }, fmtM(c.distance_m))), el("div", { class: "why" }, c.reason), navLinks(c)),
       el("div", {}, el("div", { class: "pts" }, `${c.score > 0 ? "+" : ""}${c.score}점`), el("button", { class: "edit", onclick: () => { checked.add(c.name); renderRank(); drawMarkers(); } }, "가 봤어요")))));
     const steps = actionSteps(clue.items?.phone, ranked);
     $("#steps").innerHTML = ""; steps.forEach((s) => $("#steps").append(el("li", { style: "margin:6px 0" }, s)));
+  }
+  // 네이버·구글 지도 앱으로 바로 열기 (키·계정 불필요). 좌표가 있으면 도보 길찾기, 없으면 이름 검색
+  function navLinks(c) {
+    const q = encodeURIComponent(c.name.replace(/\s*\(.*?\)\s*/g, "").split(":").pop().trim());
+    const naver = c.lat ? `https://map.naver.com/p/directions/-/${c.lng},${c.lat},${q}/-/walk` : `https://map.naver.com/p/search/${q}`;
+    const google = c.lat ? `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}&travelmode=walking` : `https://www.google.com/maps/search/?api=1&query=${q}`;
+    return el("div", { class: "small", style: "margin-top:4px;display:flex;gap:10px" },
+      el("a", { href: naver, target: "_blank", rel: "noopener" }, "네이버 지도로 길찾기"),
+      el("a", { href: google, target: "_blank", rel: "noopener" }, "구글 지도"));
   }
   renderRank();
 

@@ -218,7 +218,7 @@ function createLeafletMap(L, el, center, rMax) {
         const a = pinAnchor(c, i);
         const icon = L.divIcon({ className: "", html: pinHtml(c, i), iconSize: [a * 2, a * 2], iconAnchor: [a, a] });
         L.marker([c.lat, c.lng], { icon }).addTo(layer).bindTooltip(pinTitle(c, i), { direction: "right", offset: [a, 0] });
-        if (c.kind !== "intersection") pts.push([c.lat, c.lng]);
+        if (c.kind !== "intersection" && pinLabel(c, i) !== "·") pts.push([c.lat, c.lng]); // 화면 맞춤은 동선 핀 기준 (회색 점은 제외)
       });
       if (pts.length > 1) map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
       else if (circle) map.fitBounds(circle.getBounds(), { padding: [10, 10] });
@@ -252,7 +252,7 @@ function createNaverMap(naver, el, center, rMax) {
         const mk = new M.Marker({ map, position: pos, icon: { content: pinHtml(c, i), anchor: new M.Point(a, a) }, title: c.name });
         M.Event.addListener(mk, "click", () => { info.setContent(`<div style="padding:6px 10px;font-size:14px;font-weight:700;color:#1c1b1a;white-space:nowrap">${pinTitle(c, i)}</div>`); info.open(map, mk); });
         markers.push(mk);
-        if (c.kind !== "intersection") { bounds.extend(pos); any = true; }
+        if (c.kind !== "intersection" && pinLabel(c, i) !== "·") { bounds.extend(pos); any = true; } // 화면 맞춤은 동선 핀 기준
       });
       if (any) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 });
       else if (circle) map.fitBounds(circle.getBounds());

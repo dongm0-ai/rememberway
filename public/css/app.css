@@ -4,7 +4,7 @@
 :root {
   --bg: #ffffff; --card: #ffffff; --ink: #212121; --muted: #808080; --line: #e8e8e8; --soft: #f9f9f9;
   --accent: #5f0080; --accent-ink: #ffffff; --accent-soft: #f3e8f7; --alert: #c62828; --alert-bg: #fdecea; --warn-bg: #fff4d6; --warn: #8a5a00;
-  --ok: #1e6b3a; --ok-bg: #e6f4ea; --dark: #212121; --radius: 16px; --pill: 40px; --max: 480px;
+  --ok: #1e6b3a; --ok-bg: #e6f4ea; --dark: #212121; --radius: 16px; --pill: 999px; --max: 480px;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #121212; --card: #1b1b1b; --ink: #f2f2f2; --muted: #a3a3a3; --line: #2e2e2e; --soft: #181818; --accent: #c48be0; --accent-ink: #1a0426; --accent-soft: #2a1733; --alert-bg: #3a1714; --alert: #ff8a80; --warn-bg: #3a2c08; --warn: #ffd37a; --ok-bg: #11301c; --ok: #8fd4a6; --dark: #f2f2f2; }
@@ -104,7 +104,7 @@ pre.summary { white-space: pre-wrap; font: inherit; font-size: 15px; background:
 .hero .hero-sub { font-size: 14px; opacity: .8; margin: 0; line-height: 1.5; }
 .hero .hero-desc { font-size: 15px; opacity: .9; margin: 0; }
 .home-grid { display: grid; gap: 12px; margin-top: 18px; }
-.home-grid .btn { justify-content: flex-start; text-align: left; padding: 18px 22px; border-radius: 20px; }
+.home-grid .btn { justify-content: flex-start; text-align: left; padding: 18px 26px; }
 .home-grid .btn small { display: block; font-weight: 500; font-size: 14px; opacity: .85; }
 .footer-note { font-size: 13px; color: var(--muted); margin-top: 24px; }
 ul.plain { padding-left: 20px; margin: 6px 0; }

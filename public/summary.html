@@ -56,7 +56,7 @@
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary } from "/lib/priority.js";
-  import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, setHomeLabel } from "/js/map.js";
+  import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, EXACT_LIMIT, setHomeLabel } from "/js/map.js";
 
   const clue = store.sget(KEYS.clue);
   if (!clue) location.replace("/report");
@@ -181,7 +181,7 @@
       acc += route.legs[i]?.distance_m ?? 0;
       box.append(el("li", {}, el("span", { class: "n" }, i + 1), el("div", {}, el("div", {}, c.name), el("div", { class: "why" }, `집에서 걸어서 누적 ${fmtM(acc)} · 약 ${Math.round(acc / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분`)), el("div", { class: "pts" }, fmtM(route.legs[i]?.distance_m))));
     });
-    $("#tour-total").textContent = `전체 ${fmtM(route.distance_m)}, 걸어서 약 ${Math.round(route.distance_m / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분 (${mode.gait === "slow" ? "느린" : mode.gait === "fast" ? "빠른" : "보통"} 걸음 기준). 점수 높은 곳부터, 같은 점수끼리는 ${matrix ? "도보 거리표" : "직선거리"} 기준 최단으로 순서를 정했습니다. 경로는 공개 길찾기 서버(OSRM) 결과라 골목길이 빠질 수 있어 참고용입니다.`;
+    $("#tour-total").textContent = `전체 ${fmtM(route.distance_m)}, 걸어서 약 ${Math.round(route.distance_m / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분 (${mode.gait === "slow" ? "느린" : mode.gait === "fast" ? "빠른" : "보통"} 걸음 기준). 점수 높은 곳부터, 같은 점수끼리는 ${matrix ? "도보 거리표" : "직선거리"} 기준 ${top.length > EXACT_LIMIT ? "근사(후보가 많아 정확한 최단은 아닐 수 있음)" : "정확한 최단"}으로 순서를 정했습니다. 경로는 공개 길찾기 서버(OSRM) 결과라 골목길이 빠질 수 있어 참고용입니다.`;
   }
 
   // "찾았어요" → 사건 기록으로 (현재 단서를 보관)

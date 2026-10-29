@@ -134,6 +134,7 @@
     const expanded = [];
     for (const p of places) {
       if (p.lat && p.lng) continue;
+      if (checked.has(p.name)) continue; // 오늘 가려던 곳은 이미 확인한 것으로 보고 근처 가게로 펼치지 않는다
       if (home && isGeneric(p.name)) {
         const found = await findNearby(p.name, home, Math.min(rMax, 2000), 3);
         p.skip = true; // 종류만 말한 곳은 이름 검색으로 엉뚱한 먼 곳이 잡히므로, 근처 가게로만 바꾸거나 "못 찾음"으로 둔다

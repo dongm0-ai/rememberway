@@ -27,8 +27,8 @@ export default async function handler(req, res) {
     if (!clue) { results.push({ id: c.id, title: c.title, error: "BAD_JSON" }); continue; }
     const flagged = flagHallucinations(clue, c.utterance, c.registered ? JSON.stringify(c.registered) : undefined);
     const missing = computeMissing(flagged);
-    let fu = [];
-    try { fu = await askJSON(SYSTEM_FOLLOWUP, userFollowup(flagged, missing)); } catch { fu = []; }
+    let fu = [], fu_raw = null, fu_error = null;
+    try { fu = await askJSON(SYSTEM_FOLLOWUP, userFollowup(flagged, missing)); fu_raw = fu; } catch (e) { fu = []; fu_error = `${e.reason ?? e.message}: ${String(e.detail ?? "").slice(0, 200)}`; }
     if (!Array.isArray(fu)) fu = Array.isArray(fu?.questions) ? fu.questions : (Object.values(fu ?? {}).find(Array.isArray) ?? []);
     const hallucinated = (c.expected_null ?? []).filter((k) => { const v = getPath(flagged, k); return v !== null && v !== undefined; });
     const expected = Object.keys(c.expected_present ?? {});
@@ -38,7 +38,7 @@ export default async function handler(req, res) {
       filled: `${filled.length}/${expected.length}`, filled_missing: expected.filter((k) => !filled.includes(k)),
       hallucinated_keys: hallucinated, unverified_flags: Object.keys(flagged.flags ?? {}),
       followup_first: fu?.[0]?.key ?? null, followup_first_ok: (fu?.[0]?.key ?? null) === c.expected_followup_first, expected_followup_first: c.expected_followup_first,
-      followup_count: Array.isArray(fu) ? fu.length : 0, clue: flagged, followup: fu,
+      followup_count: Array.isArray(fu) ? fu.length : 0, clue: flagged, followup: fu, fu_raw, fu_error,
     });
   }
   res.end(JSON.stringify({ ok: true, provider: activeProvider(), model: isMock() ? "MOCK(실제 AI 아님)" : currentModel(), ran_at: new Date().toISOString(), results }, null, 2));

@@ -76,6 +76,7 @@
   if (clue.today_destination && !places.some((p) => p.name === clue.today_destination)) places.push({ name: clue.today_destination, source: "guardian", evidence: "오늘 가려던 곳" });
   let ranked = [];
   var intersections = [];
+  let tourNames = []; // 동선 순서(지도 핀 번호의 기준). buildTour 에서 채운다
   function renderRank() {
     ranked = rankCandidates(places, intersections ?? [], rMax, [...checked]);
     applyPins();
@@ -100,7 +101,7 @@
   renderRank();
 
   // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim, 도보 경로·교차로는 OSRM.
-  let view = null, tour = null, tourNames = []; // tourNames: 동선 순서(핀 번호의 기준)
+  let view = null, tour = null;
   const cfg = await loadConfig();
   const L = await loadMap(cfg.map ?? {});
   if (!L) {

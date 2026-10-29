@@ -15,21 +15,30 @@ const hav = (a, b, c, d) => { const R = 6371000, t = (x) => (x * Math.PI) / 180;
 
 export default async function handler(req, res) {
   res.setHeader("content-type", "application/json; charset=utf-8");
-  res.setHeader("cache-control", "public, max-age=600");
+  res.setHeader("cache-control", "no-store"); // 성공했을 때만 아래에서 캐시 허용
   const u = new URL(req.url, "http://x");
   const kind = (u.searchParams.get("kind") || "").replace(/\s+/g, ""), lat = Number(u.searchParams.get("lat")), lng = Number(u.searchParams.get("lng"));
   const r = Math.min(Number(u.searchParams.get("r") || 1500), 3000), n = Math.min(Number(u.searchParams.get("n") || 3), 5);
   const tags = KIND_TAGS[kind];
   if (!tags || !Number.isFinite(lat) || !Number.isFinite(lng)) return res.end(JSON.stringify({ ok: false, reason: "BAD_INPUT", kinds: Object.keys(KIND_TAGS) }));
   const q = `[out:json][timeout:10];(${tags.map((t) => { const [k, v] = t.split("="); return `nwr["${k}"="${v}"](around:${Math.round(r)},${lat},${lng});`; }).join("")});out center ${n * 5};`;
+  // 공개 Overpass 서버 두 곳을 차례로 시도 (느리거나 막히면 다음)
+  const MIRRORS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+  let data = null, lastErr = null;
+  for (const base of MIRRORS) {
+    try {
+      const rr = await fetch(base + "?data=" + encodeURIComponent(q), { headers: { "user-agent": "rememberway-ai (school project; dongm0-ai on github)" }, signal: AbortSignal.timeout(20000) });
+      if (!rr.ok) { lastErr = `UPSTREAM ${rr.status}`; continue; }
+      data = await rr.json(); break;
+    } catch (e) { lastErr = String(e.message ?? e).slice(0, 120); }
+  }
+  if (!data) return res.end(JSON.stringify({ ok: false, reason: "AI_UNAVAILABLE", detail: lastErr }));
   try {
-    const rr = await fetch("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q), { headers: { "user-agent": "rememberway-ai (school project; dongm0-ai on github)" }, signal: AbortSignal.timeout(12000) });
-    if (!rr.ok) return res.end(JSON.stringify({ ok: false, reason: "UPSTREAM", status: rr.status }));
-    const data = await rr.json();
     const seen = new Set();
     const places = (data.elements ?? []).map((e) => ({ lat: e.lat ?? e.center?.lat, lng: e.lon ?? e.center?.lon, found_name: e.tags?.["name:ko"] || e.tags?.name || `(이름 없는 ${kind})`, category: kind }))
       .filter((x) => x.lat && x.lng).map((x) => ({ ...x, distance_m: hav(lat, lng, x.lat, x.lng) })).sort((a, b) => a.distance_m - b.distance_m)
       .filter((x) => (seen.has(x.found_name) ? false : seen.add(x.found_name))).slice(0, n);
+    res.setHeader("cache-control", "public, max-age=600");
     res.end(JSON.stringify({ ok: true, kind, places }));
   } catch (e) {
     res.end(JSON.stringify({ ok: false, reason: "AI_UNAVAILABLE", detail: String(e.message ?? e).slice(0, 120) }));

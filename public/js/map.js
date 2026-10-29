@@ -61,7 +61,18 @@ export async function findPlace(name, near, limit = 1) {
 /** "카페", "편의점"처럼 종류만 말한 곳 → 집 반경 안 실제 가게 (서버 함수 /api/nearby 가 OSM Overpass를 대신 호출). 최대 n곳, 가까운 순 */
 const GENERIC_KINDS = ["카페","커피숍","커피","편의점","슈퍼","마트","세탁소","무인세탁","무인세탁실","세탁","빨래방","약국","병원","의원","시장","경로당","노인정","교회","성당","절","공원","은행","우체국","목욕탕","사우나","미용실","이발소","정류장","버스정류장","지하철역","역","학교","놀이터","주민센터","복지관"];
 export function isGeneric(name) { return GENERIC_KINDS.includes(name.replace(/\s+/g, "")); }
+let homeLabel = ""; // 네이버 검색어에 붙일 동 이름 ("대전 중구 석교동")
+export function setHomeLabel(s) { homeLabel = s || ""; }
+async function naverSearch(q, near, n) {
+  try {
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}&lat=${near?.lat ?? ""}&lng=${near?.lng ?? ""}&n=${n}`, { signal: AbortSignal.timeout(10000) });
+    const d = await r.json();
+    return d.ok ? d.places : null; // null = 설정 없음/실패 → 다른 방법으로
+  } catch { return null; }
+}
 export async function findNearby(kind, home, radiusM = 1500, n = 3) {
+  const nv = await naverSearch(`${homeLabel} ${kind}`.trim(), home, n);
+  if (nv && nv.length) return nv.filter((p) => !p.distance_m || p.distance_m <= Math.max(radiusM, 2000));
   try {
     const r = await fetch(`/api/nearby?kind=${encodeURIComponent(kind)}&lat=${home.lat}&lng=${home.lng}&r=${Math.round(radiusM)}&n=${n}`, { signal: AbortSignal.timeout(15000) });
     const d = await r.json();
@@ -71,6 +82,9 @@ export async function findNearby(kind, home, radiusM = 1500, n = 3) {
 
 /** 이름으로 못 찾으면 더 단순한 이름으로 다시: "삼성동 옛 동네" → "삼성동", "중앙시장 정육점" → "중앙시장" */
 export async function findPlaceLoose(name, near) {
+  // 네이버 검색이 설정돼 있으면 가게·시설 이름은 거기가 훨씬 정확 ("석교동 경로당", "중앙시장 ○○정육점")
+  const nv = await naverSearch(name.includes(" ") || !homeLabel ? name : `${homeLabel.split(/\s+/).slice(-1)[0]} ${name}`, near, 1);
+  if (nv && nv.length) return { ...nv[0], approx: false };
   const direct = await findPlace(name, near);
   if (direct) return { ...direct, approx: false };
   const tokens = name.split(/\s+/).filter(Boolean);

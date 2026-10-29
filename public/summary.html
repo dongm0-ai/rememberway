@@ -47,7 +47,7 @@
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary } from "/lib/priority.js";
-  import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, tourOrder } from "/js/map.js";
+  import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, tourOrder, setHomeLabel } from "/js/map.js";
 
   const clue = store.sget(KEYS.clue);
   if (!clue) location.replace("/report");
@@ -107,6 +107,7 @@
     $("#map-note").textContent = "거리를 알 수 없어 점수에 반경을 반영하지 못했습니다.";
   } else {
     const homeName = profile?.home_dong || clue.last_seen?.place;
+    setHomeLabel(profile?.home_dong || "");
     const home = homeName ? await findHome(homeName) : null;
     const center = home ?? { lat: 36.3504, lng: 127.3845 };
     $("#map").textContent = "";

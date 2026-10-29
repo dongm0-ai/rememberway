@@ -107,10 +107,12 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .leaflet-control-attribution { background: rgba(255,255,255,.85); color: #333; }
 .leaflet-control-attribution a { color: #1f5a95; }
 
-/* 모바일에서는 지도가 글 사이에 오도록: col-map 을 "확인할 곳" 위로 올린다 */
+/* 모바일(한 칸): 두 칸을 풀어서 한 줄로 세우고, 지도를 "지금 할 일" 다음·"확인할 곳" 앞에 둔다 */
 .cols { display: flex; flex-direction: column; }
-.cols .col-map { order: -1; }
-@media (min-width: 1100px) { .cols .col-map { order: 0; } }
+.cols .col-text, .cols .col-map { display: contents; }
+.cols .col-map > * { order: 1; }
+.cols .after-map { order: 2; }
+@media (min-width: 1100px) { .cols .col-text, .cols .col-map { display: block; } .cols .col-map > *, .cols .after-map { order: 0; } }
 
 /* ---------- 넓은 화면 (PC·태블릿 가로) ---------- */
 @media (min-width: 760px) {

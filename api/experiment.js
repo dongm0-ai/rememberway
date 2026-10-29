@@ -3,7 +3,7 @@
 // 모의 사례는 전부 가명·가짜 주소. 호출량 제한·출처 검사는 다른 API와 같다.
 import fs from "node:fs";
 import path from "node:path";
-import { askJSON, currentModel, PROVIDER, isMock, hasKey } from "../lib/claude.js";
+import { askJSON, currentModel, activeProvider, isMock, hasKey } from "../lib/claude.js";
 import { SYSTEM_EXTRACT, userExtract, SYSTEM_FOLLOWUP, userFollowup } from "../lib/prompts.js";
 import { coerceClue, flagHallucinations, computeMissing, getPath } from "../public/lib/verify.js";
 
@@ -40,5 +40,5 @@ export default async function handler(req, res) {
       followup_count: Array.isArray(fu) ? fu.length : 0, clue: flagged, followup: fu,
     });
   }
-  res.end(JSON.stringify({ ok: true, provider: PROVIDER, model: isMock() ? "MOCK(실제 AI 아님)" : currentModel(), ran_at: new Date().toISOString(), results }, null, 2));
+  res.end(JSON.stringify({ ok: true, provider: activeProvider(), model: isMock() ? "MOCK(실제 AI 아님)" : currentModel(), ran_at: new Date().toISOString(), results }, null, 2));
 }

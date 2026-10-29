@@ -1,5 +1,6 @@
 // GET /api/models — 현재 키로 쓸 수 있는 Gemini 모델 목록 (기획안 5쪽 모델 비교·모델명 확인용). 키 값은 내보내지 않는다.
-import { PROVIDER, hasKey, currentModel, geminiBody } from "../lib/claude.js";
+import { activeProvider, hasKey, currentModel, geminiBody } from "../lib/claude.js";
+const PROVIDER = activeProvider();
 
 export default async function handler(req, res) {
   res.setHeader("content-type", "application/json; charset=utf-8");

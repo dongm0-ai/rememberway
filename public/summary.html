@@ -38,12 +38,12 @@
   </div>
   <details class="card tight after-map"><summary class="small"><b>우선 확인 순서는 어떻게 정하나요?</b> (가중치 공개)</summary>
     <table style="margin-top:8px"><thead><tr><th>요소</th><th class="num">점수</th></tr></thead><tbody id="weights"></tbody></table>
-    <p class="small muted">임의 설정, 실험으로 조정. 경로 교차로는 현재 지도·목록에 표시하지 않습니다(점수표에만 남김). 점수가 같으면 가까운 곳 먼저. 이 순서는 코드(규칙)가 정하고 AI는 관여하지 않습니다. 위치를 예측하는 것이 아닙니다.</p>
+    <p class="small muted">임의 설정, 실험으로 조정. 경로 교차로(갈림길)는 지도에 ✕로만 표시하고 목록 점수에는 넣지 않습니다. 점수가 같으면 가까운 곳 먼저. 이 순서는 코드(규칙)가 정하고 AI는 관여하지 않습니다. 위치를 예측하는 것이 아닙니다.</p>
   </details>
   </div>
 
   <div class="col-map">
-    <h2 class="map-title">지도 · 번호는 들르는 순서</h2>
+    <h2 class="map-title">지도 · 번호는 들르는 순서, ✕는 동선 위 갈림길</h2>
     <div id="map">지도 불러오는 중…</div>
     <p class="small muted" id="map-note"></p>
     <p class="small muted" style="margin-top:0">멀리서는 "편의점·카페" 같은 종류만, 확대하면 가게 전체 이름이 핀 옆에 붙습니다 (겹치면 숨김). 핀을 누르면 말풍선.</p>
@@ -84,7 +84,8 @@
   const checked = new Set(clue.today_destination ? [clue.today_destination] : []);
   if (clue.today_destination && !places.some((p) => p.name === clue.today_destination)) places.push({ name: clue.today_destination, source: "guardian", evidence: "오늘 가려던 곳" });
   let ranked = [];
-  var intersections = [];
+  var intersections = []; // 점수 계산용 (현재 비움 — 갈림길은 후보 목록에 넣지 않는다)
+  let crossings = [];      // 지도 표시용 갈림길 (동선 위 작은 ✕, 이름표 없음)
   let tourNames = []; // 동선 순서(지도 핀 번호의 기준). buildTour 에서 채운다
   function renderRank() {
     ranked = rankCandidates(places, intersections ?? [], rMax, [...checked]);
@@ -97,6 +98,7 @@
       el("div", {}, el("div", { class: "pts" }, `${c.score > 0 ? "+" : ""}${c.score}점`), el("button", { class: "edit", onclick: () => { checked.add(c.name); renderRank(); drawMarkers(); } }, "가 봤어요")))));
     const steps = actionSteps(clue.items?.phone, ranked);
     $("#steps").innerHTML = ""; steps.forEach((s) => $("#steps").append(el("li", { style: "margin:6px 0" }, s)));
+    if (crossings.length) $("#steps").append(el("li", { style: "margin:6px 0" }, "가는 길의 갈림길(지도의 ✕)도 살펴보세요. 어르신은 갈림길에서 길을 잘못 드는 경우가 많습니다."));
   }
   // 네이버·구글 지도 앱으로 바로 열기 (키·계정 불필요). 좌표가 있으면 도보 길찾기, 없으면 이름 검색
   function navLinks(c) {
@@ -157,7 +159,7 @@
   }
   // 지도 핀 = 들르는 순서(동선). 동선에 없는 후보는 회색 점, 갈림길은 ✕. 동선이 아직 없으면 번호 없이 점만.
   function applyPins() { for (const c of ranked) if (c.kind !== "intersection") { const k = tourNames.indexOf(c.name); c.pin = k >= 0 ? String(k + 1) : "·"; } }
-  function drawMarkers() { if (!view) return; applyPins(); view.setMarkers(ranked); }
+  function drawMarkers() { if (!view) return; applyPins(); view.setMarkers([...ranked, ...crossings]); }
 
   async function buildTour(home) {
     const top = ranked.filter((c) => c.kind === "place" && c.lat && (c.distance_m ?? Infinity) <= rMax * 1.2).slice(0, 5);
@@ -170,7 +172,8 @@
     if (!route) { tourNames = []; box.append(el("p", { class: "muted small" }, "길찾기 서버에 연결하지 못해 동선 대신 직선거리만 표시합니다.")); drawMarkers(); return; }
     tour = route; view.setRoute(route.geometry);
     // 교차로를 가중치에 반영해 순위 다시 계산
-    intersections = []; // 갈림길(교차로) 핀은 지도·목록에서 뺐다 (2026-10-29, 보호자가 볼 땐 어수선하다는 판단). 경로 계산 결과(route.intersections)는 남겨 둔다
+    // 갈림길: 목록·점수에는 넣지 않고(보호자에게 어수선함), 지도 동선 위에 이름 없는 작은 ✕로만 표시 (근거: 배회는 갈림길에서 시작)
+    crossings = route.intersections.slice(0, 6).map((x) => ({ ...x, kind: "intersection", name: "갈림길 — 여기서 길을 잘못 들기 쉬워요" }));
     ranked = rankCandidates(places, intersections, rMax, [...checked]);
     renderRank(); drawMarkers();
     let acc = 0;

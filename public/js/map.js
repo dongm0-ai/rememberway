@@ -198,14 +198,14 @@ const pinHtml = (c, i) => {
   const size = isX ? 20 : isDot ? 16 : 28, bg = isX ? "#8a5a00" : isDot ? "#8b8680" : "#1f5a95";
   return `<div title="${c.name}" style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;background:${bg};color:#fff;font-weight:800;border-radius:50%;border:2px solid #fff;font-size:${isX ? 11 : isDot ? 12 : 14}px;box-shadow:0 1px 4px rgba(0,0,0,.35)">${isDot ? "" : lbl}</div>`;
 };
-const pinTitle = (c, i) => { const l = pinLabel(c, i); return l === "·" ? c.name : `${l}. ${c.name}`; };
+const pinTitle = (c, i) => { const l = pinLabel(c, i); return l === "·" || l === "✕" ? c.name : `${l}. ${c.name}`; };
 const pinAnchor = (c, i) => { const l = pinLabel(c, i); return l === "✕" ? 10 : l === "·" ? 8 : 14; };
 /** 이름표 글: "편의점: GS25 대전석교중앙점" → "편의점 GS25 대전석교중앙점" 를 14자로 */
 /** 이름표 글. 멀리서: "편의점", "카페", "갈림길" (종류). 가까이: "편의점 GS25 대전석교중앙점" (전체, 자르지 않음) */
 const labelText = (c, i, zoom) => {
+  if (c.kind === "intersection") return null; // 갈림길은 이름표 없음 (누르면 말풍선)
   const full = c.name.replace(/\s*\(.*?\)\s*/g, "").replace(/\s+/g, " ").trim();
   if (zoom >= LABEL_ZOOM) return full.replace(":", "");
-  if (c.kind === "intersection") return "갈림길";
   return c.kindOf || (full.includes(":") ? full.split(":")[0].trim() : full.length > 6 ? full.slice(0, 6) + "…" : full);
 };
 const labelHtml = (c, i, text) => { const l = pinLabel(c, i); const bg = l === "✕" ? "#fff4d6" : "#fff"; return `<div style="padding:1px 7px;font-size:12px;font-weight:700;color:#1c1b1a;background:${bg};border:1px solid rgba(0,0,0,.25);border-radius:6px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25);line-height:16px">${text}</div>`; };
@@ -218,6 +218,7 @@ function pickVisibleLabels(items, viewW = Infinity) {
   const pinBoxes = items.map((it) => { const a = pinAnchor(it.c, it.i); return { x1: it.px - a, y1: it.py - a, x2: it.px + a, y2: it.py + a }; });
   const hit = (r, q) => !(r.x2 < q.x1 || r.x1 > q.x2 || r.y2 < q.y1 || r.y1 > q.y2);
   for (const it of order) {
+    if (!it.text) continue;
     const a = pinAnchor(it.c, it.i), w = labelW(it.text), h = 20;
     const right = { x1: it.px + a + 2, y1: it.py - h / 2, x2: it.px + a + 2 + w, y2: it.py + h / 2 };
     const left = { x1: it.px - a - 2 - w, y1: it.py - h / 2, x2: it.px - a - 2, y2: it.py + h / 2 };

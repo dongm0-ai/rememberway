@@ -60,7 +60,11 @@ export async function findPlace(name, near, limit = 1) {
 
 /** "카페", "편의점"처럼 종류만 말한 곳 → 집 반경 안 실제 가게 (서버 함수 /api/nearby 가 OSM Overpass를 대신 호출). 최대 n곳, 가까운 순 */
 const GENERIC_KINDS = ["카페","커피숍","커피","편의점","슈퍼","마트","세탁소","무인세탁","무인세탁실","세탁","빨래방","약국","병원","의원","시장","경로당","노인정","교회","성당","절","공원","은행","우체국","목욕탕","사우나","미용실","이발소","정류장","버스정류장","지하철역","역","학교","놀이터","주민센터","복지관"];
-export function isGeneric(name) { return GENERIC_KINDS.includes(name.replace(/\s+/g, "")); }
+/** "무인세탁소", "집 앞 편의점", "동네 카페"처럼 종류만 말한 이름인지. 고유명("GS25 석교점", "중앙시장")은 아님 */
+export function isGeneric(name) {
+  const s = name.replace(/\s+/g, "").replace(/^(집앞|집근처|근처|동네|우리동네|앞|옆)/, "");
+  return GENERIC_KINDS.includes(s) || GENERIC_KINDS.some((k) => k.length >= 2 && s.endsWith(k) && s.length - k.length <= 2 && /^(무인|셀프|24시|작은|큰)?$/.test(s.slice(0, s.length - k.length)));
+}
 let homeLabel = ""; // 네이버 검색어에 붙일 동 이름 ("대전 중구 석교동")
 export function setHomeLabel(s) { homeLabel = s || ""; }
 async function naverSearch(q, near, n) {

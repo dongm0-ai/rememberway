@@ -112,43 +112,98 @@ export async function findHome(dong) {
   return (await findPlace(dong, null)) ?? (await findPlace(dong.split(/\s+/).slice(-1)[0], null));
 }
 
-// ---------------------------------------------------------------- 도보 길찾기 (OSRM)
-/** points: [{lat,lng}, ...] 순서대로 걷는 경로. 반환 { geometry:[[lat,lng]...], distance_m, duration_s, legs:[{distance_m,duration_s}], intersections:[{lat,lng,name,distance_m}] } | null */
-export async function walkRoute(points) {
-  if (points.length < 2) return null;
-  const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
-  try {
-    const r = await fetch(`https://router.project-osrm.org/route/v1/foot/${coords}?overview=full&geometries=geojson&steps=true`, { signal: AbortSignal.timeout(8000) });
-    const data = await r.json();
-    const route = data.routes?.[0];
-    if (!route) return null;
-    const geometry = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-    const intersections = [];
-    let acc = 0;
-    for (const leg of route.legs) {
-      for (const step of leg.steps) {
-        // 갈림길: 길이 3갈래 이상 만나는 지점에서 방향을 바꾸는 곳 (배회가 시작되기 쉬운 곳)
-        const m = step.maneuver;
-        const big = (step.intersections ?? []).some((x) => (x.bearings ?? []).length >= 3);
-        if (big && !["depart", "arrive"].includes(m.type) && step.name && acc >= 150 && !intersections.some((x) => x.name === `${step.name} 갈림길`)) {
-          intersections.push({ lat: m.location[1], lng: m.location[0], name: `${step.name} 갈림길`, distance_m: Math.round(acc) });
-        }
-        acc += step.distance;
-      }
+// ---------------------------------------------------------------- 도보 길찾기
+// 1순위 Valhalla(OSM 재단 공개 서버, costing=pedestrian: 인도·골목·계단을 타고 일방통행 무시) → 실패하면 OSRM 공개 서버(자동차 도로망 기준이라 참고용).
+// 2026-10-29 검증: OSRM은 1→2 1,544m / 2→1 1,318m 로 방향마다 달라(일방통행) 동선 순서가 왜곡됐다. Valhalla 보행은 1,323m.
+export let routerUsed = ""; // "valhalla" | "osrm" | ""  (화면 문구용)
+const VALHALLA = "https://valhalla1.openstreetmap.de";
+
+/** Valhalla polyline6 → [[lat,lng],...] */
+function decodePolyline6(str) {
+  const out = []; let i = 0, lat = 0, lng = 0;
+  while (i < str.length) {
+    for (const which of [0, 1]) {
+      let b, shift = 0, res = 0;
+      do { b = str.charCodeAt(i++) - 63; res |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      const d = res & 1 ? ~(res >> 1) : res >> 1;
+      if (which === 0) lat += d; else lng += d;
     }
-    return { geometry, distance_m: Math.round(route.distance), duration_s: Math.round(route.duration), legs: route.legs.map((l) => ({ distance_m: Math.round(l.distance), duration_s: Math.round(l.duration) })), intersections };
-  } catch { return null; }
+    out.push([lat / 1e6, lng / 1e6]);
+  }
+  return out;
 }
 
-/** 점들 사이 도보 거리표(m). OSRM table. 실패하면 null → 직선거리로 대신 */
+async function valhallaRoute(points) {
+  const body = { locations: points.map((p) => ({ lat: p.lat, lon: p.lng, type: "break" })), costing: "pedestrian", units: "kilometers", directions_options: { language: "ko-KR" } };
+  const r = await fetch(`${VALHALLA}/route`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000) });
+  const data = await r.json();
+  const trip = data.trip; if (!trip?.legs?.length) return null;
+  const geometry = [], legs = [], intersections = [];
+  let acc = 0;
+  for (const leg of trip.legs) {
+    const shape = decodePolyline6(leg.shape);
+    geometry.push(...shape);
+    legs.push({ distance_m: Math.round(leg.summary.length * 1000), duration_s: Math.round(leg.summary.time) });
+    for (const mv of leg.maneuvers ?? []) {
+      // 갈림길: 방향을 바꾸는 지점(좌·우회전 계열, type 9~16·22~26)이고 길 이름이 있는 곳. 집 150m 안은 제외
+      const turn = (mv.type >= 9 && mv.type <= 16) || (mv.type >= 22 && mv.type <= 26);
+      const name = (mv.street_names ?? [])[0];
+      if (turn && name && acc >= 150 && !intersections.some((x) => x.name === `${name} 갈림길`)) {
+        const [lat, lng] = shape[mv.begin_shape_index] ?? shape[0];
+        intersections.push({ lat, lng, name: `${name} 갈림길`, distance_m: Math.round(acc) });
+      }
+      acc += mv.length * 1000;
+    }
+  }
+  return { geometry, distance_m: Math.round(trip.summary.length * 1000), duration_s: Math.round(trip.summary.time), legs, intersections };
+}
+
+async function osrmRoute(points) {
+  const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
+  const r = await fetch(`https://router.project-osrm.org/route/v1/foot/${coords}?overview=full&geometries=geojson&steps=true`, { signal: AbortSignal.timeout(8000) });
+  const data = await r.json();
+  const route = data.routes?.[0];
+  if (!route) return null;
+  const geometry = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+  const intersections = [];
+  let acc = 0;
+  for (const leg of route.legs) {
+    for (const step of leg.steps) {
+      const m = step.maneuver;
+      const big = (step.intersections ?? []).some((x) => (x.bearings ?? []).length >= 3);
+      if (big && !["depart", "arrive"].includes(m.type) && step.name && acc >= 150 && !intersections.some((x) => x.name === `${step.name} 갈림길`)) {
+        intersections.push({ lat: m.location[1], lng: m.location[0], name: `${step.name} 갈림길`, distance_m: Math.round(acc) });
+      }
+      acc += step.distance;
+    }
+  }
+  return { geometry, distance_m: Math.round(route.distance), duration_s: Math.round(route.duration), legs: route.legs.map((l) => ({ distance_m: Math.round(l.distance), duration_s: Math.round(l.duration) })), intersections };
+}
+
+/** points: [{lat,lng}, ...] 순서대로 걷는 경로. 반환 { geometry:[[lat,lng]...], distance_m, duration_s, legs:[{distance_m,duration_s}], intersections:[{lat,lng,name,distance_m}], router } | null */
+export async function walkRoute(points) {
+  if (points.length < 2) return null;
+  try { const r = await valhallaRoute(points); if (r) { routerUsed = "valhalla"; return { ...r, router: "valhalla" }; } } catch {}
+  try { const r = await osrmRoute(points); if (r) { routerUsed = "osrm"; return { ...r, router: "osrm" }; } } catch {}
+  return null;
+}
+
+/** 점들 사이 도보 거리표(m). Valhalla sources_to_targets → 실패하면 OSRM table → 실패하면 null(직선거리로 대신) */
 export async function walkMatrix(points) {
+  try {
+    const locs = points.map((p) => ({ lat: p.lat, lon: p.lng }));
+    const r = await fetch(`${VALHALLA}/sources_to_targets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sources: locs, targets: locs, costing: "pedestrian", units: "kilometers" }), signal: AbortSignal.timeout(8000) });
+    const d = await r.json();
+    const m = d.sources_to_targets?.map((row) => row.map((c) => (c.distance == null ? null : c.distance * 1000)));
+    if (m && m.length === points.length && !m.some((row) => row.some((v) => v == null))) { routerUsed = "valhalla"; return m; }
+  } catch {}
   const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
   try {
     const r = await fetch(`https://router.project-osrm.org/table/v1/foot/${coords}?annotations=distance`, { signal: AbortSignal.timeout(8000) });
     const d = await r.json();
     const m = d.distances;
     if (!m || m.length !== points.length || m.some((row) => row.some((v) => v == null))) return null;
-    return m;
+    routerUsed = "osrm"; return m;
   } catch { return null; }
 }
 

@@ -111,7 +111,7 @@
   }
   renderRank();
 
-  // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim, 도보 경로·교차로는 OSRM.
+  // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim, 도보 경로·거리표는 Valhalla(보행자, OSM 재단 공개 서버) → 예비 OSRM.
   let view = null, tour = null;
   const cfg = await loadConfig();
   const L = await loadMap(cfg.map ?? {});
@@ -148,11 +148,11 @@
     for (const p of places) if (home && p.lat) p.distance_m = haversineM(home.lat, home.lng, p.lat, p.lng);
     renderRank(); drawMarkers();
 
-    // 2) 동선: 좌표를 찾은 후보 전부를 점수 높은 묶음부터, 묶음 안에서는 도보 거리 최단 순서로 (OSRM 거리표 + 전수 비교). 경로 위 갈림길은 지도에 ✕로만
+    // 2) 동선: 좌표를 찾은 후보 전부를 점수 높은 묶음부터, 묶음 안에서는 도보 거리 최단 순서로 (보행자 거리표 + 정확한 최단). 경로 위 갈림길은 지도에 ✕로만
     if (home) await buildTour(home);
     const approx = places.filter((p) => p.approx).map((p) => `${p.name}→${p.found_name}`);
     const notFound = places.filter((p) => !p.lat).map((p) => p.name);
-    let note = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 지도: ${mapEngine() === "naver" ? "네이버" : "OpenStreetMap"}, 길찾기: OSRM 공개 서버(도보 설정·참고용)`;
+    let note = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 지도: ${mapEngine() === "naver" ? "네이버" : "OpenStreetMap"}, 길찾기: ${tour?.router === "osrm" ? "OSRM 공개 서버(자동차 도로 기준, 참고용)" : "Valhalla 공개 서버(보행자 경로)"}`;
     if (approx.length) note += ` · 근처로 표시: ${approx.join(", ")}`;
     if (notFound.length) note += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
     $("#map-note").textContent = note;
@@ -181,7 +181,7 @@
       acc += route.legs[i]?.distance_m ?? 0;
       box.append(el("li", {}, el("span", { class: "n" }, i + 1), el("div", {}, el("div", {}, c.name), el("div", { class: "why" }, `집에서 걸어서 누적 ${fmtM(acc)} · 약 ${Math.round(acc / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분`)), el("div", { class: "pts" }, fmtM(route.legs[i]?.distance_m))));
     });
-    $("#tour-total").textContent = `전체 ${fmtM(route.distance_m)}, 걸어서 약 ${Math.round(route.distance_m / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분 (${mode.gait === "slow" ? "느린" : mode.gait === "fast" ? "빠른" : "보통"} 걸음 기준). 점수 높은 곳부터, 같은 점수끼리는 ${matrix ? "도보 거리표" : "직선거리"} 기준 ${top.length > EXACT_LIMIT ? "근사(후보가 많아 정확한 최단은 아닐 수 있음)" : "정확한 최단"}으로 순서를 정했습니다. 경로는 공개 길찾기 서버(OSRM) 결과라 골목길이 빠질 수 있어 참고용입니다.`;
+    $("#tour-total").textContent = `전체 ${fmtM(route.distance_m)}, 걸어서 약 ${Math.round(route.distance_m / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분 (${mode.gait === "slow" ? "느린" : mode.gait === "fast" ? "빠른" : "보통"} 걸음 기준). 점수 높은 곳부터, 같은 점수끼리는 ${matrix ? "도보 거리표" : "직선거리"} 기준 ${top.length > EXACT_LIMIT ? "근사(후보가 많아 정확한 최단은 아닐 수 있음)" : "정확한 최단"}으로 순서를 정했습니다. ${route.router === "valhalla" ? "경로는 보행자용 공개 길찾기 서버(Valhalla) 결과입니다. 인도·골목길을 타지만 실제와 다를 수 있어 참고용입니다." : "지금은 예비 서버(OSRM, 자동차 도로 기준) 결과라 골목길이 빠질 수 있어 참고용입니다."}`;
   }
 
   // "찾았어요" → 사건 기록으로 (현재 단서를 보관)

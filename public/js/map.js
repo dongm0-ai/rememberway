@@ -140,25 +140,64 @@ export async function walkRoute(points) {
   } catch { return null; }
 }
 
-/** 집에서 출발해 후보들을 가까운 순으로 차례로 도는 순서 (탐욕적 최근접). 반환 후보 배열 */
-export function tourOrder(home, candidates) {
-  const left = candidates.filter((c) => c.lat && c.lng).map((c) => ({ ...c }));
-  const order = []; let cur = home;
-  while (left.length) {
-    left.sort((a, b) => dist2(cur, a) - dist2(cur, b));
-    const next = left.shift(); order.push(next); cur = next;
-  }
-  return order;
+/** 점들 사이 도보 거리표(m). OSRM table. 실패하면 null → 직선거리로 대신 */
+export async function walkMatrix(points) {
+  const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
+  try {
+    const r = await fetch(`https://router.project-osrm.org/table/v1/foot/${coords}?annotations=distance`, { signal: AbortSignal.timeout(8000) });
+    const d = await r.json();
+    const m = d.distances;
+    if (!m || m.length !== points.length || m.some((row) => row.some((v) => v == null))) return null;
+    return m;
+  } catch { return null; }
 }
-const dist2 = (a, b) => (a.lat - b.lat) ** 2 + ((a.lng - b.lng) * Math.cos((a.lat * Math.PI) / 180)) ** 2;
+
+/** 집에서 출발해 후보를 모두 들르는 순서 중 "걷는 거리 합이 가장 짧은" 순서 (돌아오지 않는 열린 경로).
+ *  후보가 7곳 이하면 가능한 순서를 전부 비교한다(7! = 5,040). 그보다 많으면 최근접 규칙으로 시작해 2-opt로 다듬는다.
+ *  matrix가 없으면 직선거리(하버사인)를 쓴다. 반환: 후보 배열(들르는 순서) */
+export function tourOrder(home, candidates, matrix = null) {
+  const list = candidates.filter((c) => c.lat && c.lng).map((c) => ({ ...c }));
+  const n = list.length; if (!n) return [];
+  const pts = [home, ...list];
+  const D = matrix ?? pts.map((a) => pts.map((b) => haversineM(a.lat, a.lng, b.lat, b.lng)));
+  const cost = (ord) => { let s = D[0][ord[0]]; for (let i = 1; i < ord.length; i++) s += D[ord[i - 1]][ord[i]]; return s; };
+  let best = null, bestCost = Infinity;
+  if (n <= 7) {
+    const perm = (rest, acc) => {
+      if (!rest.length) { const c = cost(acc); if (c < bestCost) { bestCost = c; best = acc.slice(); } return; }
+      for (let i = 0; i < rest.length; i++) perm([...rest.slice(0, i), ...rest.slice(i + 1)], [...acc, rest[i]]);
+    };
+    perm(list.map((_, i) => i + 1), []);
+  } else {
+    // 최근접 규칙 → 2-opt 개선
+    const left = list.map((_, i) => i + 1); let cur = 0; best = [];
+    while (left.length) { left.sort((a, b) => D[cur][a] - D[cur][b]); cur = left.shift(); best.push(cur); }
+    let improved = true;
+    while (improved) {
+      improved = false;
+      for (let i = 0; i < best.length - 1; i++) for (let j = i + 1; j < best.length; j++) {
+        const cand = [...best.slice(0, i), ...best.slice(i, j + 1).reverse(), ...best.slice(j + 1)];
+        if (cost(cand) < cost(best) - 1) { best = cand; improved = true; }
+      }
+    }
+    bestCost = cost(best);
+  }
+  return best.map((i) => list[i - 1]);
+}
 
 // ---------------------------------------------------------------- 지도 그리기 (두 엔진 같은 인터페이스: setMarkers(list), setRoute(geometry))
 export function createMap(lib, el, center, rMax) {
   return engine === "naver" ? createNaverMap(lib, el, center, rMax) : createLeafletMap(lib, el, center, rMax);
 }
-// 핀은 번호(또는 ✕)만 — 이름을 핀에 붙이면 가까운 곳끼리 글자가 겹쳐 못 읽는다. 이름은 아래 목록의 같은 번호에 있고, 핀을 누르면 말풍선으로 뜬다.
-const pinHtml = (c, i) => { const isX = c.kind === "intersection"; return `<div title="${c.name}" style="width:${isX ? 20 : 28}px;height:${isX ? 20 : 28}px;display:flex;align-items:center;justify-content:center;background:${isX ? "#8a5a00" : "#1f5a95"};color:#fff;font-weight:800;border-radius:50%;border:2px solid #fff;font-size:${isX ? 11 : 14}px;box-shadow:0 1px 4px rgba(0,0,0,.35)">${isX ? "✕" : i + 1}</div>`; };
-const pinAnchor = (c) => (c.kind === "intersection" ? 10 : 14);
+// 핀 글자: c.pin — 동선 순서 번호("1"…), 갈림길 "✕", 동선에 없는 후보는 "·"(작은 회색 점). 이름을 핀에 붙이면 가까운 곳끼리 글자가 겹치므로 핀을 누르면 말풍선으로 뜬다.
+const pinLabel = (c, i) => c.kind === "intersection" ? "✕" : (c.pin ?? String(i + 1));
+const pinHtml = (c, i) => {
+  const lbl = pinLabel(c, i), isX = lbl === "✕", isDot = lbl === "·";
+  const size = isX ? 20 : isDot ? 16 : 28, bg = isX ? "#8a5a00" : isDot ? "#8b8680" : "#1f5a95";
+  return `<div title="${c.name}" style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;background:${bg};color:#fff;font-weight:800;border-radius:50%;border:2px solid #fff;font-size:${isX ? 11 : isDot ? 12 : 14}px;box-shadow:0 1px 4px rgba(0,0,0,.35)">${isDot ? "" : lbl}</div>`;
+};
+const pinTitle = (c, i) => { const l = pinLabel(c, i); return l === "·" ? c.name : `${l}. ${c.name}`; };
+const pinAnchor = (c, i) => { const l = pinLabel(c, i); return l === "✕" ? 10 : l === "·" ? 8 : 14; };
 
 function createLeafletMap(L, el, center, rMax) {
   const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([center.lat, center.lng], 15);
@@ -176,9 +215,9 @@ function createLeafletMap(L, el, center, rMax) {
       const pts = [[center.lat, center.lng]];
       list.forEach((c, i) => {
         if (!c.lat) return;
-        const a = pinAnchor(c);
+        const a = pinAnchor(c, i);
         const icon = L.divIcon({ className: "", html: pinHtml(c, i), iconSize: [a * 2, a * 2], iconAnchor: [a, a] });
-        L.marker([c.lat, c.lng], { icon }).addTo(layer).bindTooltip(`${c.kind === "intersection" ? "✕" : i + 1}. ${c.name}`, { direction: "right", offset: [a, 0] });
+        L.marker([c.lat, c.lng], { icon }).addTo(layer).bindTooltip(pinTitle(c, i), { direction: "right", offset: [a, 0] });
         if (c.kind !== "intersection") pts.push([c.lat, c.lng]);
       });
       if (pts.length > 1) map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
@@ -209,9 +248,9 @@ function createNaverMap(naver, el, center, rMax) {
       list.forEach((c, i) => {
         if (!c.lat) return;
         const pos = new M.LatLng(c.lat, c.lng);
-        const a = pinAnchor(c);
+        const a = pinAnchor(c, i);
         const mk = new M.Marker({ map, position: pos, icon: { content: pinHtml(c, i), anchor: new M.Point(a, a) }, title: c.name });
-        M.Event.addListener(mk, "click", () => { info.setContent(`<div style="padding:6px 10px;font-size:14px;font-weight:700;color:#1c1b1a;white-space:nowrap">${c.kind === "intersection" ? "✕" : i + 1}. ${c.name}</div>`); info.open(map, mk); });
+        M.Event.addListener(mk, "click", () => { info.setContent(`<div style="padding:6px 10px;font-size:14px;font-weight:700;color:#1c1b1a;white-space:nowrap">${pinTitle(c, i)}</div>`); info.open(map, mk); });
         markers.push(mk);
         if (c.kind !== "intersection") { bounds.extend(pos); any = true; }
       });

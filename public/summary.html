@@ -99,7 +99,7 @@
   renderRank();
 
   // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim, 도보 경로·교차로는 OSRM.
-  let view = null, tour = null;
+  let view = null, tour = null, tourNames = []; // tourNames: 동선 순서(핀 번호의 기준)
   const cfg = await loadConfig();
   const L = await loadMap(cfg.map ?? {});
   if (!L) {
@@ -145,7 +145,6 @@
     $("#map-note").textContent = note;
   }
   // 지도 핀 = 들르는 순서(동선). 동선에 없는 후보는 회색 점, 갈림길은 ✕. 동선이 아직 없으면 번호 없이 점만.
-  let tourNames = [];
   function applyPins() { for (const c of ranked) if (c.kind !== "intersection") { const k = tourNames.indexOf(c.name); c.pin = k >= 0 ? String(k + 1) : "·"; } }
   function drawMarkers() { if (!view) return; applyPins(); view.setMarkers(ranked); }
 

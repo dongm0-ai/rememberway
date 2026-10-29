@@ -32,7 +32,7 @@
 
   <h2 class="after-map">돌아볼 동선</h2>
   <div class="card after-map">
-    <p class="small muted" style="margin-top:0">집에서 출발해 위 후보(반경 안, 최대 5곳)를 모두 들르는 순서 중 <b>걷는 거리 합이 가장 짧은 순서</b>입니다 (가능한 순서를 전부 비교). 지도의 번호 핀과 빨간 선이 이 순서예요. 우선 확인 순서와는 별개로 "한 바퀴 돌 때" 쓰세요.</p>
+    <p class="small muted" style="margin-top:0">위 후보를 <b>모두</b> 들르는 순서입니다. 점수가 높은 묶음부터 가고, 같은 점수 안에서는 <b>걷는 거리가 가장 짧은 순서</b>로 돕니다 (가능한 순서를 전부 비교). 점수가 낮은 곳도 빼지 않고 맨 뒤에 들릅니다. 지도의 번호 핀과 빨간 선이 이 순서예요.</p>
     <ol class="rank" id="tour"><li><span></span><span class="muted">동선을 만드는 중…</span></li></ol>
     <p class="small muted" id="tour-total"></p>
   </div>
@@ -56,7 +56,7 @@
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary } from "/lib/priority.js";
-  import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrder, setHomeLabel } from "/js/map.js";
+  import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, setHomeLabel } from "/js/map.js";
 
   const clue = store.sget(KEYS.clue);
   if (!clue) location.replace("/report");
@@ -148,7 +148,7 @@
     for (const p of places) if (home && p.lat) p.distance_m = haversineM(home.lat, home.lng, p.lat, p.lng);
     renderRank(); drawMarkers();
 
-    // 2) 동선: 집에서 출발해 상위 후보(반경 안, 최대 5곳)를 모두 들르는 순서 중 도보 거리 합이 최단인 순서 (OSRM 거리표 + 전수 비교). 경로 위 갈림길을 교차로 후보로
+    // 2) 동선: 좌표를 찾은 후보 전부를 점수 높은 묶음부터, 묶음 안에서는 도보 거리 최단 순서로 (OSRM 거리표 + 전수 비교). 경로 위 갈림길은 지도에 ✕로만
     if (home) await buildTour(home);
     const approx = places.filter((p) => p.approx).map((p) => `${p.name}→${p.found_name}`);
     const notFound = places.filter((p) => !p.lat).map((p) => p.name);
@@ -162,11 +162,11 @@
   function drawMarkers() { if (!view) return; applyPins(); view.setMarkers([...ranked, ...crossings]); }
 
   async function buildTour(home) {
-    const top = ranked.filter((c) => c.kind === "place" && c.lat && (c.distance_m ?? Infinity) <= rMax * 1.2).slice(0, 5);
+    const top = ranked.filter((c) => c.kind === "place" && c.lat); // 좌표를 찾은 후보 전부 (반경 밖도 점수가 낮아 뒤로 갈 뿐, 빼지 않는다)
     const box = $("#tour"); box.innerHTML = "";
     if (!top.length) { box.append(el("p", { class: "muted small" }, "반경 안에서 좌표를 찾은 후보가 없어 동선을 만들지 못했습니다.")); return; }
     const matrix = await walkMatrix([home, ...top]); // 실제 도보 거리표. 없으면 직선거리
-    const order = tourOrder(home, top, matrix);
+    const order = tourOrderByPriority(home, top, matrix, (c) => c.score); // 점수 높은 묶음부터, 묶음 안에서는 최단
     tourNames = order.map((c) => c.name);
     const route = await walkRoute([home, ...order]);
     if (!route) { tourNames = []; box.append(el("p", { class: "muted small" }, "길찾기 서버에 연결하지 못해 동선 대신 직선거리만 표시합니다.")); drawMarkers(); return; }
@@ -181,7 +181,7 @@
       acc += route.legs[i]?.distance_m ?? 0;
       box.append(el("li", {}, el("span", { class: "n" }, i + 1), el("div", {}, el("div", {}, c.name), el("div", { class: "why" }, `집에서 걸어서 누적 ${fmtM(acc)} · 약 ${Math.round(acc / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분`)), el("div", { class: "pts" }, fmtM(route.legs[i]?.distance_m))));
     });
-    $("#tour-total").textContent = `전체 ${fmtM(route.distance_m)}, 걸어서 약 ${Math.round(route.distance_m / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분 (${mode.gait === "slow" ? "느린" : mode.gait === "fast" ? "빠른" : "보통"} 걸음 기준). ${matrix ? "도보 거리표로" : "직선거리로"} 순서를 정했습니다. 경로는 공개 길찾기 서버(OSRM) 결과라 골목길이 빠질 수 있어 참고용입니다.`;
+    $("#tour-total").textContent = `전체 ${fmtM(route.distance_m)}, 걸어서 약 ${Math.round(route.distance_m / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분 (${mode.gait === "slow" ? "느린" : mode.gait === "fast" ? "빠른" : "보통"} 걸음 기준). 점수 높은 곳부터, 같은 점수끼리는 ${matrix ? "도보 거리표" : "직선거리"} 기준 최단으로 순서를 정했습니다. 경로는 공개 길찾기 서버(OSRM) 결과라 골목길이 빠질 수 있어 참고용입니다.`;
   }
 
   // "찾았어요" → 사건 기록으로 (현재 단서를 보관)

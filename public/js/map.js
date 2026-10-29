@@ -152,25 +152,20 @@ export async function walkMatrix(points) {
   } catch { return null; }
 }
 
-/** 집에서 출발해 후보를 모두 들르는 순서 중 "걷는 거리 합이 가장 짧은" 순서 (돌아오지 않는 열린 경로).
- *  후보가 7곳 이하면 가능한 순서를 전부 비교한다(7! = 5,040). 그보다 많으면 최근접 규칙으로 시작해 2-opt로 다듬는다.
- *  matrix가 없으면 직선거리(하버사인)를 쓴다. 반환: 후보 배열(들르는 순서) */
-export function tourOrder(home, candidates, matrix = null) {
-  const list = candidates.filter((c) => c.lat && c.lng).map((c) => ({ ...c }));
-  const n = list.length; if (!n) return [];
-  const pts = [home, ...list];
-  const D = matrix ?? pts.map((a) => pts.map((b) => haversineM(a.lat, a.lng, b.lat, b.lng)));
-  const cost = (ord) => { let s = D[0][ord[0]]; for (let i = 1; i < ord.length; i++) s += D[ord[i - 1]][ord[i]]; return s; };
+/** start(점 번호)에서 출발해 idx(점 번호들)를 모두 들르는 "걷는 거리 합이 가장 짧은" 순서 (돌아오지 않는 열린 경로).
+ *  7곳 이하는 가능한 순서 전부 비교(7! = 5,040), 그보다 많으면 최근접 규칙으로 시작해 2-opt로 다듬는다. D: 거리표(m) */
+function bestOpenPath(start, idx, D) {
+  if (!idx.length) return [];
+  const cost = (ord) => { let s = D[start][ord[0]]; for (let i = 1; i < ord.length; i++) s += D[ord[i - 1]][ord[i]]; return s; };
   let best = null, bestCost = Infinity;
-  if (n <= 7) {
+  if (idx.length <= 7) {
     const perm = (rest, acc) => {
       if (!rest.length) { const c = cost(acc); if (c < bestCost) { bestCost = c; best = acc.slice(); } return; }
       for (let i = 0; i < rest.length; i++) perm([...rest.slice(0, i), ...rest.slice(i + 1)], [...acc, rest[i]]);
     };
-    perm(list.map((_, i) => i + 1), []);
+    perm(idx, []);
   } else {
-    // 최근접 규칙 → 2-opt 개선
-    const left = list.map((_, i) => i + 1); let cur = 0; best = [];
+    const left = [...idx]; let cur = start; best = [];
     while (left.length) { left.sort((a, b) => D[cur][a] - D[cur][b]); cur = left.shift(); best.push(cur); }
     let improved = true;
     while (improved) {
@@ -180,9 +175,33 @@ export function tourOrder(home, candidates, matrix = null) {
         if (cost(cand) < cost(best) - 1) { best = cand; improved = true; }
       }
     }
-    bestCost = cost(best);
   }
-  return best.map((i) => list[i - 1]);
+  return best;
+}
+const distMatrix = (pts, matrix) => matrix ?? pts.map((a) => pts.map((b) => haversineM(a.lat, a.lng, b.lat, b.lng)));
+
+/** 집에서 출발해 후보를 모두 들르는 최단 순서 (우선순위 무시). matrix 없으면 직선거리 */
+export function tourOrder(home, candidates, matrix = null) {
+  const list = candidates.filter((c) => c.lat && c.lng);
+  if (!list.length) return [];
+  const D = distMatrix([home, ...list], matrix);
+  return bestOpenPath(0, list.map((_, i) => i + 1), D).map((i) => list[i - 1]);
+}
+
+/** 우선순위를 지키는 동선: 점수(tierOf)가 높은 묶음부터 차례로 들르고, 같은 묶음 안에서만 걷는 거리가 가장 짧은 순서로.
+ *  예비 후보를 따로 두지 않는다 — 점수 낮은 곳도 맨 뒤에 반드시 들른다. 다음 묶음은 앞 묶음의 마지막 지점에서 출발 */
+export function tourOrderByPriority(home, candidates, matrix = null, tierOf = (c) => c.score ?? 0) {
+  const list = candidates.filter((c) => c.lat && c.lng);
+  if (!list.length) return [];
+  const D = distMatrix([home, ...list], matrix);
+  const tiers = [...new Set(list.map(tierOf))].sort((a, b) => b - a);
+  const order = []; let cur = 0;
+  for (const t of tiers) {
+    const idx = list.map((_, i) => i + 1).filter((i) => tierOf(list[i - 1]) === t);
+    const part = bestOpenPath(cur, idx, D);
+    order.push(...part); cur = part[part.length - 1];
+  }
+  return order.map((i) => list[i - 1]);
 }
 
 // ---------------------------------------------------------------- 지도 그리기 (두 엔진 같은 인터페이스: setMarkers(list), setRoute(geometry))

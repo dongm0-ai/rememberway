@@ -14,11 +14,11 @@ export default async function handler(req, res) {
   const hub = { id: process.env.NAVER_APIHUB_CLIENT_ID, secret: process.env.NAVER_APIHUB_CLIENT_SECRET };
   const dev = { id: process.env.NAVER_SEARCH_CLIENT_ID, secret: process.env.NAVER_SEARCH_CLIENT_SECRET };
   let url, headers;
-  if (hub.id && hub.secret) { url = "https://naverapihub.apigw.ntruss.com/v1/search/local.json"; headers = { "X-NCP-APIGW-API-KEY-ID": hub.id, "X-NCP-APIGW-API-KEY": hub.secret }; }
+  if (hub.id && hub.secret) { url = "https://naverapihub.apigw.ntruss.com/search/v1/local"; headers = { "X-NCP-APIGW-API-KEY-ID": hub.id, "X-NCP-APIGW-API-KEY": hub.secret }; }
   else if (dev.id && dev.secret) { url = "https://openapi.naver.com/v1/search/local.json"; headers = { "X-Naver-Client-Id": dev.id, "X-Naver-Client-Secret": dev.secret }; }
   else return res.end(JSON.stringify({ ok: false, reason: "NOT_CONFIGURED" }));
   try {
-    const r = await fetch(`${url}?query=${encodeURIComponent(q)}&display=5&sort=random`, { headers, signal: AbortSignal.timeout(8000) });
+    const r = await fetch(`${url}?query=${encodeURIComponent(q)}&display=5&sort=random`display=5&sort=random&format=json`, { headers, signal: AbortSignal.timeout(8000) });
     const data = await r.json();
     if (!r.ok) return res.end(JSON.stringify({ ok: false, reason: "UPSTREAM", status: r.status, detail: data.errorMessage || data.error?.message || JSON.stringify(data).slice(0, 120) }));
     // mapx/mapy: WGS84 경도·위도 × 10^7

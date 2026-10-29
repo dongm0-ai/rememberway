@@ -190,7 +190,7 @@ export function createMap(lib, el, center, rMax) {
   return engine === "naver" ? createNaverMap(lib, el, center, rMax) : createLeafletMap(lib, el, center, rMax);
 }
 // 핀 글자: c.pin — 동선 순서 번호("1"…), 갈림길 "✕", 동선에 없는 후보는 "·"(작은 회색 점).
-// 이름표는 충분히 확대했을 때(줌 ≥ LABEL_ZOOM)만 핀 오른쪽에 붙이고, 화면 픽셀 기준으로 겹치는 이름표는 숨긴다 (번호 핀 → 점 → ✕ 순으로 우선). 핀을 누르면 언제나 말풍선으로 전체 이름.
+// 이름표: 멀리서는(줌 < LABEL_ZOOM) "편의점"·"카페"처럼 종류만, 가까이서는(줌 ≥ LABEL_ZOOM) 가게 전체 이름. 화면 픽셀 기준으로 겹치는 이름표는 숨긴다 (번호 핀 → 점 → ✕ 순으로 우선, 오른쪽이 막히면 왼쪽). 핀을 누르면 언제나 말풍선으로 전체 이름.
 const LABEL_ZOOM = 16;
 const pinLabel = (c, i) => c.kind === "intersection" ? "✕" : (c.pin ?? String(i + 1));
 const pinHtml = (c, i) => {
@@ -201,9 +201,15 @@ const pinHtml = (c, i) => {
 const pinTitle = (c, i) => { const l = pinLabel(c, i); return l === "·" ? c.name : `${l}. ${c.name}`; };
 const pinAnchor = (c, i) => { const l = pinLabel(c, i); return l === "✕" ? 10 : l === "·" ? 8 : 14; };
 /** 이름표 글: "편의점: GS25 대전석교중앙점" → "편의점 GS25 대전석교중앙점" 를 14자로 */
-const shortName = (c) => { const t = c.name.replace(/\s*\(.*?\)\s*/g, "").replace(":", "").replace(/\s+/g, " ").trim(); return t.length > 14 ? t.slice(0, 13) + "…" : t; };
-const labelHtml = (c, i) => { const l = pinLabel(c, i); const bg = l === "✕" ? "#fff4d6" : "#fff"; return `<div style="padding:1px 7px;font-size:12px;font-weight:700;color:#1c1b1a;background:${bg};border:1px solid rgba(0,0,0,.25);border-radius:6px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25);line-height:16px">${shortName(c)}</div>`; };
-const labelW = (c) => { let w = 16; for (const ch of shortName(c)) w += ch.charCodeAt(0) > 0x7f ? 12 : 7; return w; };
+/** 이름표 글. 멀리서: "편의점", "카페", "갈림길" (종류). 가까이: "편의점 GS25 대전석교중앙점" (전체, 자르지 않음) */
+const labelText = (c, i, zoom) => {
+  const full = c.name.replace(/\s*\(.*?\)\s*/g, "").replace(/\s+/g, " ").trim();
+  if (zoom >= LABEL_ZOOM) return full.replace(":", "");
+  if (c.kind === "intersection") return "갈림길";
+  return c.kindOf || (full.includes(":") ? full.split(":")[0].trim() : full.length > 6 ? full.slice(0, 6) + "…" : full);
+};
+const labelHtml = (c, i, text) => { const l = pinLabel(c, i); const bg = l === "✕" ? "#fff4d6" : "#fff"; return `<div style="padding:1px 7px;font-size:12px;font-weight:700;color:#1c1b1a;background:${bg};border:1px solid rgba(0,0,0,.25);border-radius:6px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25);line-height:16px">${text}</div>`; };
+const labelW = (text) => { let w = 16; for (const ch of text) w += ch.charCodeAt(0) > 0x7f ? 12 : 7; return w; };
 const labelPriority = (c, i) => { const l = pinLabel(c, i); return l === "✕" ? 2 : l === "·" ? 1 : 0; };
 /** 겹침 검사: items [{c,i,px,py}] (px,py = 핀 중심 화면 픽셀). 보이게 할 항목의 index 집합을 돌려준다 */
 function pickVisibleLabels(items) {
@@ -212,7 +218,7 @@ function pickVisibleLabels(items) {
   const pinBoxes = items.map((it) => { const a = pinAnchor(it.c, it.i); return { x1: it.px - a, y1: it.py - a, x2: it.px + a, y2: it.py + a }; });
   const hit = (r, q) => !(r.x2 < q.x1 || r.x1 > q.x2 || r.y2 < q.y1 || r.y1 > q.y2);
   for (const it of order) {
-    const a = pinAnchor(it.c, it.i), w = labelW(it.c), h = 20;
+    const a = pinAnchor(it.c, it.i), w = labelW(it.text), h = 20;
     const right = { x1: it.px + a + 2, y1: it.py - h / 2, x2: it.px + a + 2 + w, y2: it.py + h / 2 };
     const left = { x1: it.px - a - 2 - w, y1: it.py - h / 2, x2: it.px - a - 2, y2: it.py + h / 2 };
     const free = (r) => !placed.some((q) => hit(r, q)) && !pinBoxes.some((q, k) => k !== it.k && hit(r, q)); // 다른 이름표·다른 핀과 겹치지 않을 때만
@@ -235,13 +241,13 @@ function createLeafletMap(L, el, center, rMax) {
   let current = [];
   function updateLabels() {
     labelLayer.clearLayers();
-    if (map.getZoom() < LABEL_ZOOM) return;
-    const items = current.map(({ c, i }) => { const p = map.latLngToContainerPoint([c.lat, c.lng]); return { c, i, px: p.x, py: p.y }; });
+    const zoom = map.getZoom();
+    const items = current.map(({ c, i }) => { const p = map.latLngToContainerPoint([c.lat, c.lng]); return { c, i, px: p.x, py: p.y, text: labelText(c, i, zoom) }; });
     const show = pickVisibleLabels(items);
     items.forEach((it, k) => {
       if (!show.has(k)) return;
-      const a = pinAnchor(it.c, it.i), ax = show.get(k) === "left" ? labelW(it.c) + a + 2 : -(a + 2);
-      L.marker([it.c.lat, it.c.lng], { icon: L.divIcon({ className: "", html: labelHtml(it.c, it.i), iconSize: null, iconAnchor: [ax, 10] }), interactive: false }).addTo(labelLayer);
+      const a = pinAnchor(it.c, it.i), ax = show.get(k) === "left" ? labelW(it.text) + a + 2 : -(a + 2);
+      L.marker([it.c.lat, it.c.lng], { icon: L.divIcon({ className: "", html: labelHtml(it.c, it.i, it.text), iconSize: null, iconAnchor: [ax, 10] }), interactive: false }).addTo(labelLayer);
     });
   }
   map.on("zoomend moveend", updateLabels);
@@ -280,14 +286,13 @@ function createNaverMap(naver, el, center, rMax) {
   M.Event.addListener(map, "click", () => info.close());
   function updateLabels() {
     labels.forEach((m) => m.setMap(null)); labels = [];
-    if (map.getZoom() < LABEL_ZOOM) return;
-    const proj = map.getProjection();
-    const items = current.map(({ c, i }) => { const p = proj.fromCoordToOffset(new M.LatLng(c.lat, c.lng)); return { c, i, px: p.x, py: p.y }; });
+    const zoom = map.getZoom(), proj = map.getProjection();
+    const items = current.map(({ c, i }) => { const p = proj.fromCoordToOffset(new M.LatLng(c.lat, c.lng)); return { c, i, px: p.x, py: p.y, text: labelText(c, i, zoom) }; });
     const show = pickVisibleLabels(items);
     items.forEach((it, k) => {
       if (!show.has(k)) return;
-      const a = pinAnchor(it.c, it.i), ax = show.get(k) === "left" ? labelW(it.c) + a + 2 : -(a + 2);
-      labels.push(new M.Marker({ map, position: new M.LatLng(it.c.lat, it.c.lng), icon: { content: labelHtml(it.c, it.i), anchor: new M.Point(ax, 10) }, clickable: false, zIndex: 50 }));
+      const a = pinAnchor(it.c, it.i), ax = show.get(k) === "left" ? labelW(it.text) + a + 2 : -(a + 2);
+      labels.push(new M.Marker({ map, position: new M.LatLng(it.c.lat, it.c.lng), icon: { content: labelHtml(it.c, it.i, it.text), anchor: new M.Point(ax, 10) }, clickable: false, zIndex: 50 }));
     });
   }
   M.Event.addListener(map, "idle", updateLabels);

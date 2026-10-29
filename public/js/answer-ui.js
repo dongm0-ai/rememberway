@@ -38,7 +38,7 @@ export function buildAnswerInput(key, container, initial = null) {
   const input = el("textarea", { placeholder: HINTS[key] ?? "말로 하거나 적어 주세요", rows: "2", style: "flex:1;min-height:56px" });
   if (typeof initial === "string") input.value = initial;
   else if (initial === true) input.value = "있어요"; else if (initial === false) input.value = "없어요";
-  const mic = el("button", { type: "button", class: "btn-secondary", style: "width:auto;padding:10px 14px;font-size:22px", "aria-label": "말로 답하기", title: "말로 답하기" }, "🎙️");
+  const mic = el("button", { type: "button", class: "btn-secondary", style: "flex:0 0 56px;width:56px;height:56px;padding:0;border-radius:50%;font-size:24px;align-self:center", "aria-label": "말로 답하기", title: "말로 답하기" }, "🎙️");
   const hint = el("div", { class: "small muted", style: "min-height:1.2em;margin-top:4px" }, "🎙️를 누르고 말하거나, 적어 주세요");
   const speech = createSpeech({
     onText: (fin, interim) => { input.value = fin; hint.textContent = interim ? "…" + interim : (fin ? "들었어요. 맞으면 [답하기]" : "듣고 있어요…"); },

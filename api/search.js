@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("cache-control", "no-store");
   const u = new URL(req.url, "http://x");
-  const q = u.searchParams.get("q")?.trim(), lat = Number(u.searchParams.get("lat")), lng = Number(u.searchParams.get("lng")), n = Math.min(Number(u.searchParams.get("n") || 3), 5);
+  const q = u.searchParams.get("q")?.trim(), lat = u.searchParams.has("lat") ? Number(u.searchParams.get("lat")) : NaN, lng = u.searchParams.has("lng") ? Number(u.searchParams.get("lng")) : NaN, n = Math.min(Number(u.searchParams.get("n") || 3), 5);
   if (!q) return res.end(JSON.stringify({ ok: false, reason: "BAD_INPUT" }));
   // 1순위: 네이버클라우드 NAVER API HUB (2026-07-31 이후 신규 신청은 여기서만 가능). 2순위: 구 개발자센터 검색 API 키(기존 사용자만)
   const hub = { id: process.env.NAVER_APIHUB_CLIENT_ID, secret: process.env.NAVER_APIHUB_CLIENT_SECRET };

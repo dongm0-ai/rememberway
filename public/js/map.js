@@ -43,34 +43,14 @@ export async function findPlace(name, near, limit = 1) {
   return arr?.[0] ? toPlace(arr[0], name) : null;
 }
 
-/** "카페", "편의점"처럼 종류만 말한 곳 → OSM 태그로 집 반경 안 실제 가게를 찾는다 (Overpass 공개 API). 최대 n곳, 가까운 순 */
-const KIND_TAGS = {
-  카페: ['amenity=cafe'], 커피숍: ['amenity=cafe'], 커피: ['amenity=cafe'],
-  편의점: ['shop=convenience'], 슈퍼: ['shop=supermarket', 'shop=convenience'], 마트: ['shop=supermarket'],
-  세탁소: ['shop=laundry', 'shop=dry_cleaning'], 무인세탁: ['shop=laundry'], 세탁: ['shop=laundry', 'shop=dry_cleaning'], 빨래방: ['shop=laundry'],
-  약국: ['amenity=pharmacy'], 병원: ['amenity=hospital', 'amenity=clinic'], 의원: ['amenity=clinic', 'amenity=doctors'],
-  시장: ['amenity=marketplace'], 경로당: ['amenity=social_facility', 'amenity=community_centre'], 노인정: ['amenity=social_facility', 'amenity=community_centre'],
-  교회: ['amenity=place_of_worship'], 성당: ['amenity=place_of_worship'], 절: ['amenity=place_of_worship'],
-  공원: ['leisure=park'], 은행: ['amenity=bank'], 우체국: ['amenity=post_office'], 목욕탕: ['amenity=public_bath'], 사우나: ['amenity=public_bath'],
-  미용실: ['shop=hairdresser'], 이발소: ['shop=hairdresser'], 정류장: ['highway=bus_stop'], 버스정류장: ['highway=bus_stop'],
-  지하철역: ['railway=station'], 역: ['railway=station'], 학교: ['amenity=school'], 놀이터: ['leisure=playground'], 주민센터: ['amenity=townhall'], 복지관: ['amenity=social_facility'],
-};
-export function isGeneric(name) { return Boolean(KIND_TAGS[name.replace(/\s+/g, "")]); }
+/** "카페", "편의점"처럼 종류만 말한 곳 → 집 반경 안 실제 가게 (서버 함수 /api/nearby 가 OSM Overpass를 대신 호출). 최대 n곳, 가까운 순 */
+const GENERIC_KINDS = ["카페","커피숍","커피","편의점","슈퍼","마트","세탁소","무인세탁","무인세탁실","세탁","빨래방","약국","병원","의원","시장","경로당","노인정","교회","성당","절","공원","은행","우체국","목욕탕","사우나","미용실","이발소","정류장","버스정류장","지하철역","역","학교","놀이터","주민센터","복지관"];
+export function isGeneric(name) { return GENERIC_KINDS.includes(name.replace(/\s+/g, "")); }
 export async function findNearby(kind, home, radiusM = 1500, n = 3) {
-  const tags = KIND_TAGS[kind.replace(/\s+/g, "")];
-  if (!tags) return [];
-  const q = `[out:json][timeout:10];(${tags.map((t) => { const [k, v] = t.split("="); return `nwr["${k}"="${v}"](around:${Math.round(radiusM)},${home.lat},${home.lng});`; }).join("")});out center ${n * 4};`;
   try {
-    await throttle();
-    const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "content-type": "application/x-www-form-urlencoded" }, signal: AbortSignal.timeout(12000) });
-    const data = await r.json();
-    const list = (data.elements ?? []).map((e) => ({ lat: e.lat ?? e.center?.lat, lng: e.lon ?? e.center?.lon, found_name: e.tags?.["name:ko"] || e.tags?.name || `(이름 없는 ${kind})`, category: kind }))
-      .filter((x) => x.lat && x.lng)
-      .map((x) => ({ ...x, distance_m: haversineM(home.lat, home.lng, x.lat, x.lng) }))
-      .sort((a, b) => a.distance_m - b.distance_m);
-    // 같은 이름 중복 제거, 가까운 n곳
-    const seen = new Set();
-    return list.filter((x) => (seen.has(x.found_name) ? false : seen.add(x.found_name))).slice(0, n);
+    const r = await fetch(`/api/nearby?kind=${encodeURIComponent(kind)}&lat=${home.lat}&lng=${home.lng}&r=${Math.round(radiusM)}&n=${n}`, { signal: AbortSignal.timeout(15000) });
+    const d = await r.json();
+    return d.ok ? d.places : [];
   } catch { return []; }
 }
 

@@ -285,7 +285,7 @@ const LABEL_ZOOM = 16;
 const pinLabel = (c, i) => c.kind === "intersection" ? "✕" : (c.pin ?? String(i + 1));
 const pinHtml = (c, i) => {
   const lbl = pinLabel(c, i), isX = lbl === "✕", isDot = lbl === "·";
-  const size = isX ? 20 : isDot ? 16 : 28, bg = isX ? "#8a5a00" : isDot ? "#8b8680" : "#1f5a95";
+  const size = isX ? 20 : isDot ? 16 : 28, bg = isX ? "#8a5a00" : isDot ? "#8b8680" : "#5f0080";
   return `<div title="${c.name}" style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;background:${bg};color:#fff;font-weight:800;border-radius:50%;border:2px solid #fff;font-size:${isX ? 11 : isDot ? 12 : 14}px;box-shadow:0 1px 4px rgba(0,0,0,.35)">${isDot ? "" : lbl}</div>`;
 };
 const pinTitle = (c, i) => { const l = pinLabel(c, i); return l === "·" || l === "✕" ? c.name : `${l}. ${c.name}`; };
@@ -324,7 +324,7 @@ function createLeafletMap(L, el, center, rMax) {
   // OSM 표준 타일: 한국 지역은 한국어 지명으로 표시되는 일반(도로) 지도. 위성 아님.
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
   let circle = null;
-  if (rMax) circle = L.circle([center.lat, center.lng], { radius: rMax, color: "#1f5a95", weight: 2, opacity: .6, fillColor: "#1f5a95", fillOpacity: .06 }).addTo(map);
+  if (rMax) circle = L.circle([center.lat, center.lng], { radius: rMax, color: "#5f0080", weight: 2, opacity: .6, fillColor: "#5f0080", fillOpacity: .06 }).addTo(map);
   L.marker([center.lat, center.lng], { title: "집·마지막 본 곳" }).addTo(map).bindTooltip("집", { permanent: true, direction: "top" });
   const layer = L.layerGroup().addTo(map);
   const labelLayer = L.layerGroup().addTo(map);
@@ -370,8 +370,8 @@ function createNaverMap(naver, el, center, rMax) {
   const M = naver.maps;
   const map = new M.Map(el, { center: new M.LatLng(center.lat, center.lng), zoom: 15, zoomControl: true });
   let circle = null;
-  if (rMax) circle = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: rMax, strokeColor: "#1f5a95", strokeWeight: 2, strokeOpacity: .6, fillColor: "#1f5a95", fillOpacity: .06 });
-  new M.Marker({ map, position: new M.LatLng(center.lat, center.lng), icon: { content: '<div style="background:#fff;border:2px solid #1f5a95;border-radius:999px;padding:2px 8px;font-weight:800;font-size:13px;color:#1c1b1a">집</div>', anchor: new M.Point(14, 14) } });
+  if (rMax) circle = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: rMax, strokeColor: "#5f0080", strokeWeight: 2, strokeOpacity: .6, fillColor: "#5f0080", fillOpacity: .06 });
+  new M.Marker({ map, position: new M.LatLng(center.lat, center.lng), icon: { content: '<div style="background:#fff;border:2px solid #5f0080;border-radius:999px;padding:2px 8px;font-weight:800;font-size:13px;color:#1c1b1a">집</div>', anchor: new M.Point(14, 14) } });
   let markers = [], labels = [], route = null, current = [];
   const info = new M.InfoWindow({ borderWidth: 1, backgroundColor: "#fff", anchorSize: new M.Size(10, 10) });
   M.Event.addListener(map, "click", () => info.close());

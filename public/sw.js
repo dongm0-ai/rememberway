@@ -1,5 +1,5 @@
 // 서비스워커: 화면 파일은 캐시해 두어 인터넷이 약해도 앱이 열리게 한다. /api/ 는 절대 캐시하지 않는다 (항상 서버).
-const VERSION = "rw-v28";
+const VERSION = "rw-v29";
 const SHELL = ["/", "/index.html", "/report.html", "/confirm.html", "/summary.html", "/profile.html", "/diary.html", "/record.html", "/about.html", "/css/app.css", "/js/common.js", "/js/map.js", "/js/answer-ui.js", "/lib/schema.js", "/lib/verify.js", "/lib/priority.js", "/lib/diary.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });

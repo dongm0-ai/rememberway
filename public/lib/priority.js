@@ -55,7 +55,7 @@ export function haversineM(lat1, lng1, lat2, lng2) {
 export function buildSummary(clue, profile, elapsedMin) {
   const v = (x) => (x === null || x === undefined || x === "" ? "모름" : x);
   const b = (x) => (x === true ? "있음" : x === false ? "없음" : "모름");
-  const h = profile?.honorific || "어르신";
+  const h = clue.honorific || profile?.honorific || "어르신"; // 이번에 말한 호칭 > 평소 등록
   const lines = [
     `[치매 어르신 실종 — 보호자 정리 내용]`,
     `대상: ${h}${clue.home_dong || profile?.home_dong ? ` (거주: ${clue.home_dong || profile.home_dong})` : ""}`,

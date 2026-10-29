@@ -24,6 +24,7 @@ export function coerceClue(raw) {
   const places = Array.isArray(r.memory_places) ? r.memory_places : [];
   const clue = {
     ...structuredClone(EMPTY_CLUE),
+    honorific: str(r.honorific),
     home_dong: str(r.home_dong),
     last_seen: { time: str(ls.time), place: str(ls.place) },
     today_destination: str(r.today_destination),

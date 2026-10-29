@@ -55,7 +55,7 @@
   if (mode.source === "mock") mockBanner({ mock: true });
   const utter = store.sget(KEYS.utterance, "");
 
-  const keys = ["home_dong", "last_seen.time", "last_seen.place", "today_destination", "route", "clothing.top", "clothing.bottom", "clothing.shoes", "clothing.hat", "gait", "items.phone", "items.wallet", "items.cane", "meds", "dementia_signs", "prior_incidents"];
+  const keys = ["honorific", "home_dong", "last_seen.time", "last_seen.place", "today_destination", "route", "clothing.top", "clothing.bottom", "clothing.shoes", "clothing.hat", "gait", "items.phone", "items.wallet", "items.cane", "meds", "dementia_signs", "prior_incidents"];
   const isBool = (k) => k.startsWith("items.");
   const show = (k) => { const v = getPath(clue, k); return isBool(k) ? (v === true ? "있음" : v === false ? "없음" : null) : v; };
 

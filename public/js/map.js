@@ -70,13 +70,20 @@ async function naverSearch(q, near, n) {
     return d.ok ? d.places : null; // null = 설정 없음/실패 → 다른 방법으로
   } catch { return null; }
 }
+const KIND_ALIASES = { "무인세탁소": ["무인세탁소", "셀프빨래방", "세탁소"], "무인세탁실": ["무인세탁소", "셀프빨래방", "세탁소"], "무인세탁": ["무인세탁소", "셀프빨래방"], "세탁": ["세탁소"], "빨래방": ["셀프빨래방", "무인세탁소"], "커피": ["카페"], "커피숍": ["카페"], "노인정": ["경로당"], "슈퍼": ["슈퍼마켓", "마트"] };
 export async function findNearby(kind, home, radiusM = 1500, n = 3) {
-  const nv = await naverSearch(`${homeLabel} ${kind}`.trim(), home, n);
-  if (nv && nv.length) return nv.filter((p) => !p.distance_m || p.distance_m <= Math.max(radiusM, 2000));
+  const limit = Math.max(radiusM, 2000);
+  const near = (p) => Number.isFinite(p.distance_m) ? p.distance_m <= limit : haversineM(home.lat, home.lng, p.lat, p.lng) <= limit; // 집 반경 밖(엉뚱한 먼 가게)은 버린다
+  for (const q of KIND_ALIASES[kind.replace(/\s+/g, "")] ?? [kind]) {
+    const nv = await naverSearch(`${homeLabel} ${q}`.trim(), home, 5);
+    if (nv === null) break; // 네이버 검색 설정 없음 → OSM
+    const ok = nv.filter(near);
+    if (ok.length) return ok.slice(0, n);
+  }
   try {
     const r = await fetch(`/api/nearby?kind=${encodeURIComponent(kind)}&lat=${home.lat}&lng=${home.lng}&r=${Math.round(radiusM)}&n=${n}`, { signal: AbortSignal.timeout(15000) });
     const d = await r.json();
-    return d.ok ? d.places : [];
+    return d.ok ? d.places.filter(near) : [];
   } catch { return []; }
 }
 
@@ -84,7 +91,8 @@ export async function findNearby(kind, home, radiusM = 1500, n = 3) {
 export async function findPlaceLoose(name, near) {
   // 네이버 검색이 설정돼 있으면 가게·시설 이름은 거기가 훨씬 정확 ("석교동 경로당", "중앙시장 ○○정육점")
   const nv = await naverSearch(name.includes(" ") || !homeLabel ? name : `${homeLabel.split(/\s+/).slice(-1)[0]} ${name}`, near, 1);
-  if (nv && nv.length) return { ...nv[0], approx: false };
+  const tooFar = (p) => near && haversineM(near.lat, near.lng, p.lat, p.lng) > 30000; // 집에서 30km 넘으면 동명이인 가게일 가능성이 커서 버린다
+  if (nv && nv.length && !tooFar(nv[0])) return { ...nv[0], approx: false };
   const direct = await findPlace(name, near);
   if (direct) return { ...direct, approx: false };
   const tokens = name.split(/\s+/).filter(Boolean);

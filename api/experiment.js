@@ -12,7 +12,8 @@ export default async function handler(req, res) {
   res.setHeader("cache-control", "no-store");
   const src = req.headers.origin || req.headers.referer || "";
   let host = ""; try { host = new URL(src).host; } catch {}
-  if (!(host === "rememberway.vercel.app" || host === "localhost:3000" || host.endsWith("-dongm0-ai.vercel.app"))) { res.statusCode = 403; return res.end(JSON.stringify({ ok: false, reason: "FORBIDDEN" })); }
+  const allowed = [...(process.env.ALLOWED_HOSTS || "rememberway.vercel.app,localhost:3000").split(","), (() => { try { return new URL(process.env.APP_URL || "").host; } catch { return ""; } })()].map((x) => x.trim()).filter(Boolean);
+  if (!(allowed.includes(host) || host.endsWith("-dongm0-ai.vercel.app"))) { res.statusCode = 403; return res.end(JSON.stringify({ ok: false, reason: "FORBIDDEN" })); }
   if (!isMock() && !hasKey()) return res.end(JSON.stringify({ ok: false, reason: "NO_KEY" }));
 
   const { cases } = JSON.parse(fs.readFileSync(path.join(process.cwd(), "data/mock_cases.json"), "utf8"));

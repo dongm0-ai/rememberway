@@ -47,7 +47,7 @@
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary } from "/lib/priority.js";
-  import { loadMap, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, tourOrder } from "/js/map.js";
+  import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, tourOrder } from "/js/map.js";
 
   const clue = store.sget(KEYS.clue);
   if (!clue) location.replace("/report");
@@ -100,7 +100,8 @@
 
   // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim, 도보 경로·교차로는 OSRM.
   let view = null, tour = null;
-  const L = await loadMap();
+  const cfg = await loadConfig();
+  const L = await loadMap(cfg.map ?? {});
   if (!L) {
     $("#map").textContent = "지도를 불러오지 못했어요 (인터넷 연결 확인). 목록은 아래에 있습니다.";
     $("#map-note").textContent = "거리를 알 수 없어 점수에 반경을 반영하지 못했습니다.";
@@ -137,7 +138,7 @@
     if (home) await buildTour(home);
     const approx = places.filter((p) => p.approx).map((p) => `${p.name}→${p.found_name}`);
     const notFound = places.filter((p) => !p.lat).map((p) => p.name);
-    let note = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 지도: OpenStreetMap, 길찾기: OSRM(도보)`;
+    let note = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 지도: ${mapEngine() === "naver" ? "네이버" : "OpenStreetMap"}, 길찾기: OSRM(도보)`;
     if (approx.length) note += ` · 근처로 표시: ${approx.join(", ")}`;
     if (notFound.length) note += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
     $("#map-note").textContent = note;

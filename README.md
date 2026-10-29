@@ -49,6 +49,10 @@ npm run mock                 # 모의 사례 3개를 실제 AI로 실행 → dat
 npm run mock:fake            # 키 없이 모의 응답으로 흐름만 점검 (MOCK_AI=1)
 ```
 
+## 설정 (.env)
+
+모든 키·주소·동작 설정은 `.env.example`에 설명과 함께 정리돼 있다. PC에서는 `.env.local`로 복사해 채우고, 실제 서비스는 Vercel 환경변수에 같은 이름으로 넣는다(바꾼 뒤 Redeploy). 지도는 `MAP_PROVIDER=osm|naver`, AI는 키가 있는 제공자를 자동으로 쓴다.
+
 ## 배포 (Vercel)
 
 1. 이 저장소를 GitHub에 올린다.

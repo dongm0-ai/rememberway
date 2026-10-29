@@ -4,5 +4,7 @@ import { aiStatus } from "../lib/http.js";
 export default function handler(req, res) {
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("cache-control", "no-store");
-  res.end(JSON.stringify({ ai: aiStatus(), map: "openstreetmap" }));
+  const provider = (process.env.MAP_PROVIDER || "osm").toLowerCase();
+  // 네이버 Client ID는 공개용(도메인 제한). Secret은 절대 내보내지 않는다.
+  res.end(JSON.stringify({ ai: aiStatus(), map: { provider: provider === "naver" && process.env.NAVER_CLIENT_ID ? "naver" : "osm", naverClientId: provider === "naver" ? (process.env.NAVER_CLIENT_ID || null) : null } }));
 }

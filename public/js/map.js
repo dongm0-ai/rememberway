@@ -5,10 +5,24 @@
 const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 let loading = null;
+let engine = "osm"; // "osm" | "naver" — /api/config 의 map.provider 로 정해짐 (.env MAP_PROVIDER)
 
-export function loadMap() {
-  if (window.L?.map) return Promise.resolve(window.L);
+/** 지도 엔진 로드. cfg = /api/config 의 map 객체. 반환: 엔진 객체(window.L 또는 window.naver) 또는 null */
+export function loadMap(cfg = {}) {
   if (loading) return loading;
+  if (cfg.provider === "naver" && cfg.naverClientId) {
+    engine = "naver";
+    loading = new Promise((resolve) => {
+      if (window.naver?.maps) return resolve(window.naver);
+      const s = document.createElement("script");
+      s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(cfg.naverClientId)}`;
+      s.onload = () => resolve(window.naver?.maps ? window.naver : null); s.onerror = () => resolve(null);
+      document.head.append(s);
+    });
+    return loading;
+  }
+  engine = "osm";
+  if (window.L?.map) return Promise.resolve(window.L);
   loading = new Promise((resolve) => {
     const css = document.createElement("link"); css.rel = "stylesheet"; css.href = LEAFLET_CSS; document.head.append(css);
     const s = document.createElement("script"); s.src = LEAFLET_JS;
@@ -17,6 +31,7 @@ export function loadMap() {
   });
   return loading;
 }
+export function mapEngine() { return engine; }
 
 // ---------------------------------------------------------------- 장소 찾기 (Nominatim)
 const cache = new Map();
@@ -66,6 +81,8 @@ export async function findPlaceLoose(name, near) {
 
 /** 집(동 단위) 좌표. "대전 중구 석교동"처럼 시·구까지 적으면 정확도가 올라간다 */
 export async function findHome(dong) {
+  // 네이버가 설정돼 있으면 서버의 네이버 Geocoding 먼저 (주소 정확도 높음), 아니면 OSM
+  try { const r = await fetch(`/api/geocode?q=${encodeURIComponent(dong)}`); const d = await r.json(); if (d.ok) return { lat: d.lat, lng: d.lng, found_name: d.found_name }; } catch {}
   return (await findPlace(dong, null)) ?? (await findPlace(dong.split(/\s+/).slice(-1)[0], null));
 }
 
@@ -109,8 +126,13 @@ export function tourOrder(home, candidates) {
 }
 const dist2 = (a, b) => (a.lat - b.lat) ** 2 + ((a.lng - b.lng) * Math.cos((a.lat * Math.PI) / 180)) ** 2;
 
-// ---------------------------------------------------------------- 지도 그리기
-export function createMap(L, el, center, rMax) {
+// ---------------------------------------------------------------- 지도 그리기 (두 엔진 같은 인터페이스: setMarkers(list), setRoute(geometry))
+export function createMap(lib, el, center, rMax) {
+  return engine === "naver" ? createNaverMap(lib, el, center, rMax) : createLeafletMap(lib, el, center, rMax);
+}
+const pinHtml = (c, i) => { const isX = c.kind === "intersection"; return `<div style="background:${isX ? "#8a5a00" : "#1f5a95"};color:#fff;font-weight:800;border-radius:999px;padding:2px 8px;font-size:${isX ? 11 : 13}px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">${isX ? "✕ " : i + 1 + " "}${c.name}</div>`; };
+
+function createLeafletMap(L, el, center, rMax) {
   const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([center.lat, center.lng], 15);
   // OSM 표준 타일: 한국 지역은 한국어 지명으로 표시되는 일반(도로) 지도. 위성 아님.
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
@@ -126,9 +148,8 @@ export function createMap(L, el, center, rMax) {
       const pts = [[center.lat, center.lng]];
       list.forEach((c, i) => {
         if (!c.lat) return;
-        const isX = c.kind === "intersection";
-        const icon = L.divIcon({ className: "", html: `<div style="background:${isX ? "#8a5a00" : "#1f5a95"};color:#fff;font-weight:800;border-radius:999px;padding:2px 8px;font-size:${isX ? 11 : 13}px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">${isX ? "✕ " : i + 1 + " "}${c.name}</div>`, iconAnchor: [10, 10] });
-        L.marker([c.lat, c.lng], { icon }).addTo(layer); if (!isX) pts.push([c.lat, c.lng]);
+        const icon = L.divIcon({ className: "", html: pinHtml(c, i), iconAnchor: [10, 10] });
+        L.marker([c.lat, c.lng], { icon }).addTo(layer); if (c.kind !== "intersection") pts.push([c.lat, c.lng]);
       });
       if (pts.length > 1) map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
       else if (circle) map.fitBounds(circle.getBounds(), { padding: [10, 10] });
@@ -136,6 +157,35 @@ export function createMap(L, el, center, rMax) {
     setRoute(geometry) {
       routeLayer.clearLayers();
       if (geometry?.length) L.polyline(geometry, { color: "#b3261e", weight: 5, opacity: .75 }).addTo(routeLayer);
+    },
+  };
+}
+
+function createNaverMap(naver, el, center, rMax) {
+  const M = naver.maps;
+  const map = new M.Map(el, { center: new M.LatLng(center.lat, center.lng), zoom: 15, zoomControl: true });
+  let circle = null;
+  if (rMax) circle = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: rMax, strokeColor: "#1f5a95", strokeWeight: 2, strokeOpacity: .6, fillColor: "#1f5a95", fillOpacity: .06 });
+  new M.Marker({ map, position: new M.LatLng(center.lat, center.lng), icon: { content: '<div style="background:#fff;border:2px solid #1f5a95;border-radius:999px;padding:2px 8px;font-weight:800;font-size:13px;color:#1c1b1a">집</div>', anchor: new M.Point(14, 14) } });
+  let markers = [], route = null;
+  return {
+    map, circle,
+    setMarkers(list) {
+      markers.forEach((m) => m.setMap(null)); markers = [];
+      const bounds = new M.LatLngBounds(new M.LatLng(center.lat, center.lng), new M.LatLng(center.lat, center.lng));
+      let any = false;
+      list.forEach((c, i) => {
+        if (!c.lat) return;
+        const pos = new M.LatLng(c.lat, c.lng);
+        markers.push(new M.Marker({ map, position: pos, icon: { content: pinHtml(c, i), anchor: new M.Point(10, 10) } }));
+        if (c.kind !== "intersection") { bounds.extend(pos); any = true; }
+      });
+      if (any) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 });
+      else if (circle) map.fitBounds(circle.getBounds());
+    },
+    setRoute(geometry) {
+      if (route) { route.setMap(null); route = null; }
+      if (geometry?.length) route = new M.Polyline({ map, path: geometry.map(([lat, lng]) => new M.LatLng(lat, lng)), strokeColor: "#b3261e", strokeWeight: 5, strokeOpacity: .75 });
     },
   };
 }

@@ -98,3 +98,11 @@ ul.plain { padding-left: 20px; margin: 6px 0; }
 ul.plain li { margin: 4px 0; }
 dialog { border: 0; border-radius: 16px; padding: 18px; width: min(92vw, 440px); background: var(--card); color: var(--ink); }
 dialog::backdrop { background: rgba(0,0,0,.45); }
+
+/* 지도(Leaflet)는 밝은 바탕 그대로 — 다크 모드에서 글자가 흰색이 되지 않게 색을 고정 */
+#map, #map * { color: #1c1b1a; }
+.leaflet-container { background: #e8e6e1; }
+.leaflet-tooltip { background: #fff; color: #1c1b1a; border-color: #ccc; font-weight: 700; }
+.leaflet-control-zoom a { background: #fff; color: #1c1b1a; }
+.leaflet-control-attribution { background: rgba(255,255,255,.85); color: #333; }
+.leaflet-control-attribution a { color: #1f5a95; }

@@ -13,7 +13,8 @@ export default postHandler(async ({ clue }) => {
   const missing = computeMissing(clue);
   if (missing.length === 0) return { ok: true, questions: [], missing };
   const raw = await askJSON(SYSTEM_FOLLOWUP, userFollowup(clue, missing));
-  const arr = Array.isArray(raw) ? raw : [];
+  // 배열을 기대하지만, JSON 객체 모드인 모델(Upstage 등)은 {"questions":[...]}처럼 감싸서 줄 수 있다 → 안의 배열을 꺼낸다
+  const arr = Array.isArray(raw) ? raw : Array.isArray(raw?.questions) ? raw.questions : (Object.values(raw ?? {}).find(Array.isArray) ?? []);
   const allowed = new Set(missing);
   // 코드 검증: 허용된 키만, 우선순위 순, 최대 3개, 한 키에 하나
   const seen = new Set();

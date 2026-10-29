@@ -144,7 +144,9 @@ const dist2 = (a, b) => (a.lat - b.lat) ** 2 + ((a.lng - b.lng) * Math.cos((a.la
 export function createMap(lib, el, center, rMax) {
   return engine === "naver" ? createNaverMap(lib, el, center, rMax) : createLeafletMap(lib, el, center, rMax);
 }
-const pinHtml = (c, i) => { const isX = c.kind === "intersection"; return `<div style="background:${isX ? "#8a5a00" : "#1f5a95"};color:#fff;font-weight:800;border-radius:999px;padding:2px 8px;font-size:${isX ? 11 : 13}px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">${isX ? "✕ " : i + 1 + " "}${c.name}</div>`; };
+// 핀은 번호(또는 ✕)만 — 이름을 핀에 붙이면 가까운 곳끼리 글자가 겹쳐 못 읽는다. 이름은 아래 목록의 같은 번호에 있고, 핀을 누르면 말풍선으로 뜬다.
+const pinHtml = (c, i) => { const isX = c.kind === "intersection"; return `<div title="${c.name}" style="width:${isX ? 20 : 28}px;height:${isX ? 20 : 28}px;display:flex;align-items:center;justify-content:center;background:${isX ? "#8a5a00" : "#1f5a95"};color:#fff;font-weight:800;border-radius:50%;border:2px solid #fff;font-size:${isX ? 11 : 14}px;box-shadow:0 1px 4px rgba(0,0,0,.35)">${isX ? "✕" : i + 1}</div>`; };
+const pinAnchor = (c) => (c.kind === "intersection" ? 10 : 14);
 
 function createLeafletMap(L, el, center, rMax) {
   const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([center.lat, center.lng], 15);
@@ -162,8 +164,10 @@ function createLeafletMap(L, el, center, rMax) {
       const pts = [[center.lat, center.lng]];
       list.forEach((c, i) => {
         if (!c.lat) return;
-        const icon = L.divIcon({ className: "", html: pinHtml(c, i), iconAnchor: [10, 10] });
-        L.marker([c.lat, c.lng], { icon }).addTo(layer); if (c.kind !== "intersection") pts.push([c.lat, c.lng]);
+        const a = pinAnchor(c);
+        const icon = L.divIcon({ className: "", html: pinHtml(c, i), iconSize: [a * 2, a * 2], iconAnchor: [a, a] });
+        L.marker([c.lat, c.lng], { icon }).addTo(layer).bindTooltip(`${c.kind === "intersection" ? "✕" : i + 1}. ${c.name}`, { direction: "right", offset: [a, 0] });
+        if (c.kind !== "intersection") pts.push([c.lat, c.lng]);
       });
       if (pts.length > 1) map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
       else if (circle) map.fitBounds(circle.getBounds(), { padding: [10, 10] });
@@ -182,16 +186,21 @@ function createNaverMap(naver, el, center, rMax) {
   if (rMax) circle = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: rMax, strokeColor: "#1f5a95", strokeWeight: 2, strokeOpacity: .6, fillColor: "#1f5a95", fillOpacity: .06 });
   new M.Marker({ map, position: new M.LatLng(center.lat, center.lng), icon: { content: '<div style="background:#fff;border:2px solid #1f5a95;border-radius:999px;padding:2px 8px;font-weight:800;font-size:13px;color:#1c1b1a">집</div>', anchor: new M.Point(14, 14) } });
   let markers = [], route = null;
+  const info = new M.InfoWindow({ borderWidth: 1, backgroundColor: "#fff", anchorSize: new M.Size(10, 10) });
+  M.Event.addListener(map, "click", () => info.close());
   return {
     map, circle,
     setMarkers(list) {
-      markers.forEach((m) => m.setMap(null)); markers = [];
+      markers.forEach((m) => m.setMap(null)); markers = []; info.close();
       const bounds = new M.LatLngBounds(new M.LatLng(center.lat, center.lng), new M.LatLng(center.lat, center.lng));
       let any = false;
       list.forEach((c, i) => {
         if (!c.lat) return;
         const pos = new M.LatLng(c.lat, c.lng);
-        markers.push(new M.Marker({ map, position: pos, icon: { content: pinHtml(c, i), anchor: new M.Point(10, 10) } }));
+        const a = pinAnchor(c);
+        const mk = new M.Marker({ map, position: pos, icon: { content: pinHtml(c, i), anchor: new M.Point(a, a) }, title: c.name });
+        M.Event.addListener(mk, "click", () => { info.setContent(`<div style="padding:6px 10px;font-size:14px;font-weight:700;color:#1c1b1a;white-space:nowrap">${c.kind === "intersection" ? "✕" : i + 1}. ${c.name}</div>`); info.open(map, mk); });
+        markers.push(mk);
         if (c.kind !== "intersection") { bounds.extend(pos); any = true; }
       });
       if (any) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 });

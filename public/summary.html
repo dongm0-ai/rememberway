@@ -111,7 +111,10 @@
       if (p.lat && p.lng) continue;
       if (home && isGeneric(p.name)) {
         const found = await findNearby(p.name, home, Math.min(rMax, 2000), 3);
-        if (found.length) { p.skip = true; found.forEach((f) => expanded.push({ ...p, name: `${p.name}: ${f.found_name}`, lat: f.lat, lng: f.lng, evidence: p.evidence, kindOf: p.name })); continue; }
+        p.skip = true; // 종류만 말한 곳은 이름 검색으로 엉뚱한 먼 곳이 잡히므로, 근처 가게로만 바꾸거나 "못 찾음"으로 둔다
+        if (found.length) found.forEach((f) => expanded.push({ ...p, name: `${p.name}: ${f.found_name}`, lat: f.lat, lng: f.lng, evidence: p.evidence, kindOf: p.name }));
+        else expanded.push({ ...p, name: `${p.name} (집 근처, 지도에서 못 찾음)`, skip: false });
+        continue;
       }
       const f = await findPlaceLoose(p.name, home);
       if (f) { p.lat = f.lat; p.lng = f.lng; p.found_name = f.found_name; p.approx = f.approx; }
@@ -130,7 +133,7 @@
     if (notFound.length) note += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
     $("#map-note").textContent = note;
   }
-  function drawMarkers() { if (view) view.setMarkers([...ranked, ...(tour?.intersections ?? [])]); }
+  function drawMarkers() { if (view) view.setMarkers(ranked); }
 
   async function buildTour(home) {
     const top = ranked.filter((c) => c.kind === "place" && c.lat && (c.distance_m ?? Infinity) <= rMax * 1.2).slice(0, 5);
@@ -141,7 +144,7 @@
     if (!route) { box.append(el("p", { class: "muted small" }, "길찾기 서버에 연결하지 못해 동선 대신 직선거리만 표시합니다.")); return; }
     tour = route; view.setRoute(route.geometry);
     // 교차로를 가중치에 반영해 순위 다시 계산
-    intersections = route.intersections.slice(0, 6);
+    intersections = route.intersections.slice(0, 4);
     ranked = rankCandidates(places, intersections, rMax, [...checked]);
     renderRank(); drawMarkers();
     let acc = 0;

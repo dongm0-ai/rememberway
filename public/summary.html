@@ -119,8 +119,9 @@
     $("#map").textContent = "지도를 불러오지 못했어요 (인터넷 연결 확인). 목록은 아래에 있습니다.";
     $("#map-note").textContent = "거리를 알 수 없어 점수에 반경을 반영하지 못했습니다.";
   } else {
-    const homeName = profile?.home_dong || clue.last_seen?.place;
-    setHomeLabel(profile?.home_dong || "");
+    // 집 동네: 보호자가 이번에 말한 것 > 평소 등록 정보 > 마지막 본 곳
+    const homeName = clue.home_dong || profile?.home_dong || clue.last_seen?.place;
+    setHomeLabel(clue.home_dong || profile?.home_dong || "");
     const home = homeName ? await findHome(homeName) : null;
     const center = home ?? { lat: 36.3504, lng: 127.3845 };
     $("#map").textContent = "";

@@ -11,6 +11,7 @@ ClueJSON: 아래 EMPTY_CLUE 모양
 */
 
 export const EMPTY_CLUE = Object.freeze({
+  home_dong: null, // 보호자가 말한 어르신 집 동네(시 구 동). 있으면 평소 등록 정보보다 우선
   last_seen: { time: null, place: null },
   today_destination: null,
   route: null,
@@ -37,6 +38,7 @@ export const FOLLOWUP_PRIORITY = [
 
 /** 화면에 보일 항목 이름 */
 export const FIELD_LABELS = {
+  home_dong: "집 동네 (시 구 동)",
   "last_seen.time": "마지막으로 본 시각",
   "last_seen.place": "마지막으로 본 곳",
   today_destination: "오늘 가려던 곳",

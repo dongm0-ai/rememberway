@@ -58,7 +58,7 @@ export function buildSummary(clue, profile, elapsedMin) {
   const h = profile?.honorific || "어르신";
   const lines = [
     `[치매 어르신 실종 — 보호자 정리 내용]`,
-    `대상: ${h}${profile?.home_dong ? ` (거주: ${profile.home_dong})` : ""}`,
+    `대상: ${h}${clue.home_dong || profile?.home_dong ? ` (거주: ${clue.home_dong || profile.home_dong})` : ""}`,
     `마지막 본 시각: ${v(clue.last_seen?.time)} / 장소: ${v(clue.last_seen?.place)}` + (elapsedMin ? ` (약 ${elapsedMin}분 경과)` : ""),
     `오늘 가려던 곳: ${v(clue.today_destination)} / 평소 가는 길: ${v(clue.route)}`,
     `옷차림: 상의 ${v(clue.clothing?.top)}, 하의 ${v(clue.clothing?.bottom)}, 신발 ${v(clue.clothing?.shoes)}, 모자 ${v(clue.clothing?.hat)}`,

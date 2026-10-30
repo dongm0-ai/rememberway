@@ -83,7 +83,7 @@ export async function findNearby(kind, home, radiusM = 1500, n = 3) {
     if (nv === null) break; // 네이버 검색 설정 없음 → OSM
     // 가게 종류를 물었는데 버스정류장·지하철 출입구("○○성당입구" 정류장 등)가 섞이면 뺀다 (정류장을 물은 경우는 제외)
     const wantStop = /정류장|역$/.test(kind);
-    const ok = nv.filter(near).filter((p) => wantStop || !/정류장|교통|지하철/.test(p.category ?? ""));
+    const ok = nv.filter(near).filter((p) => (wantStop ? !/자전거|대여소|주차/.test(p.found_name ?? "") : !/정류장|교통|지하철/.test(p.category ?? "")));
     if (ok.length) return ok.slice(0, n);
   }
   try {

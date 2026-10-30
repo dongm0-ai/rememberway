@@ -143,3 +143,6 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
   .fixed-bottom .inner { max-width: var(--max); display: flex; justify-content: flex-end; }
   .fixed-bottom .inner .btn { width: 360px; }
 }
+
+/* 112 전화 버튼: 학생 의견 "신고 버튼이 작아 못 찾겠다" → 경고 박스 안 큰 빨간 버튼 */
+.alert .call112 { margin-top: 12px; color: #fff !important; text-decoration: none; font-size: 22px; font-weight: 800; letter-spacing: .02em; box-shadow: 0 6px 18px rgba(198,40,40,.3); }

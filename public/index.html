@@ -22,7 +22,8 @@
     <p class="hero-desc">말하거나 쓰면, 경찰이 쓸 정보로 정리하고 확인할 곳을 지도에 모읍니다.</p>
   </section>
 
-  <div class="alert" style="margin-top:14px">치매 어르신은 즉시 신고 대상입니다.<br>먼저 <a href="tel:112">112</a>에 전화하세요.
+  <div class="alert" style="margin-top:14px">치매 어르신은 즉시 신고 대상입니다.<br>먼저 112에 전화하세요.
+    <a class="btn btn-danger btn-xl call112" href="tel:112">📞 112 전화하기</a>
     <div class="sub">신고하면서 이 앱을 같이 쓰면 됩니다. 신고를 늦추지 마세요.</div></div>
 
   <div class="home-grid">
@@ -31,6 +32,7 @@
     <a class="btn btn-secondary" href="/record"><span>✅ 찾은 뒤 기록<small>다음 실종을 막는 계획을 만듭니다</small></span></a>
   </div>
 
+  <div class="card" id="push-card" style="margin-top:20px"></div>
   <div class="card tight" style="margin-top:20px">
     <div class="small"><b>개인정보</b></div>
     <ul class="plain small muted">
@@ -43,7 +45,8 @@
   <p class="footer-note"><a href="#" id="btn-wipe">이 기기의 등록 정보 모두 지우기</a> · <span id="ai-status" class="muted"></span></p>
 </main>
 <script type="module">
-  import { store, KEYS, $, loadConfig, today } from "/js/common.js";
+  import { store, KEYS, $, loadConfig, today, mountPushCard } from "/js/common.js";
+  mountPushCard($("#push-card"));
   const p = store.get(KEYS.profile);
   const d = store.get(KEYS.diary, []);
   if (p) $("#profile-sub").textContent = d.some((x) => x.date === today()) ? `${p.honorific} 등록됨 · 일지 ${d.length}일 · 오늘 기록 완료 ✓` : `${p.honorific} 등록됨 · 일지 ${d.length}일 · 🔔 오늘 일지를 아직 안 썼어요`;

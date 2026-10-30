@@ -112,3 +112,37 @@ export function mockBanner(res) {
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 }
+
+/** 저녁 알림 카드(켜기·테스트·끄기)를 container 안에 그린다. 첫 화면·일지 화면에서 같이 쓴다 */
+export function mountPushCard(container) {
+  const REASONS = { UNSUPPORTED: "이 브라우저는 알림을 지원하지 않아요. 크롬이나 삼성 인터넷으로 열어 주세요.", SERVER_OFF: "알림 서버가 아직 준비되지 않았어요.", DENIED: "알림이 차단돼 있어요. 휴대폰 설정 → 이 앱(또는 브라우저) → 알림을 허용해 주세요.", NOT_SUBSCRIBED: "아직 알림이 켜져 있지 않아요." };
+  const st = el("p", { class: "small", style: "margin:6px 0" });
+  const on = el("button", { class: "btn-primary" }, "🔔 저녁 알림 켜기");
+  const test = el("button", { class: "btn-secondary hidden" }, "테스트 알림");
+  const off = el("button", { class: "btn-ghost hidden", style: "margin-top:6px" }, "알림 끄기");
+  container.append(
+    el("h3", { style: "margin-top:0" }, "🔔 일지 저녁 알림"),
+    el("p", { class: "small muted", style: "margin-top:0" }, "매일 저녁 6시에 오늘 일지를 안 썼으면 알려 드려요. 그래도 안 쓰면 9시에 한 번 더. 쓴 날은 오지 않아요."),
+    st, el("div", { class: "row" }, on, test), off);
+  const diaryDates = () => store.get(KEYS.diary, []).map((x) => x.date);
+  async function render() {
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    if (!pushSupported()) { st.textContent = isIOS && !isStandalone() ? "아이폰은 Safari 아래 공유 버튼 → '홈 화면에 추가' → 홈 화면의 아이콘으로 다시 열면 알림을 켤 수 있어요." : REASONS.UNSUPPORTED; on.disabled = true; return; }
+    const sub = await currentPush().catch(() => null);
+    const enabled = Boolean(sub) && Notification.permission === "granted";
+    st.textContent = enabled ? "✅ 알림이 켜져 있어요." : Notification.permission === "denied" ? REASONS.DENIED : "알림이 꺼져 있어요.";
+    on.classList.toggle("hidden", enabled); test.classList.toggle("hidden", !enabled); off.classList.toggle("hidden", !enabled);
+  }
+  on.onclick = async () => {
+    on.disabled = true; st.textContent = "켜는 중…";
+    const dates = diaryDates();
+    const r = await enablePush(dates.sort().pop() || null).catch((e) => ({ ok: false, reason: String(e.message || e) }));
+    on.disabled = false;
+    if (!r.ok) { st.textContent = REASONS[r.reason] || `알림을 켜지 못했어요 (${r.reason})`; return; }
+    if (diaryDates().includes(today())) markDiaryDone(today());
+    render();
+  };
+  test.onclick = async () => { st.textContent = "테스트 알림 보내는 중…"; const r = await testPush().catch(() => ({ ok: false })); st.textContent = r.ok ? "테스트 알림을 보냈어요. 몇 초 안에 와야 해요." : REASONS[r.reason] || "테스트 알림을 보내지 못했어요."; };
+  off.onclick = async () => { await disablePush().catch(() => {}); render(); };
+  render();
+}

@@ -25,13 +25,7 @@
     <p class="small muted" id="saved-note" style="text-align:center"></p>
   </div>
 
-  <div class="card" id="push-card">
-    <h3 style="margin-top:0">🔔 저녁 알림</h3>
-    <p class="small muted" style="margin-top:0">매일 저녁 6시에 오늘 일지를 안 썼으면 알려 드려요. 그래도 안 쓰면 9시에 한 번 더. 쓴 날은 알림이 오지 않아요.</p>
-    <p class="small" id="push-status"></p>
-    <div class="row"><button class="btn-primary" id="push-on">알림 켜기</button><button class="btn-secondary hidden" id="push-test">테스트 알림</button></div>
-    <button class="btn-ghost hidden" id="push-off" style="margin-top:6px">알림 끄기</button>
-  </div>
+  <div class="card" id="push-card"></div>
 
   <h2>지난 30일 정리 <span class="small muted" id="days"></span></h2>
   <div class="callout hidden" id="low">기록이 적어 패턴 신뢰도가 낮습니다 (7일 이상 기록되면 분류가 안정됩니다).</div>
@@ -47,7 +41,7 @@
   <p class="footer-note"><a href="/profile">등록 정보 수정</a> · <a href="#" id="demo">7일치 모의 일지 넣기 (시험용)</a> · <a href="#" id="clear-diary">일지 지우기</a></p>
 </main>
 <script type="module">
-  import { store, KEYS, api, $, $$, el, today, mockBanner, pushSupported, isStandalone, currentPush, enablePush, disablePush, testPush, markDiaryDone } from "/js/common.js";
+  import { store, KEYS, api, $, $$, el, today, mockBanner, markDiaryDone, mountPushCard } from "/js/common.js";
   import { DIARY_RULES, SOURCE_LABELS } from "/lib/schema.js";
   import { classifyPlaces, recordedDays, weeklyAggregate } from "/lib/diary.js";
 
@@ -106,29 +100,7 @@
     const fake = []; for (let i = 7; i >= 1; i--) { const dt = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10); fake.push({ date: dt, visited: i % 2 ? [first] : [first, second], ...(i === 2 ? { extracted: { new_places: [{ name: "약국", evidence: "모의 일지" }], mentions: [{ place: "고향 바닷가", kind: "memory", evidence: "모의 일지" }], notes: null } } : {}) }); }
     diary = [...diary.filter((x) => !fake.some((f) => f.date === x.date)), ...fake].sort((a, b) => a.date.localeCompare(b.date)); store.set(KEYS.diary, diary); renderClassified(); renderChips();
   };
-  // ---- 저녁 알림
-  const REASONS = { UNSUPPORTED: "이 브라우저는 알림을 지원하지 않아요.", SERVER_OFF: "알림 서버가 아직 준비되지 않았어요 (선생님 설정 필요).", DENIED: "알림이 차단돼 있어요. 휴대폰 설정 → 이 앱(또는 브라우저) → 알림을 허용해 주세요.", NOT_SUBSCRIBED: "아직 알림이 켜져 있지 않아요." };
-  async function renderPush() {
-    const st = $("#push-status");
-    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-    if (!pushSupported()) { st.textContent = isIOS && !isStandalone() ? "아이폰은 Safari 공유 버튼 → '홈 화면에 추가'로 앱을 설치한 뒤, 그 앱에서 알림을 켤 수 있어요." : REASONS.UNSUPPORTED; $("#push-on").disabled = true; return; }
-    const sub = await currentPush().catch(() => null);
-    const on = Boolean(sub) && Notification.permission === "granted";
-    st.textContent = on ? "✅ 알림이 켜져 있어요. 오늘 일지를 저장하면 오늘은 알림이 오지 않아요." : Notification.permission === "denied" ? REASONS.DENIED : "알림이 꺼져 있어요.";
-    $("#push-on").classList.toggle("hidden", on); $("#push-test").classList.toggle("hidden", !on); $("#push-off").classList.toggle("hidden", !on);
-  }
-  $("#push-on").onclick = async () => {
-    $("#push-on").disabled = true; $("#push-status").textContent = "켜는 중…";
-    const last = diary.length ? diary[diary.length - 1].date : null;
-    const r = await enablePush(last).catch((e) => ({ ok: false, reason: String(e.message || e) }));
-    $("#push-on").disabled = false;
-    if (!r.ok) { $("#push-status").textContent = REASONS[r.reason] || `알림을 켜지 못했어요 (${r.reason})`; return; }
-    if (diary.some((x) => x.date === today())) markDiaryDone(today());
-    renderPush();
-  };
-  $("#push-test").onclick = async () => { $("#push-status").textContent = "테스트 알림 보내는 중…"; const r = await testPush().catch(() => ({ ok: false })); $("#push-status").textContent = r.ok ? "테스트 알림을 보냈어요. 몇 초 안에 와야 해요." : REASONS[r.reason] || "테스트 알림을 보내지 못했어요."; };
-  $("#push-off").onclick = async () => { await disablePush().catch(() => {}); renderPush(); };
-  renderPush();
+  mountPushCard($("#push-card"));
 
   $("#clear-diary").onclick = (e) => { e.preventDefault(); if (confirm("일지를 모두 지울까요?")) { diary = []; store.set(KEYS.diary, diary); entry = { date: d, visited: [] }; renderClassified(); renderChips(); } };
   renderChips(); renderClassified();

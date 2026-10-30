@@ -61,6 +61,7 @@ export function buildSummary(clue, profile, elapsedMin) {
     `대상: ${h}${clue.home_dong || profile?.home_dong ? ` (거주: ${clue.home_dong || profile.home_dong})` : ""}`,
     `마지막 본 시각: ${v(clue.last_seen?.time)} / 장소: ${v(clue.last_seen?.place)}` + (elapsedMin ? ` (약 ${elapsedMin}분 경과)` : ""),
     `오늘 가려던 곳: ${v(clue.today_destination)} / 평소 가는 길: ${v(clue.route)}`,
+    `버스·지하철·택시: ${v(clue.transport)}`,
     `옷차림: 상의 ${v(clue.clothing?.top)}, 하의 ${v(clue.clothing?.bottom)}, 신발 ${v(clue.clothing?.shoes)}, 모자 ${v(clue.clothing?.hat)}`,
     `걸음걸이: ${v(clue.gait || profile?.gait_note)}`,
     `소지품: 휴대전화 ${b(clue.items?.phone)}, 지갑 ${b(clue.items?.wallet)}, 지팡이 ${b(clue.items?.cane)}`,

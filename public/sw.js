@@ -1,5 +1,5 @@
 // 서비스워커: 화면 파일은 캐시해 두어 인터넷이 약해도 앱이 열리게 한다. /api/ 는 절대 캐시하지 않는다 (항상 서버).
-const VERSION = "rw-v33";
+const VERSION = "rw-v34";
 const SHELL = ["/", "/index.html", "/report.html", "/confirm.html", "/summary.html", "/profile.html", "/diary.html", "/record.html", "/about.html", "/css/app.css", "/js/common.js", "/js/map.js", "/js/answer-ui.js", "/lib/schema.js", "/lib/verify.js", "/lib/priority.js", "/lib/diary.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
@@ -10,4 +10,15 @@ self.addEventListener("fetch", (e) => {
   // 네트워크 우선, 실패하면 캐시 (/report 처럼 확장자 없는 주소는 .html 캐시로)
   e.respondWith(fetch(e.request).then((res) => { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(e.request, copy)); return res; })
     .catch(async () => (await caches.match(e.request)) || (await caches.match(url.pathname + ".html")) || (await caches.match("/index.html"))));
+});
+
+// 일지 알림: 서버(/api/push-cron)가 보낸 푸시를 알림으로 보여 주고, 누르면 일지 화면을 연다
+self.addEventListener("push", (e) => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || "REMEMBER WAY", { body: d.body || "오늘 일지를 남겨 주세요.", icon: "/icons/icon-192.png", badge: "/icons/icon-192.png", tag: "rw-diary", renotify: true, data: { url: d.url || "/diary" } }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = e.notification.data?.url || "/diary";
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((cs) => { const c = cs.find((x) => new URL(x.url).pathname === url); return c ? c.focus() : self.clients.openWindow(url); }));
 });

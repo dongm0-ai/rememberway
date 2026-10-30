@@ -43,10 +43,10 @@
   <p class="footer-note"><a href="#" id="btn-wipe">이 기기의 등록 정보 모두 지우기</a> · <span id="ai-status" class="muted"></span></p>
 </main>
 <script type="module">
-  import { store, KEYS, $, loadConfig } from "/js/common.js";
+  import { store, KEYS, $, loadConfig, today } from "/js/common.js";
   const p = store.get(KEYS.profile);
   const d = store.get(KEYS.diary, []);
-  if (p) $("#profile-sub").textContent = `${p.honorific} 등록됨 · 일지 ${d.length}일 · 오늘 기록하기`;
+  if (p) $("#profile-sub").textContent = d.some((x) => x.date === today()) ? `${p.honorific} 등록됨 · 일지 ${d.length}일 · 오늘 기록 완료 ✓` : `${p.honorific} 등록됨 · 일지 ${d.length}일 · 🔔 오늘 일지를 아직 안 썼어요`;
   if (p) $("#btn-profile").href = "/diary";
   $("#btn-wipe").onclick = (e) => { e.preventDefault(); if (confirm("이 기기에 저장된 등록·일지·기록을 모두 지울까요?")) { [KEYS.profile, KEYS.diary, KEYS.incidents].forEach(store.del); location.reload(); } };
   loadConfig().then((c) => { $("#ai-status").textContent = c.ai?.mock ? "모의 응답 모드" : c.ai?.hasKey ? `AI 연결됨 (${c.ai.provider} · ${c.ai.model}${c.ai.chain?.length > 1 ? ` · 대체 ${c.ai.chain.filter((p) => p !== c.ai.provider).join(",")}` : ""})` : "AI 키 없음 → 서식 모드"; });

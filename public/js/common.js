@@ -71,7 +71,34 @@ export function el(tag, attrs = {}, ...children) {
   for (const c of children.flat()) n.append(c instanceof Node ? c : document.createTextNode(String(c ?? "")));
   return n;
 }
-export const today = () => new Date().toISOString().slice(0, 10);
+// 오늘 날짜(이 기기의 시간대 기준, YYYY-MM-DD). 한국에서는 한국 날짜 — 서버 알림의 "오늘"과 같다
+export const today = () => new Date().toLocaleDateString("sv-SE");
+
+// ---------------------------------------------------------------- 일지 알림 (웹 푸시)
+// 아이폰은 "홈 화면에 추가"한 앱에서만(iOS 16.4+), 안드로이드·PC 크롬은 브라우저에서도 된다.
+export const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+export const isStandalone = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+const b64uToBytes = (s) => { const b = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)); return Uint8Array.from(b, (c) => c.charCodeAt(0)); };
+async function pushPost(body) { const r = await fetch("/api/push", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); return r.json(); }
+/** 지금 이 기기의 구독 (없으면 null) */
+export async function currentPush() { if (!pushSupported()) return null; const reg = await navigator.serviceWorker.ready; return reg.pushManager.getSubscription(); }
+/** 알림 켜기: 권한 요청 → 구독 → 서버 저장. 반환 {ok, reason} */
+export async function enablePush(lastDiaryDate) {
+  if (!pushSupported()) return { ok: false, reason: "UNSUPPORTED" };
+  const cfg = await (await fetch("/api/push")).json();
+  if (!cfg.enabled) return { ok: false, reason: "SERVER_OFF" };
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") return { ok: false, reason: "DENIED" };
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(cfg.publicKey) });
+  const out = await pushPost({ action: "subscribe", sub: sub.toJSON(), last: lastDiaryDate || null });
+  return out.ok ? { ok: true } : { ok: false, reason: out.reason || "SAVE_FAILED" };
+}
+export async function disablePush() { const sub = await currentPush(); if (sub) { await pushPost({ action: "unsubscribe", endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe(); } }
+export async function testPush() { const sub = await currentPush(); return sub ? pushPost({ action: "test", endpoint: sub.endpoint }) : { ok: false, reason: "NOT_SUBSCRIBED" }; }
+/** 일지 저장 시: 오늘은 알림 보내지 않게 서버에 표시 (구독한 기기만) */
+export async function markDiaryDone(date) { try { const sub = await currentPush(); if (sub) await pushPost({ action: "done", endpoint: sub.endpoint, date }); } catch {} }
 export const fmtM = (m) => (typeof m !== "number" ? "거리 모름" : m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`);
 
 /** 모의 응답이면 화면 상단에 표시 (실제 AI 결과로 오해하지 않도록) */

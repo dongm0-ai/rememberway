@@ -7,6 +7,7 @@ const HINTS = {
   home_dong: "예) 대전 중구 석교동 / 부산 해운대구 좌동 (동까지만)",
   today_destination: "예) 시장이요 / 딸네 집 간다고 했어요",
   route: "예) 큰길 따라 걸어서 / 102번 버스 타고 우체국 앞에서 내려요",
+  transport: "예) 버스는 혼자 타세요, 교통카드 지갑에 있어요 / 차는 못 타세요",
   "clothing.top": "예) 회색 점퍼 / 베이지 코트에 체크 목도리",
   "clothing.bottom": "예) 검정 바지",
   "clothing.shoes": "예) 흰 운동화",

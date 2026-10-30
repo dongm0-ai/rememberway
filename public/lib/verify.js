@@ -29,6 +29,7 @@ export function coerceClue(raw) {
     last_seen: { time: str(ls.time), place: str(ls.place) },
     today_destination: str(r.today_destination),
     route: str(r.route),
+    transport: str(r.transport),
     clothing: { top: str(cl.top), bottom: str(cl.bottom), shoes: str(cl.shoes), hat: str(cl.hat) },
     gait: str(r.gait),
     items: { phone: bool(it.phone), wallet: bool(it.wallet), cane: bool(it.cane) },
@@ -55,6 +56,7 @@ export function computeMissing(c) {
   if (!c.today_destination) m.push("today_destination");
   if (!c.route) m.push("route");
   if (!c.clothing?.top) m.push("clothing.top");
+  if (!c.transport) m.push("transport");
   if (!c.meds) m.push("meds");
   if (!c.dementia_signs) m.push("dementia_signs");
   if (c.items?.phone === null || c.items?.phone === undefined) m.push("items.phone");

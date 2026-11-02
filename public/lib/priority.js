@@ -37,9 +37,10 @@ export function rankCandidates(places, intersections, rMax, alreadyChecked = [])
 
 /** 화면 3 "지금 할 일 3가지" — 규칙 기반 체크리스트 (AI 아님) */
 export function actionSteps(hasPhone, ranked) {
-  const steps = ["112에 신고하고 이 요약을 보여 주세요 (치매 어르신은 즉시 신고 대상)"];
-  if (ranked[0]) steps.push(`${ranked[0].name}부터 확인하세요. 가는 길에서 발견되는 경우가 많으니 길 위도 살펴보세요`);
-  steps.push(hasPhone === false ? "가족 한 명은 집에 남아 어르신이 돌아올 때를 대비하세요" : "어르신 휴대전화로 계속 전화해 보세요");
+  // 급한 보호자가 읽도록 한 줄씩 짧게 (2026-11-02)
+  const steps = ["112에 신고하고 아래 어르신 정보를 읽어 주세요"];
+  if (ranked[0]) steps.push(`${ranked[0].name.split(":").pop().trim()}부터 가 보세요. 가는 길도 살펴보세요`);
+  steps.push(hasPhone === false ? "가족 한 명은 집에 남아 기다리세요" : "어르신 휴대전화로 계속 전화해 보세요");
   return steps.slice(0, 3);
 }
 

@@ -197,3 +197,20 @@ h2 .tag-ai, h2 .tag-rule, h3 .tag-ai, h3 .tag-rule { margin-left: 6px; }
 .sumcard dd { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
 .sumcard dd.unk { color: var(--muted); font-weight: 400; }
 .sumcard .sg-note { font-size: 13.5px; color: var(--muted); margin: 6px 0 0; }
+
+/* 화면 3 "행동 먼저" 배치 (2026-11-02): 할 일 → 1번 장소 길찾기 → 어르신 정보 → 지도 → 돌아볼 곳, 나머지는 접기 */
+.h-sub { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 6px; }
+.todo ol { margin: 0 0 14px; padding-left: 22px; display: grid; gap: 8px; font-size: 17px; line-height: 1.5; }
+.todo ol li::marker { font-weight: 800; color: var(--accent); }
+.todo #next-go { font-size: 18px; }
+.sumcard .sg-unk { font-size: 14px; color: var(--muted); margin: 12px 0 0; line-height: 1.6; }
+.sumcard .sg-unk b { color: var(--ink); font-weight: 700; }
+.rank li { grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; }
+.rank .nm { font-weight: 700; font-size: 17px; }
+.rank .acts { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.rank .acts a { padding: 4px 10px; font-weight: 600; text-decoration: none; }
+details.fold > summary { cursor: pointer; font-size: 16px; padding: 4px 0; list-style-position: inside; }
+details.fold[open] > summary { margin-bottom: 8px; }
+.unknown-fold { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 10px; }
+.unknown-fold > summary { cursor: pointer; font-size: 16px; color: var(--muted); padding: 4px 0; }
+.unknown-fold > summary b { color: var(--ink); }

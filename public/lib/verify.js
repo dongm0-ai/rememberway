@@ -90,7 +90,7 @@ export function flagHallucinations(c, utterance, registered) {
   check("today_destination", c.today_destination); check("route", c.route);
   check("clothing.top", c.clothing.top); check("clothing.bottom", c.clothing.bottom);
   check("clothing.shoes", c.clothing.shoes); check("clothing.hat", c.clothing.hat);
-  check("gait", c.gait); check("meds", c.meds); check("dementia_signs", c.dementia_signs); check("prior_incidents", c.prior_incidents);
+  check("gait", c.gait); if (c.meds && !/(약|복용|mg|밀리|알씩|정씩)/i.test(src)) flags.meds = "unverified"; // 약 칸은 코드가 정해진 표현으로 바꿔 두므로 "원문에 약 이야기가 있었는지"로 확인 check("dementia_signs", c.dementia_signs); check("prior_incidents", c.prior_incidents);
   c.memory_places.forEach((p, i) => { if (!appearsInSource(p.name, src)) flags[`memory_places.${i}`] = "unverified"; });
   return { ...c, flags };
 }

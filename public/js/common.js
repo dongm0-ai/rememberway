@@ -9,7 +9,33 @@ export const store = {
 export const KEYS = { profile: "rw_profile", diary: "rw_diary", incidents: "rw_incidents", clue: "rw_clue", utterance: "rw_utterance", mode: "rw_mode", config: "rw_config" };
 
 /** 서버 함수 호출. 10초 넘으면 {ok:false, reason:"TIMEOUT"}. 네트워크 끊김도 ok:false → 서식 모드 */
+// 생성형 AI를 부르는 서버 함수들. 처음 한 번 "보호자의 말이 AI 회사로 전달된다"는 동의를 받는다 (이 기기에 기억)
+const AI_ENDPOINTS = new Set(["extract", "followup", "diary", "weekly", "record"]);
+const CONSENT_KEY = "rw_ai_consent";
+export const aiConsented = () => { try { return Boolean(localStorage.getItem(CONSENT_KEY)); } catch { return false; } };
+/** 동의 창. 동의 → true(기억), "AI 없이" → false(이번 방문 동안 다시 묻지 않음, 서식 입력으로) */
+export function askAiConsent() {
+  if (aiConsented()) return Promise.resolve(true);
+  if (store.sget("rw_ai_decline")) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const dlg = el("dialog", { "aria-labelledby": "consent-title" },
+      el("h2", { id: "consent-title", style: "margin-top:0" }, "AI 정리 전에 확인해 주세요"),
+      el("ul", { class: "plain small" },
+        el("li", {}, "보호자가 말하거나 쓴 내용과 등록 정보가 정리를 위해 ", el("b", {}, "AI 회사(Upstage, 장애 시 Google)"), "로 전달됩니다."),
+        el("li", {}, "이 앱의 서버는 그 내용을 저장하지 않습니다. 이름은 묻지 않으니 이름·전화번호는 말하지 말아 주세요."),
+        el("li", {}, "동의하지 않아도 ", el("b", {}, "정해진 질문(서식)"), "으로 똑같이 요약을 만들 수 있습니다.")),
+      el("div", { class: "stack", style: "margin-top:14px" },
+        el("button", { class: "btn-primary", onclick: () => { try { localStorage.setItem(CONSENT_KEY, new Date().toISOString().slice(0, 10)); } catch {} done(true); } }, "동의하고 AI로 정리"),
+        el("button", { class: "btn-secondary", onclick: () => { store.sset("rw_ai_decline", 1); done(false); } }, "AI 없이 서식으로")));
+    function done(v) { dlg.close(); dlg.remove(); resolve(v); }
+    dlg.addEventListener("cancel", (e) => e.preventDefault()); // 둘 중 하나는 고르게
+    document.body.append(dlg); dlg.showModal();
+  });
+}
+export function resetAiConsent() { try { localStorage.removeItem(CONSENT_KEY); } catch {} try { sessionStorage.removeItem("rw_ai_decline"); } catch {} }
+
 export async function api(name, body, timeoutMs = 16000) { // 서버 15초 + 여유. 넘으면 서식 모드
+  if (AI_ENDPOINTS.has(name) && !(await askAiConsent())) return { ok: false, reason: "NO_CONSENT" }; // 동의 안 하면 AI 장애 때와 같은 서식 모드
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
   try {

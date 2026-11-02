@@ -102,3 +102,9 @@ export const SOURCE_LABELS = {
 
 /** 보행 속도 구간값 (m/s) */
 export const WALK_SPEED = { slow: 0.5, normal: 0.8, fast: 1.2 };
+
+/** 버스·택시 "최대로 갈 수 있는" 반경용 평균 속도 (km/h, 임의 설정·참고값). 버스는 기다리는 시간 포함, 택시는 도심 정체 포함 가정.
+ *  보호자가 "버스·택시를 탈 수 있다"고 고른 것만 지도에 점선 원으로 그린다. 위치 예측 아님 */
+export const RIDE_SPEED_KMH = { bus: 15, taxi: 20 };
+/** 보호자가 후보 장소에 이만큼(m) 가까워지면 "확인하셨나요?"를 묻는다 */
+export const ARRIVE_M = 50;

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>매일 일지 — REMEMBER WAY AI</title>
-  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#5f0080">
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#1a4fc4">
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -67,7 +67,7 @@
     $("#extract").disabled = true; $("#extract").innerHTML = '<span class="spinner"></span>';
     const res = await api("diary", { spoken, knownPlaces: knownNames(), date: d });
     $("#extract").disabled = false; $("#extract").textContent = "장소 뽑기";
-    if (!res.ok) { $("#extracted").textContent = "AI를 쓸 수 없어요 (" + res.reason + "). 장소를 등록 정보 수정에서 직접 추가해 주세요."; return; }
+    if (!res.ok) { $("#extracted").textContent = (res.reason === "NO_CONSENT" ? "AI 정리에 동의하지 않아 AI를 쓰지 않았어요" : "AI를 쓸 수 없어요 (" + res.reason + ")") + ". 장소를 등록 정보 수정에서 직접 추가해 주세요."; return; }
     mockBanner(res); extracted = res.extracted; entry.spoken = spoken; entry.extracted = extracted;
     $("#extracted").innerHTML = "";
     $("#extracted").append(el("div", {}, "새로 다녀온 곳: ", extracted.new_places.map((p) => p.name).join(", ") || "없음"), el("div", {}, "말로만 나온 곳: ", extracted.mentions.map((m) => `${m.place}(${{ wish: "가고 싶다", memory: "옛날 얘기", person: "아는 사람" }[m.kind]})`).join(", ") || "없음"), extracted.notes ? el("div", {}, "특이사항: ", extracted.notes) : "");

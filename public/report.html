@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>실종 직후 입력 — REMEMBER WAY AI</title>
-  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#5f0080">
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#1a4fc4">
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -94,7 +94,7 @@
   }
   $("#to-form").onclick = () => showForm("AI 없이 서식으로 입력합니다. 아는 것만 적고 모르는 칸은 비워 두세요.");
 
-  const reasonText = { TIMEOUT: "AI 응답이 15초 안에 오지 않아 서식으로 받습니다.", NETWORK: "인터넷 연결이 끊겨 서식으로 받습니다.", NO_KEY: "AI 키가 설정되지 않아 서식으로 받습니다 (관리자: Vercel 환경변수 GEMINI_API_KEY).", AI_UNAVAILABLE: "AI 서버에 문제가 있어 서식으로 받습니다.", BAD_JSON: "AI 응답을 읽을 수 없어 서식으로 받습니다.", NO_JSON: "AI 응답을 읽을 수 없어 서식으로 받습니다.", RATE_LIMIT: "잠시 호출이 너무 많아 서식으로 받습니다. 1분 뒤 다시 시도할 수 있습니다.", FORBIDDEN: "허용되지 않은 주소에서 열려 AI를 쓸 수 없습니다. 서식으로 받습니다." };
+  const reasonText = { TIMEOUT: "AI 응답이 15초 안에 오지 않아 서식으로 받습니다.", NETWORK: "인터넷 연결이 끊겨 서식으로 받습니다.", NO_KEY: "AI 키가 설정되지 않아 서식으로 받습니다 (관리자: Vercel 환경변수 GEMINI_API_KEY).", AI_UNAVAILABLE: "AI 서버에 문제가 있어 서식으로 받습니다.", BAD_JSON: "AI 응답을 읽을 수 없어 서식으로 받습니다.", NO_JSON: "AI 응답을 읽을 수 없어 서식으로 받습니다.", RATE_LIMIT: "잠시 호출이 너무 많아 서식으로 받습니다. 1분 뒤 다시 시도할 수 있습니다.", FORBIDDEN: "허용되지 않은 주소에서 열려 AI를 쓸 수 없습니다. 서식으로 받습니다.", NO_CONSENT: "AI 없이 정해진 질문(서식)으로 받습니다. 요약·지도는 똑같이 만들어집니다." };
 
   $("#go").onclick = async () => {
     const elapsedMin = Number(chosen("#elapsed .chip", "min") ?? 60), gait = chosen("#gait .chip", "g") ?? "normal";

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>평소 등록 — REMEMBER WAY AI</title>
-  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#5f0080">
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#1a4fc4">
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -70,7 +70,7 @@
     speech?.stop(); $("#extract").disabled = true; $("#extract").innerHTML = '<span class="spinner"></span> 뽑는 중';
     const res = await api("diary", { spoken, knownPlaces: places.map((p) => p.name), date: new Date().toISOString().slice(0, 10) });
     $("#extract").disabled = false; $("#extract").textContent = "말한 내용에서 장소 뽑기 (AI)";
-    if (!res.ok) return alert("AI를 쓸 수 없어요 (" + res.reason + "). 아래에서 직접 추가해 주세요.");
+    if (!res.ok) return alert((res.reason === "NO_CONSENT" ? "AI 정리에 동의하지 않아 AI를 쓰지 않았어요" : "AI를 쓸 수 없어요 (" + res.reason + ")") + ". 아래에서 직접 추가해 주세요.");
     mockBanner(res);
     for (const p of res.extracted.new_places) if (!places.some((x) => x.name === p.name)) places.push({ name: p.name, source: "memory", evidence: p.evidence });
     for (const m of res.extracted.mentions) if (!places.some((x) => x.name === m.place)) places.push({ name: m.place, source: "memory", evidence: m.evidence, mentions: 1 });

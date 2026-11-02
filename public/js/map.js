@@ -285,7 +285,7 @@ const LABEL_ZOOM = 16;
 const pinLabel = (c, i) => c.kind === "intersection" ? "✕" : (c.pin ?? String(i + 1));
 const pinHtml = (c, i) => {
   const lbl = pinLabel(c, i), isX = lbl === "✕", isDot = lbl === "·";
-  const size = isX ? 20 : isDot ? 16 : 28, bg = isX ? "#8a5a00" : isDot ? "#8b8680" : "#5f0080";
+  const size = isX ? 20 : isDot ? 16 : 28, bg = isX ? "#8a5a00" : isDot ? "#7d8796" : "#1a4fc4";
   return `<div title="${c.name}" style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;background:${bg};color:#fff;font-weight:800;border-radius:50%;border:2px solid #fff;font-size:${isX ? 11 : isDot ? 12 : 14}px;box-shadow:0 1px 4px rgba(0,0,0,.35)">${isDot ? "" : lbl}</div>`;
 };
 const pinTitle = (c, i) => { const l = pinLabel(c, i); return l === "·" || l === "✕" ? c.name : `${l}. ${c.name}`; };
@@ -319,12 +319,21 @@ function pickVisibleLabels(items, viewW = Infinity) {
   return show; // Map(index → "right"|"left")
 }
 
+
+// 반경 원 색: 걸어서(실선 파랑), 버스·지하철(점선 초록), 택시(점선 주황). 버스·택시 원은 "최대로 갈 수 있는 거리"일 뿐 그 안에 있다는 뜻이 아니다
+export const RING = { walk: { color: "#1a4fc4", name: "걸어서" }, bus: { color: "#1e7b4f", name: "버스·지하철" }, taxi: { color: "#b85c00", name: "택시" } };
+const ringLabelHtml = (k, r) => `<div style="padding:1px 8px;font-size:12px;font-weight:800;color:#fff;background:${RING[k].color};border-radius:999px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)">${RING[k].name} 최대 ${r >= 1000 ? (r / 1000).toFixed(r >= 10000 ? 0 : 1) + "km" : r + "m"}</div>`;
+const ringTop = (center, r) => ({ lat: center.lat + r / 111320, lng: center.lng }); // 원 맨 위(북쪽) 점에 이름표
+// 보호자 "나" 위치: 파란 점 + 흰 테두리 (이 기기에서만 쓰고 저장·전송하지 않음)
+const meHtml = '<div style="width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 2px rgba(26,115,232,.35),0 1px 4px rgba(0,0,0,.4)"></div>';
+const meTagHtml = '<div style="margin-top:2px;padding:0 6px;font-size:11px;font-weight:800;color:#fff;background:#1a73e8;border-radius:999px">나</div>';
+
 function createLeafletMap(L, el, center, rMax) {
   const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([center.lat, center.lng], 15);
   // OSM 표준 타일: 한국 지역은 한국어 지명으로 표시되는 일반(도로) 지도. 위성 아님.
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
   let circle = null;
-  if (rMax) circle = L.circle([center.lat, center.lng], { radius: rMax, color: "#5f0080", weight: 2, opacity: .6, fillColor: "#5f0080", fillOpacity: .06 }).addTo(map);
+  if (rMax) circle = L.circle([center.lat, center.lng], { radius: rMax, color: RING.walk.color, weight: 2, opacity: .7, fillColor: RING.walk.color, fillOpacity: .06 }).addTo(map);
   L.marker([center.lat, center.lng], { title: "집·마지막 본 곳" }).addTo(map).bindTooltip("집", { permanent: true, direction: "top" });
   const layer = L.layerGroup().addTo(map);
   const labelLayer = L.layerGroup().addTo(map);
@@ -342,8 +351,32 @@ function createLeafletMap(L, el, center, rMax) {
     });
   }
   map.on("zoomend moveend", updateLabels);
+  const ringLayer = L.layerGroup().addTo(map);
+  let me = null, meAcc = null, lastPts = null, rings = [];
+  const fitPins = () => { if (lastPts && lastPts.length > 1) map.fitBounds(lastPts, { padding: [30, 30], maxZoom: 16 }); else if (circle) map.fitBounds(circle.getBounds(), { padding: [10, 10] }); };
   return {
     map, circle,
+    /** 버스·택시 원: list [{key:"bus"|"taxi", r}] (걸어서 원은 처음부터 있음). 원이 새로 생기면 가장 큰 원이 보이게, 다 꺼지면 핀 기준으로 돌아간다 */
+    setRings(list) {
+      ringLayer.clearLayers();
+      const grew = list.some((x) => !rings.some((y) => y.key === x.key)); rings = list;
+      for (const { key, r } of list) {
+        const c = L.circle([center.lat, center.lng], { radius: r, color: RING[key].color, weight: 2, opacity: .8, dashArray: "8 8", fill: false, interactive: false }).addTo(ringLayer);
+        const t = ringTop(center, r);
+        L.marker([t.lat, t.lng], { icon: L.divIcon({ className: "", html: ringLabelHtml(key, r), iconSize: null, iconAnchor: [50, 10] }), interactive: false }).addTo(ringLayer);
+        if (grew && r === Math.max(...list.map((x) => x.r))) map.fitBounds(c.getBounds(), { padding: [20, 20] });
+      }
+      if (!list.length) fitPins();
+    },
+    setMe(pos) {
+      if (!pos) { if (me) { me.remove(); meAcc.remove(); me = meAcc = null; } return; }
+      const ll = [pos.lat, pos.lng];
+      if (!me) {
+        meAcc = L.circle(ll, { radius: pos.acc || 20, color: "#1a73e8", weight: 1, opacity: .4, fillColor: "#1a73e8", fillOpacity: .12, interactive: false }).addTo(map);
+        me = L.marker(ll, { icon: L.divIcon({ className: "", html: `<div style="display:flex;flex-direction:column;align-items:center">${meHtml}${meTagHtml}</div>`, iconSize: [30, 40], iconAnchor: [15, 9] }), zIndexOffset: 1000, interactive: false }).addTo(map);
+      } else { me.setLatLng(ll); meAcc.setLatLng(ll); meAcc.setRadius(pos.acc || 20); }
+    },
+    centerOn(pos) { map.setView([pos.lat, pos.lng], Math.max(map.getZoom(), 16)); },
     setMarkers(list) {
       layer.clearLayers(); current = [];
       const pts = [[center.lat, center.lng]];
@@ -355,8 +388,8 @@ function createLeafletMap(L, el, center, rMax) {
         current.push({ c, i });
         if (c.kind !== "intersection" && pinLabel(c, i) !== "·") pts.push([c.lat, c.lng]); // 화면 맞춤은 동선 핀 기준 (회색 점은 제외)
       });
-      if (pts.length > 1) map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 });
-      else if (circle) map.fitBounds(circle.getBounds(), { padding: [10, 10] });
+      lastPts = pts;
+      if (!rings.length) fitPins();
       updateLabels();
     },
     setRoute(geometry) {
@@ -370,8 +403,8 @@ function createNaverMap(naver, el, center, rMax) {
   const M = naver.maps;
   const map = new M.Map(el, { center: new M.LatLng(center.lat, center.lng), zoom: 15, zoomControl: true });
   let circle = null;
-  if (rMax) circle = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: rMax, strokeColor: "#5f0080", strokeWeight: 2, strokeOpacity: .6, fillColor: "#5f0080", fillOpacity: .06 });
-  new M.Marker({ map, position: new M.LatLng(center.lat, center.lng), icon: { content: '<div style="background:#fff;border:2px solid #5f0080;border-radius:999px;padding:2px 8px;font-weight:800;font-size:13px;color:#1c1b1a">집</div>', anchor: new M.Point(14, 14) } });
+  if (rMax) circle = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: rMax, strokeColor: RING.walk.color, strokeWeight: 2, strokeOpacity: .7, fillColor: RING.walk.color, fillOpacity: .06 });
+  new M.Marker({ map, position: new M.LatLng(center.lat, center.lng), icon: { content: '<div style="background:#fff;border:2px solid #0d2b5e;border-radius:999px;padding:2px 8px;font-weight:800;font-size:13px;color:#1c1b1a">집</div>', anchor: new M.Point(14, 14) } });
   let markers = [], labels = [], route = null, current = [];
   const info = new M.InfoWindow({ borderWidth: 1, backgroundColor: "#fff", anchorSize: new M.Size(10, 10) });
   M.Event.addListener(map, "click", () => info.close());
@@ -387,8 +420,30 @@ function createNaverMap(naver, el, center, rMax) {
     });
   }
   M.Event.addListener(map, "idle", updateLabels);
+  let ringObjs = [], rings = [], me = null, meAcc = null, lastBounds = null;
+  const fitPins = () => { if (lastBounds) map.fitBounds(lastBounds, { top: 30, right: 30, bottom: 30, left: 30 }); else if (circle) map.fitBounds(circle.getBounds()); };
   return {
     map, circle,
+    setRings(list) {
+      ringObjs.forEach((o) => o.setMap(null)); ringObjs = [];
+      const grew = list.some((x) => !rings.some((y) => y.key === x.key)); rings = list;
+      for (const { key, r } of list) {
+        const c = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: r, strokeColor: RING[key].color, strokeWeight: 2, strokeOpacity: .8, strokeStyle: "shortdash", fillOpacity: 0, clickable: false });
+        const t = ringTop(center, r);
+        ringObjs.push(c, new M.Marker({ map, position: new M.LatLng(t.lat, t.lng), icon: { content: ringLabelHtml(key, r), anchor: new M.Point(50, 10) }, clickable: false, zIndex: 40 }));
+        if (grew && r === Math.max(...list.map((x) => x.r))) map.fitBounds(c.getBounds());
+      }
+      if (!list.length) fitPins();
+    },
+    setMe(pos) {
+      if (!pos) { if (me) { me.setMap(null); meAcc.setMap(null); me = meAcc = null; } return; }
+      const ll = new M.LatLng(pos.lat, pos.lng);
+      if (!me) {
+        meAcc = new M.Circle({ map, center: ll, radius: pos.acc || 20, strokeColor: "#1a73e8", strokeWeight: 1, strokeOpacity: .4, fillColor: "#1a73e8", fillOpacity: .12, clickable: false });
+        me = new M.Marker({ map, position: ll, icon: { content: `<div style="display:flex;flex-direction:column;align-items:center">${meHtml}${meTagHtml}</div>`, anchor: new M.Point(15, 9) }, zIndex: 1000, clickable: false });
+      } else { me.setPosition(ll); meAcc.setCenter(ll); meAcc.setRadius(pos.acc || 20); }
+    },
+    centerOn(pos) { map.setCenter(new M.LatLng(pos.lat, pos.lng)); if (map.getZoom() < 16) map.setZoom(16); },
     setMarkers(list) {
       markers.forEach((m) => m.setMap(null)); markers = []; current = []; info.close();
       const bounds = new M.LatLngBounds(new M.LatLng(center.lat, center.lng), new M.LatLng(center.lat, center.lng));
@@ -402,8 +457,8 @@ function createNaverMap(naver, el, center, rMax) {
         markers.push(mk); current.push({ c, i });
         if (c.kind !== "intersection" && pinLabel(c, i) !== "·") { bounds.extend(pos); any = true; } // 화면 맞춤은 동선 핀 기준
       });
-      if (any) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 });
-      else if (circle) map.fitBounds(circle.getBounds());
+      lastBounds = any ? bounds : null;
+      if (!rings.length) fitPins();
       updateLabels();
     },
     setRoute(geometry) {

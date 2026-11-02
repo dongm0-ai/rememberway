@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>요약·지도 — REMEMBER WAY AI</title>
-  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#5f0080">
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#1a4fc4">
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
 <main>
   <div class="topbar"><a class="back" href="/confirm">← 단서 수정</a><span class="step">화면 3 / 3 · 요약·지도</span></div>
   <div class="alert">아직 신고 전이라면 지금 112. 아래 요약을 그대로 읽어 주면 됩니다.<a class="btn btn-danger btn-xl call112" href="tel:112">📞 112 전화하기</a></div>
+  <section class="glance" id="glance"><h2>어르신 정보 한눈에</h2><dl id="glance-list"></dl><p class="small muted" style="margin:8px 0 0">경찰이나 주변 사람에게 이 칸을 보여 주세요. 빈칸은 "모름"입니다.</p></section>
 
   <div class="cols">
   <div class="col-text">
@@ -46,7 +47,13 @@
 
   <div class="col-map">
     <h2 class="map-title">지도 · 번호는 들르는 순서, ✕는 동선 위 갈림길</h2>
+    <div class="map-tools" id="ride-tools"><span class="small"><b>어르신이 탈 수 있는 것</b></span>
+      <button class="chip" aria-pressed="true" disabled title="걸어서 원은 늘 보입니다">🚶 걸어서</button>
+      <button class="chip" id="ride-bus" aria-pressed="false">🚌 버스·지하철</button>
+      <button class="chip" id="ride-taxi" aria-pressed="false">🚕 택시</button></div>
+    <p class="small muted" id="ride-note" style="margin:0 0 8px"></p>
     <div id="map">지도 불러오는 중…</div>
+    <div class="map-tools"><button class="btn btn-secondary" id="me-btn" style="width:auto;padding:10px 18px">📍 내 위치 켜기 (찾으러 다닐 때)</button><span class="small muted" id="me-note">켜면 지도에 내 위치가 뜨고, 후보 장소 근처에 가면 "확인하셨나요?"를 물어요. 위치는 이 폰 안에서만 쓰고 저장·전송하지 않습니다.</span></div>
     <p class="small muted" id="map-note"></p>
     <p class="small muted" style="margin-top:0">멀리서는 "편의점·카페" 같은 종류만, 확대하면 가게 전체 이름이 핀 옆에 붙습니다 (겹치면 숨김). 핀을 누르면 말풍선.</p>
   </div>
@@ -56,7 +63,7 @@
 </main>
 <script type="module">
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
-  import { WEIGHTS, WALK_SPEED, SOURCE_LABELS } from "/lib/schema.js";
+  import { WEIGHTS, WALK_SPEED, SOURCE_LABELS, RIDE_SPEED_KMH, ARRIVE_M } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary } from "/lib/priority.js";
   import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, EXACT_LIMIT, setHomeLabel } from "/js/map.js";
 
@@ -96,8 +103,8 @@
     if (!ranked.length) box.append(el("li", {}, el("span"), el("span", { class: "muted" }, "확인할 곳이 없어요. 화면 2에서 가실 만한 곳을 추가하세요.")));
     ranked.forEach((c, i) => box.append(el("li", {},
       el("span", { class: "n" }, i + 1),
-      el("div", {}, el("div", {}, c.name, " ", el("span", { class: "small muted" }, fmtM(c.distance_m)), c.pin && c.pin !== "·" ? el("span", { class: "small", style: "margin-left:6px;background:#5f0080;color:#fff;border-radius:999px;padding:1px 8px;font-weight:700;white-space:nowrap" }, `지도 ${c.pin}`) : ""), el("div", { class: "why" }, c.reason), navLinks(c)),
-      el("div", {}, el("div", { class: "pts" }, `${c.score > 0 ? "+" : ""}${c.score}점`), el("button", { class: "edit", onclick: () => { checked.add(c.name); renderRank(); drawMarkers(); } }, "가 봤어요")))));
+      el("div", {}, el("div", {}, c.name, " ", el("span", { class: "small muted" }, fmtM(c.distance_m)), c.pin && c.pin !== "·" ? el("span", { class: "small", style: "margin-left:6px;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 8px;font-weight:700;white-space:nowrap" }, `지도 ${c.pin}`) : ""), el("div", { class: "why" }, c.reason), navLinks(c)),
+      el("div", {}, el("div", { class: "pts" }, `${c.score > 0 ? "+" : ""}${c.score}점`), el("button", { class: "edit", onclick: () => markChecked(c) }, "가 봤어요")))));
     const steps = actionSteps(clue.items?.phone, ranked);
     $("#steps").innerHTML = ""; steps.forEach((s) => $("#steps").append(el("li", { style: "margin:6px 0" }, s)));
     if (crossings.length) $("#steps").append(el("li", { style: "margin:6px 0" }, "가는 길의 갈림길(지도의 ✕)도 살펴보세요. 어르신은 갈림길에서 길을 잘못 드는 경우가 많습니다."));
@@ -146,9 +153,9 @@
       box.append(ul, el("p", { class: "small muted", style: "margin-top:0" }, "정류장·역 근처 가게 주인이나 역무원에게 인상착의를 보여 주고 물어보세요."));
     }
     // 3) 택시
-    const km = Math.round((mode.elapsedMin || 60) / 60 * 20);
+    const km = Math.round((mode.elapsedMin || 60) / 60 * RIDE_SPEED_KMH.taxi);
     box.append(el("h3", {}, "③ 택시를 탔다면"),
-      el("p", { class: "small", style: "margin-top:0" }, `${mode.elapsedMin || 60}분이면 도심에서도 약 ${km}km 넘게 갈 수 있어 지도의 원으로 좁힐 수 없어요 (평균 시속 20km로 가정한 참고값). 그래서 기록을 확인하는 게 가장 빨라요.`));
+      el("p", { class: "small", style: "margin-top:0" }, `${mode.elapsedMin || 60}분이면 도심에서도 약 ${km}km 넘게 갈 수 있어 지도의 원으로 좁힐 수 없어요 (평균 시속 ${RIDE_SPEED_KMH.taxi}km로 가정한 참고값, 지도 위 [🚕 택시]를 누르면 점선 원으로 보여요). 그래서 기록을 확인하는 게 가장 빨라요.`));
     // 4) 확인할 기록
     box.append(el("h3", {}, "④ 확인할 기록"), el("ul", { class: "plain small" },
       el("li", {}, "교통카드·신용카드: 가족이 카드사 앱에서 사용 내역(시각·장소)을 볼 수 있으면 바로 확인하세요. 볼 수 없으면 경찰에 카드 종류를 알리고 확인을 요청하세요."),
@@ -165,10 +172,88 @@
       el("a", { href: naver, target: "_blank", rel: "noopener" }, "네이버 지도로 길찾기"),
       el("a", { href: google, target: "_blank", rel: "noopener" }, "구글 지도"));
   }
+  renderGlance();
   renderRank();
 
+  // ---------- 어르신 정보 한눈에 (코드가 단서에서 그대로 옮김, AI 아님) ----------
+  function renderGlance() {
+    const it = clue.items ?? {}, cl = clue.clothing ?? {};
+    const wear = [cl.top && `상의 ${cl.top}`, cl.bottom && `하의 ${cl.bottom}`, cl.shoes && `신발 ${cl.shoes}`, cl.hat && `모자 ${cl.hat}`].filter(Boolean).join(" · ");
+    const seen = [clue.last_seen?.time, clue.last_seen?.place].filter(Boolean).join(", ");
+    const gaitTxt = { slow: "느림", normal: "보통", fast: "빠름" }[mode.gait] ?? null;
+    const rows = [
+      ["누구", clue.honorific || profile?.honorific],
+      ["집 동네", clue.home_dong || profile?.home_dong],
+      ["마지막 본 때·곳", seen ? `${seen} (약 ${mode.elapsedMin}분 전)` : null],
+      ["입은 옷", wear || null],
+      ["오늘 가려던 곳", clue.today_destination],
+      ["걸음", clue.gait || (gaitTxt && `${gaitTxt} (보호자 선택)`)],
+      ["가진 것", [it.phone && `휴대전화 ${it.phone}`, it.wallet && `지갑 ${it.wallet}`, it.cane && `지팡이 ${it.cane}`].filter(Boolean).join(" · ") || null],
+      ["버스·택시", clue.transport],
+      ["약", clue.meds],
+    ];
+    const dl = $("#glance-list"); dl.innerHTML = "";
+    for (const [k, v] of rows) dl.append(el("dt", {}, k), el("dd", v ? {} : { class: "empty" }, v || "모름"));
+  }
+
+  // ---------- 이동 수단 반경 (보호자가 고름. 말한 내용으로 먼저 골라 둠) ----------
+  const tSaid = `${clue.transport ?? ""} ${clue.route ?? ""}`, tNeg = /못\s*타|안\s*타|타지\s*않|못 하/.test(clue.transport ?? "");
+  const rides = mode.rides ?? { bus: !tNeg && /버스|지하철|전철|교통카드/.test(tSaid), taxi: !tNeg && /택시/.test(tSaid) };
+  function rideRings() { return ["bus", "taxi"].filter((k) => rides[k]).map((k) => ({ key: k, r: Math.round(mode.elapsedMin / 60 * RIDE_SPEED_KMH[k] * 1000) })); }
+  function renderRides() {
+    for (const k of ["bus", "taxi"]) $(`#ride-${k}`).setAttribute("aria-pressed", String(!!rides[k]));
+    const on = rideRings();
+    $("#ride-note").textContent = on.length
+      ? `점선 원 = ${on.map((x) => `${x.key === "bus" ? "버스·지하철" : "택시"} 최대 ${fmtM(x.r)}`).join(", ")} (경과 ${mode.elapsedMin}분 × 평균 시속 ${on.map((x) => RIDE_SPEED_KMH[x.key]).join("·")}km, 참고값). 최대로 갈 수 있는 거리일 뿐, 이 안에 계신다는 뜻이 아니에요. 카드·택시 기록 확인을 경찰에 요청하세요.`
+      : (clue.transport ? `보호자 말: “${clue.transport}”. 버스·택시를 타셨을 수 있으면 눌러서 반경을 보세요.` : "버스·택시를 혼자 타실 수 있으면 눌러 주세요. 그 반경이 점선 원으로 보여요.");
+    view?.setRings?.(on);
+  }
+  renderRides(); // 지도 전이라도 보호자 말로 고른 상태를 보여 준다
+  for (const k of ["bus", "taxi"]) $(`#ride-${k}`).onclick = () => { rides[k] = !rides[k]; mode.rides = { ...rides }; store.sset(KEYS.mode, mode); renderRides(); };
+
+  // ---------- 내 위치 (보호자가 찾으러 다닐 때) — 이 기기에서만, 저장·전송 없음 ----------
+  let watchId = null, mePos = null, prompted = new Set(), arriveBox = null;
+  $("#me-btn").onclick = () => {
+    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; mePos = null; view?.setMe(null); closeArrive(); $("#me-btn").textContent = "📍 내 위치 켜기 (찾으러 다닐 때)"; $("#me-note").textContent = "내 위치를 껐어요."; return; }
+    if (!navigator.geolocation) { $("#me-note").textContent = "이 브라우저는 위치를 지원하지 않아요."; return; }
+    $("#me-note").textContent = "위치를 찾는 중… (권한을 물으면 '허용')";
+    let first = true;
+    watchId = navigator.geolocation.watchPosition((p) => {
+      mePos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) };
+      view?.setMe(mePos); if (first) { view?.centerOn(mePos); first = false; }
+      $("#me-btn").textContent = "📍 내 위치 끄기";
+      const near = nearestOpen(mePos);
+      $("#me-note").textContent = `내 위치 정확도 약 ${fmtM(mePos.acc)}${mePos.acc > 100 ? " (낮음 — 건물 밖에서 다시 보세요)" : ""}. ${near ? `가장 가까운 후보: ${tourNames.includes(near.c.name) ? tourNames.indexOf(near.c.name) + 1 + "번 " : ""}${near.c.name} ${fmtM(near.d)}` : "남은 후보가 없어요."}`;
+      checkArrive(near);
+    }, (e) => { $("#me-note").textContent = e.code === 1 ? "위치 권한이 꺼져 있어요. 브라우저 설정에서 위치를 허용해 주세요." : "위치를 찾지 못했어요. 잠시 뒤 다시 눌러 주세요."; if (e.code === 1) { navigator.geolocation.clearWatch(watchId); watchId = null; } },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+  };
+  function nearestOpen(pos) {
+    let best = null;
+    for (const c of ranked) if (c.kind === "place" && c.lat && !checked.has(c.name)) { const d = haversineM(pos.lat, pos.lng, c.lat, c.lng); if (!best || d < best.d) best = { c, d }; }
+    return best;
+  }
+  function checkArrive(near) {
+    for (const name of [...prompted]) { const c = ranked.find((x) => x.name === name); if (!c || haversineM(mePos.lat, mePos.lng, c.lat, c.lng) > ARRIVE_M * 3) prompted.delete(name); } // 멀어지면 다시 물을 수 있게
+    if (!near || near.d > ARRIVE_M || prompted.has(near.c.name) || arriveBox) return;
+    prompted.add(near.c.name);
+    arriveBox = el("div", { class: "arrive", role: "alertdialog", "aria-live": "assertive" },
+      el("div", {}, el("b", {}, near.c.name), ` 근처에 왔어요 (약 ${fmtM(near.d)}).`),
+      el("div", { class: "small", style: "opacity:.9" }, "둘러보고 주변 분께도 물어보셨나요?"),
+      el("div", { class: "row" }, el("button", { class: "btn-primary", onclick: () => { closeArrive(); markChecked(near.c); } }, "가 봤어요"), el("button", { class: "btn-secondary", onclick: closeArrive }, "아직이요")));
+    document.body.append(arriveBox);
+    navigator.vibrate?.(200);
+  }
+  function closeArrive() { arriveBox?.remove(); arriveBox = null; }
+
+  // "가 봤어요": 목록에서 빼고, 남은 곳으로 동선을 다시 짠다. 출발점은 방금 확인한 그 장소 (보호자 실시간 위치는 길찾기 서버로 보내지 않는다)
+  async function markChecked(c) {
+    checked.add(c.name); renderRank(); drawMarkers();
+    if (homePt) await buildTour(c.lat ? { lat: c.lat, lng: c.lng, label: c.name } : homePt);
+  }
+
   // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim, 도보 경로·거리표는 Valhalla(보행자, OSM 재단 공개 서버) → 예비 OSRM.
-  let view = null, tour = null;
+  let view = null, tour = null, homePt = null;
   const cfg = await loadConfig();
   const L = await loadMap(cfg.map ?? {});
   if (!L) {
@@ -183,6 +268,7 @@
     $("#map").textContent = "";
     view = createMap(L, $("#map"), center, home ? rMax : 0);
     view.setMarkers([]);
+    if (home) { homePt = { ...home, label: "집" }; renderRides(); } else $("#ride-tools").classList.add("hidden");
     if (!home) $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경 원을 그리지 못했습니다. 평소 등록에서 '시 구 동'까지 적어 주세요.";
     else $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 장소를 찾는 중…`;
 
@@ -220,14 +306,20 @@
   function applyPins() { for (const c of ranked) if (c.kind !== "intersection") { const k = tourNames.indexOf(c.name); c.pin = k >= 0 ? String(k + 1) : "·"; } }
   function drawMarkers() { if (!view) return; applyPins(); view.setMarkers([...ranked, ...crossings]); }
 
-  async function buildTour(home) {
+  let tourSeq = 0;
+  async function buildTour(home) { // home = 출발점 (처음엔 집, "가 봤어요" 뒤에는 방금 확인한 곳)
+    const seq = ++tourSeq;
+    const from = home.label || "집";
     const top = ranked.filter((c) => c.kind === "place" && c.lat); // 좌표를 찾은 후보 전부 (반경 밖도 점수가 낮아 뒤로 갈 뿐, 빼지 않는다)
     const box = $("#tour"); box.innerHTML = "";
-    if (!top.length) { box.append(el("p", { class: "muted small" }, "반경 안에서 좌표를 찾은 후보가 없어 동선을 만들지 못했습니다.")); return; }
+    if (!top.length) { tourNames = []; view?.setRoute(null); crossings = []; drawMarkers(); $("#tour-total").textContent = ""; box.append(el("p", { class: "muted small" }, checked.size > 1 ? "남은 후보를 모두 확인했어요. 확인한 곳을 경찰에 알려 주세요." : "반경 안에서 좌표를 찾은 후보가 없어 동선을 만들지 못했습니다.")); return; }
+    box.append(el("li", {}, el("span"), el("span", { class: "muted" }, `${from}에서 출발하는 동선을 다시 짜는 중…`)));
     const matrix = await walkMatrix([home, ...top]); // 실제 도보 거리표. 없으면 직선거리
     const order = tourOrderByPriority(home, top, matrix, (c) => c.score); // 점수 높은 묶음부터, 묶음 안에서는 최단
     tourNames = order.map((c) => c.name);
     const route = await walkRoute([home, ...order]);
+    if (seq !== tourSeq) return; // 그 사이 또 "가 봤어요"를 눌렀으면 옛 결과는 버린다
+    box.innerHTML = "";
     if (!route) { tourNames = []; box.append(el("p", { class: "muted small" }, "길찾기 서버에 연결하지 못해 동선 대신 직선거리만 표시합니다.")); drawMarkers(); return; }
     tour = route; view.setRoute(route.geometry);
     // 교차로를 가중치에 반영해 순위 다시 계산
@@ -238,9 +330,9 @@
     let acc = 0;
     order.forEach((c, i) => {
       acc += route.legs[i]?.distance_m ?? 0;
-      box.append(el("li", {}, el("span", { class: "n" }, i + 1), el("div", {}, el("div", {}, c.name), el("div", { class: "why" }, `집에서 걸어서 누적 ${fmtM(acc)} · 약 ${Math.round(acc / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분`)), el("div", { class: "pts" }, fmtM(route.legs[i]?.distance_m))));
+      box.append(el("li", {}, el("span", { class: "n" }, i + 1), el("div", {}, el("div", {}, c.name), el("div", { class: "why" }, `${from}에서 걸어서 누적 ${fmtM(acc)} · 약 ${Math.round(acc / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분`)), el("div", { class: "pts" }, fmtM(route.legs[i]?.distance_m))));
     });
-    $("#tour-total").textContent = `전체 ${fmtM(route.distance_m)}, 걸어서 약 ${Math.round(route.distance_m / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분 (${mode.gait === "slow" ? "느린" : mode.gait === "fast" ? "빠른" : "보통"} 걸음 기준). 점수 높은 곳부터, 같은 점수끼리는 ${matrix ? "도보 거리표" : "직선거리"} 기준 ${top.length > EXACT_LIMIT ? "근사(후보가 많아 정확한 최단은 아닐 수 있음)" : "정확한 최단"}으로 순서를 정했습니다. ${route.router === "valhalla" ? "경로는 보행자용 공개 길찾기 서버(Valhalla) 결과입니다. 인도·골목길을 타지만 실제와 다를 수 있어 참고용입니다." : "지금은 예비 서버(OSRM, 자동차 도로 기준) 결과라 골목길이 빠질 수 있어 참고용입니다."}`;
+    $("#tour-total").textContent = `${from === "집" ? "" : `출발: ${from} (방금 확인한 곳). `}남은 동선 전체 ${fmtM(route.distance_m)}, 걸어서 약 ${Math.round(route.distance_m / (WALK_SPEED[mode.gait] ?? 0.8) / 60)}분 (${mode.gait === "slow" ? "느린" : mode.gait === "fast" ? "빠른" : "보통"} 걸음 기준). 점수 높은 곳부터, 같은 점수끼리는 ${matrix ? "도보 거리표" : "직선거리"} 기준 ${top.length > EXACT_LIMIT ? "근사(후보가 많아 정확한 최단은 아닐 수 있음)" : "정확한 최단"}으로 순서를 정했습니다. ${route.router === "valhalla" ? "경로는 보행자용 공개 길찾기 서버(Valhalla) 결과입니다. 인도·골목길을 타지만 실제와 다를 수 있어 참고용입니다." : "지금은 예비 서버(OSRM, 자동차 도로 기준) 결과라 골목길이 빠질 수 있어 참고용입니다."}`;
   }
 
   // "찾았어요" → 사건 기록으로 (현재 단서를 보관)

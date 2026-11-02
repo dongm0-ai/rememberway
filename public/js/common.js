@@ -218,13 +218,17 @@ export function homeSetup(onDone, opts = {}) {
   } }, "📍 현재 위치로 설정 (지금 집이면)");
   const search = async () => {
     const q = inp.value.trim(); if (!q) return inp.focus();
-    msg.textContent = "찾는 중…";
-    try { const d = await (await fetch(`/api/geocode?q=${encodeURIComponent(q)}`)).json(); msg.textContent = "";
-      // "석교동"만 적었으면 찾은 주소의 시·구를 붙여 "대전광역시 중구 석교동"으로 저장 (같은 이름 동이 여러 곳이라 헷갈리지 않게)
-      const t = String(d.found_name ?? "").split(/\s+/);
-      const label = !q.includes(" ") && t.length >= 2 && /(시|도)$/.test(t[0]) ? `${t[0]} ${/(구|군|시)$/.test(t[1]) ? t[1] + " " : ""}${q}` : q;
-      if (d.ok) offer(label, d.lat, d.lng, d.found_name && d.found_name !== q ? `${d.found_name} 근처` : ""); else msg.textContent = "찾지 못했어요. 시·구까지 붙여서 다시 적어 주세요 (예: 대전 중구 석교동)."; }
-    catch { msg.textContent = "인터넷 연결을 확인해 주세요."; }
+    msg.textContent = "찾는 중…"; result.classList.add("hidden");
+    try {
+      const d = await (await fetch(`/api/geocode?q=${encodeURIComponent(q)}&list=1`)).json(); msg.textContent = "";
+      const items = d.ok ? d.items : [];
+      if (!items.length) { msg.textContent = "찾지 못했어요. 시·구까지 붙여서 적어 보세요 (예: 대전 중구 석교동)."; return; }
+      if (items.length === 1) return offer(items[0].label, items[0].lat, items[0].lng, "");
+      // 같은 이름 동이 여러 곳이면 배민 주소 검색처럼 목록에서 고르게
+      result.innerHTML = ""; result.classList.remove("hidden");
+      result.append(el("div", { class: "small muted" }, "어느 동네인가요?"),
+        ...items.map((it) => el("button", { class: "home-pick", onclick: () => done(it) }, el("b", {}, it.label), el("span", { class: "small muted" }, it.address ?? ""))));
+    } catch { msg.textContent = "인터넷 연결을 확인해 주세요."; }
   };
   inp.addEventListener("keydown", (e) => { if (e.key === "Enter") search(); });
   box.append(

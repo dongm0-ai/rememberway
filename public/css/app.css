@@ -221,3 +221,5 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .home-chip { width: auto; background: var(--card); color: var(--ink); font-size: 16px; font-weight: 700; padding: 8px 14px; border-radius: 999px; max-width: 70vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 .home-line .home-chip { background: var(--soft); }
+.home-pick { display: grid; gap: 2px; text-align: left; justify-items: start; background: var(--card); color: var(--ink); border-radius: 14px; padding: 12px 14px; font-size: 17px; font-weight: 600; }
+.home-pick:hover { background: var(--accent-soft); }

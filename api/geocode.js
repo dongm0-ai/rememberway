@@ -1,6 +1,6 @@
 // GET /api/geocode?q=대전 중구 석교동 — 집 동네 → 좌표 (네이버만, lib/naver.js). 우리 앱 화면에서 온 요청만.
 import { guardGet } from "../lib/http.js";
-import { naverGeocode, naverReverse } from "../lib/naver.js";
+import { naverGeocode, naverReverse, naverDongCandidates } from "../lib/naver.js";
 
 export default async function handler(req, res) {
   if (!guardGet(req, res)) return;
@@ -14,6 +14,11 @@ export default async function handler(req, res) {
     catch (e) { return res.end(JSON.stringify({ ok: false, reason: e.reason || "UPSTREAM" })); }
   }
   if (!q) return res.end(JSON.stringify({ ok: false, reason: "BAD_INPUT" }));
+  // ?list=1 : 집 동네 설정 화면의 검색 — 후보 동네를 여러 개 돌려줘서 보호자가 고르게 한다
+  if (u.searchParams.get("list")) {
+    try { const items = await naverDongCandidates(q); return res.end(JSON.stringify({ ok: true, items })); }
+    catch (e) { return res.end(JSON.stringify({ ok: false, reason: e.reason || "UPSTREAM" })); }
+  }
   try {
     const hit = await naverGeocode(q);
     if (!hit) return res.end(JSON.stringify({ ok: false, reason: "NOT_FOUND" }));

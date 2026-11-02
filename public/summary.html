@@ -116,10 +116,10 @@
     const speed = WALK_SPEED[mode.gait] ?? 0.8;
     list.forEach((c, i) => {
       const t = tourLegs.get(c.name);
-      const where = t ? `걸어서 약 ${Math.max(1, Math.round(t.acc / speed / 60))}분 (앞 장소에서 ${fmtM(t.leg)})` : c.distance_m != null ? `집에서 ${fmtM(c.distance_m)}` : "위치를 못 찾음";
+      const where = t ? `걸어서 약 ${Math.max(1, Math.round(t.acc / speed / 60))}분 (앞 장소에서 ${fmtM(t.leg)})` : c.distance_m != null ? `집에서 ${fmtM(c.distance_m)}` : null; // 위치를 못 찾은 곳은 reason 끝의 "거리 모름"으로 충분
       box.append(el("li", {},
         el("span", { class: "n" }, i + 1),
-        el("div", {}, el("div", { class: "nm" }, c.name), el("div", { class: "why" }, `${where} · ${c.reason}`)),
+        el("div", {}, el("div", { class: "nm" }, c.name), el("div", { class: "why" }, [where, c.reason].filter(Boolean).join(" · "))),
         el("div", { class: "acts" }, navLink(c, "길찾기"), el("button", { class: "edit", onclick: () => markChecked(c) }, "가 봤어요"))));
     });
     $("#list-count").textContent = list.length ? `${list.length}곳${checked.size > (clue.today_destination ? 1 : 0) ? ` · 확인함 ${checked.size - (clue.today_destination ? 1 : 0)}곳` : ""}` : "";

@@ -239,8 +239,8 @@ export function tourOrderByPriority(home, candidates, matrix = null, tierOf = (c
 }
 
 // ---------------------------------------------------------------- 지도 그리기 (두 엔진 같은 인터페이스: setMarkers(list), setRoute(geometry))
-export function createMap(lib, el, center, rMax) {
-  return createNaverMap(lib, el, center, rMax);
+export function createMap(lib, el, center, rMax, rFirst) {
+  return createNaverMap(lib, el, center, rMax, rFirst);
 }
 // 핀 글자: c.pin — 동선 순서 번호("1"…), 갈림길 "✕", 동선에 없는 후보는 "·"(작은 회색 점).
 // 이름표: 멀리서는(줌 < LABEL_ZOOM) "편의점"·"카페"처럼 종류만, 가까이서는(줌 ≥ LABEL_ZOOM) 가게 전체 이름. 화면 픽셀 기준으로 겹치는 이름표는 숨긴다 (번호 핀 → 점 → ✕ 순으로 우선, 오른쪽이 막히면 왼쪽). 핀을 누르면 언제나 말풍선으로 전체 이름.
@@ -284,18 +284,25 @@ function pickVisibleLabels(items, viewW = Infinity) {
 
 
 // 반경 원 색: 걸어서(실선 파랑), 버스·지하철(점선 초록), 택시(점선 주황). 버스·택시 원은 "최대로 갈 수 있는 거리"일 뿐 그 안에 있다는 뜻이 아니다
-export const RING = { walk: { color: "#2f6fe4", name: "걸어서" }, bus: { color: "#1e7b4f", name: "버스·지하철" }, taxi: { color: "#b85c00", name: "택시" } };
-const ringLabelHtml = (k, r) => `<div style="padding:1px 8px;font-size:12px;font-weight:800;color:#fff;background:${RING[k].color};border-radius:999px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)">${RING[k].name} 최대 ${r >= 1000 ? (r / 1000).toFixed(r >= 10000 ? 0 : 1) + "km" : r + "m"}</div>`;
+export const RING = { first: { color: "#2f6fe4", name: "먼저 찾을 범위" }, walk: { color: "#6b7684", name: "걸어서 최대" }, bus: { color: "#1e7b4f", name: "버스·지하철 최대" }, taxi: { color: "#b85c00", name: "택시 최대" } };
+const ringLabelHtml = (k, r) => `<div style="padding:1px 8px;font-size:12px;font-weight:800;color:#fff;background:${RING[k].color};border-radius:999px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)">${RING[k].name} ${r >= 1000 ? (r / 1000).toFixed(r >= 10000 ? 0 : 1) + "km" : r + "m"}</div>`;
 const ringTop = (center, r) => ({ lat: center.lat + r / 111320, lng: center.lng }); // 원 맨 위(북쪽) 점에 이름표
 // 보호자 "나" 위치: 파란 점 + 흰 테두리 (이 기기에서만 쓰고 저장·전송하지 않음)
 const meHtml = '<div style="width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 2px rgba(26,115,232,.35),0 1px 4px rgba(0,0,0,.4)"></div>';
 const meTagHtml = '<div style="margin-top:2px;padding:0 6px;font-size:11px;font-weight:800;color:#fff;background:#1a73e8;border-radius:999px">나</div>';
 
-function createNaverMap(naver, el, center, rMax) {
+function createNaverMap(naver, el, center, rMax, rFirst) {
   const M = naver.maps;
   const map = new M.Map(el, { center: new M.LatLng(center.lat, center.lng), zoom: 15, zoomControl: true });
   let circle = null;
-  if (rMax) circle = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: rMax, strokeColor: RING.walk.color, strokeWeight: 2, strokeOpacity: .7, fillColor: RING.walk.color, fillOpacity: .06 });
+  // 원 두 겹 (2026-11-03): 진한 원 = 먼저 찾을 범위(실종자 절반이 발견된 거리, 자료 10), 흐린 점선 = 걸어서 갈 수 있는 최대(참고)
+  if (rMax) {
+    const c0 = new M.LatLng(center.lat, center.lng);
+    new M.Circle({ map, center: c0, radius: rMax, strokeColor: RING.walk.color, strokeWeight: 1.5, strokeOpacity: .5, strokeStyle: "shortdash", fillOpacity: 0, clickable: false });
+    const rf = Math.min(rFirst || rMax, rMax);
+    circle = new M.Circle({ map, center: c0, radius: rf, strokeColor: RING.first.color, strokeWeight: 3, strokeOpacity: .9, fillColor: RING.first.color, fillOpacity: .12, clickable: false });
+    for (const [k, r] of rf < rMax ? [["first", rf], ["walk", rMax]] : [["first", rf]]) { const t = ringTop(center, r); new M.Marker({ map, position: new M.LatLng(t.lat, t.lng), icon: { content: ringLabelHtml(k, r), anchor: new M.Point(50, 10) }, clickable: false, zIndex: 40 }); }
+  }
   new M.Marker({ map, position: new M.LatLng(center.lat, center.lng), icon: { content: '<div style="background:#fff;border:2px solid #191f28;border-radius:999px;padding:2px 8px;font-weight:800;font-size:13px;color:#1c1b1a">집</div>', anchor: new M.Point(14, 14) } });
   let markers = [], labels = [], route = null, current = [];
   const info = new M.InfoWindow({ borderWidth: 1, backgroundColor: "#fff", anchorSize: new M.Size(10, 10) });
@@ -318,14 +325,12 @@ function createNaverMap(naver, el, center, rMax) {
     map, circle,
     setRings(list) {
       ringObjs.forEach((o) => o.setMap(null)); ringObjs = [];
-      const grew = list.some((x) => !rings.some((y) => y.key === x.key)); rings = list;
+      rings = list; // 버스·택시 원은 커서 자동으로 줌아웃하지 않는다 (먼저 찾을 범위가 계속 보이게)
       for (const { key, r } of list) {
         const c = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: r, strokeColor: RING[key].color, strokeWeight: 2, strokeOpacity: .8, strokeStyle: "shortdash", fillOpacity: 0, clickable: false });
         const t = ringTop(center, r);
         ringObjs.push(c, new M.Marker({ map, position: new M.LatLng(t.lat, t.lng), icon: { content: ringLabelHtml(key, r), anchor: new M.Point(50, 10) }, clickable: false, zIndex: 40 }));
-        if (grew && r === Math.max(...list.map((x) => x.r))) map.fitBounds(c.getBounds());
       }
-      if (!list.length) fitPins();
     },
     setMe(pos) {
       if (!pos) { if (me) { me.setMap(null); meAcc.setMap(null); me = meAcc = null; } return; }
@@ -350,7 +355,7 @@ function createNaverMap(naver, el, center, rMax) {
         if (c.kind !== "intersection" && pinLabel(c, i) !== "·") { bounds.extend(pos); any = true; } // 화면 맞춤은 동선 핀 기준
       });
       lastBounds = any ? bounds : null;
-      if (!rings.length) fitPins();
+      fitPins();
       updateLabels();
     },
     setRoute(geometry) {

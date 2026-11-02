@@ -37,7 +37,8 @@
     <div id="transit"><p class="small muted" style="margin:0">집 위치를 찾는 중…</p></div>
   </details>
   <details class="card tight after-map fold"><summary><b>순서·반경은 어떻게 정하나요?</b></summary>
-    <p class="small">걸어서 갈 수 있는 반경(직선): <b id="rmax"></b> = 경과 <span id="elapsed"></span>분 × 걸음 속도 <span id="speed"></span>m/s</p>
+    <p class="small"><b>진한 원 = 먼저 찾을 범위 <span id="rfirst"></span></b>: 치매 실종자는 마지막으로 본 곳에서 절반쯤이 약 0.8km 안에서 발견됐어요 (미국 수색구조 연구, 참고값). 그래서 이 안부터 꼼꼼히 봐요.</p>
+    <p class="small"><b>흐린 점선 = 걸어서 갈 수 있는 최대</b> <span id="rmax"></span> = 경과 <span id="elapsed"></span>분 × 걸음 속도 <span id="speed"></span>m/s (쉬지 않고 한 방향으로 갔을 때의 직선거리라 실제보다 넓어요)</p>
     <p class="small">점수가 높은 곳부터, 같은 점수끼리는 걷는 거리가 가장 짧은 순서로 모두 들릅니다. 오늘 가려던 곳은 이미 확인했다고 봅니다. 지도의 ✕는 동선 위 갈림길이에요(어르신은 갈림길에서 길을 잘못 들기 쉬워요).</p>
     <table><thead><tr><th>요소</th><th class="num">점수</th></tr></thead><tbody id="weights"></tbody></table>
     <p class="small muted" style="margin-bottom:0">임의 설정, 실험으로 조정. 이 순서는 코드(규칙)가 정하고 AI는 관여하지 않습니다. 위치를 예측하는 것이 아닙니다.</p>
@@ -62,7 +63,7 @@
 </main>
 <script type="module">
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner, getHome, homeSetup } from "/js/common.js";
-  import { WEIGHTS, WALK_SPEED, SOURCE_LABELS, RIDE_SPEED_KMH, ARRIVE_M, BASIC_KINDS } from "/lib/schema.js";
+  import { WEIGHTS, WALK_SPEED, SOURCE_LABELS, RIDE_SPEED_KMH, ARRIVE_M, BASIC_KINDS, FIRST_SEARCH_M } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary, summaryGroups, SUMMARY_NOTE } from "/lib/priority.js";
   import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, EXACT_LIMIT, setHomeLabel } from "/js/map.js";
 
@@ -92,7 +93,8 @@
 
   // 반경
   const rMax = maxRadiusM(mode.elapsedMin, mode.gait);
-  $("#rmax").textContent = fmtM(rMax); $("#elapsed").textContent = mode.elapsedMin; $("#speed").textContent = WALK_SPEED[mode.gait] ?? WALK_SPEED.normal;
+  const rFirst = Math.min(FIRST_SEARCH_M, rMax); // 먼저 찾을 범위 (진한 원)
+  $("#rmax").textContent = fmtM(rMax); $("#rfirst").textContent = fmtM(rFirst); $("#elapsed").textContent = mode.elapsedMin; $("#speed").textContent = WALK_SPEED[mode.gait] ?? WALK_SPEED.normal;
   for (const [k, label] of [["memory", "추억 장소"], ["rising", "최근 자주 가기 시작한 곳"], ["frequent", "자주 가는 곳"], ["new", "새로운 곳"], ["guardian", "기타 보호자 입력"], ["intersection", "경로 위 갈림길(교차로)"], ["outOfRadius", "반경 밖"], ["basic", "집 근처 기본 장소 (말한 곳이 없을 때만)"]])
     $("#weights").append(el("tr", {}, el("td", {}, label), el("td", { class: "num" }, (WEIGHTS[k] > 0 ? "+" : "") + WEIGHTS[k])));
 
@@ -117,10 +119,11 @@
     const speed = WALK_SPEED[mode.gait] ?? 0.8;
     list.forEach((c, i) => {
       const t = tourLegs.get(c.name);
-      const where = t ? `걸어서 약 ${Math.max(1, Math.round(t.acc / speed / 60))}분 (앞 장소에서 ${fmtM(t.leg)})` : c.distance_m != null ? `집에서 ${fmtM(c.distance_m)}` : null; // 위치를 못 찾은 곳은 reason 끝의 "거리 모름"으로 충분
+      const where = t ? `걸어서 약 ${Math.max(1, Math.round(t.acc / speed / 60))}분 (앞 장소에서 ${fmtM(t.leg)})` : c.distance_m != null ? `집에서 ${fmtM(c.distance_m)}` : null;
+      const near = c.distance_m != null && c.distance_m <= rFirst; // 위치를 못 찾은 곳은 reason 끝의 "거리 모름"으로 충분
       box.append(el("li", {},
         el("span", { class: "n" }, i + 1),
-        el("div", {}, el("div", { class: "nm" }, c.name), el("div", { class: "why" }, [where, c.reason].filter(Boolean).join(" · "))),
+        el("div", {}, el("div", { class: "nm" }, c.name, near ? el("span", { class: "near-tag" }, "먼저 찾을 범위") : ""), el("div", { class: "why" }, [where, c.reason].filter(Boolean).join(" · "))),
         el("div", { class: "acts" }, navLink(c, "길찾기"), el("button", { class: "edit", onclick: () => markChecked(c) }, "가 봤어요"))));
     });
     $("#list-count").textContent = list.length ? `${list.length}곳${checked.size > (clue.today_destination ? 1 : 0) ? ` · 확인함 ${checked.size - (clue.today_destination ? 1 : 0)}곳` : ""}` : "";
@@ -270,10 +273,10 @@
     setHomeLabel(saved?.label || clue.home_dong || profile?.home_dong || "");
     const home = saved ? { lat: saved.lat, lng: saved.lng } : homeName ? await findHome(homeName) : null;
     const center = home ?? { lat: 36.3504, lng: 127.3845 };
-    if (L) { $("#map").textContent = ""; view = createMap(L, $("#map"), center, home ? rMax : 0); view.setMarkers([]); }
+    if (L) { $("#map").textContent = ""; view = createMap(L, $("#map"), center, home ? rMax : 0, rFirst); view.setMarkers([]); }
     if (home) { homePt = { ...home, label: "집" }; renderRides(); } else $("#ride-tools").classList.add("hidden");
     if (!home) askHome(homeName);
-    else $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 장소를 찾는 중…`;
+    else $("#map-note").textContent = `진한 원: 먼저 찾을 범위 ${fmtM(rFirst)} · 흐린 점선: 걸어서 최대 ${fmtM(rMax)}. 장소를 찾는 중…`;
 
     // 1) 장소 좌표. "카페·편의점·세탁소"처럼 종류만 말한 곳은 집 반경 안에서 실제 가게 2~3곳으로 펼친다
     homeRef = home;
@@ -293,7 +296,7 @@
     if (home) renderTransit(home); else $("#transit").innerHTML = '<p class="small muted" style="margin:0">집 위치를 찾지 못해 정류장·대중교통 길을 보여 줄 수 없어요.</p>';
     const approx = places.filter((p) => p.approx).map((p) => `${p.name}→${p.found_name}`);
     const notFound = places.filter((p) => !p.lat).map((p) => p.name);
-    let note = `${home ? `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). ` : ""}지도: ${L ? "네이버" : "불러오지 못함"}, 길찾기: ${!tour ? "연결 실패(직선거리로 표시)" : tour.router === "osrm" ? "OSRM 공개 서버(자동차 도로 기준, 참고용)" : "Valhalla 공개 서버(보행자 경로)"}`;
+    let note = `${home ? `진한 원: 먼저 찾을 범위 ${fmtM(rFirst)} · 흐린 점선: 걸어서 최대 ${fmtM(rMax)} (집 기준 직선). ` : ""}지도: ${L ? "네이버" : "불러오지 못함"}, 길찾기: ${!tour ? "연결 실패(직선거리로 표시)" : tour.router === "osrm" ? "OSRM 공개 서버(자동차 도로 기준, 참고용)" : "Valhalla 공개 서버(보행자 경로)"}`;
     if (approx.length) note += ` · 근처로 표시: ${approx.join(", ")}`;
     if (notFound.length) note += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
     $("#map-note").textContent = note;

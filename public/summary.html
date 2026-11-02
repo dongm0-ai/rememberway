@@ -16,7 +16,7 @@
   <div class="cols">
   <div class="col-text">
   <h2>경찰에 전달할 요약 <span class="tag-ai" id="sum-tag">AI 정리값</span> <span class="tag-rule">코드가 서식 조립</span></h2>
-  <pre class="summary" id="summary"></pre>
+  <div class="sumcard" id="summary"></div>
   <div class="row"><button class="btn-primary" id="copy">복사</button><button class="btn-secondary" id="share">공유</button></div>
   <p class="small muted" id="missing-note"></p>
 
@@ -64,7 +64,7 @@
 <script type="module">
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS, RIDE_SPEED_KMH, ARRIVE_M } from "/lib/schema.js";
-  import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary } from "/lib/priority.js";
+  import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary, summaryGroups, SUMMARY_NOTE } from "/lib/priority.js";
   import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, EXACT_LIMIT, setHomeLabel } from "/js/map.js";
 
   const clue = store.sget(KEYS.clue);
@@ -77,7 +77,17 @@
 
   // 요약문 (코드 조립)
   const text = buildSummary(clue, profile, mode.elapsedMin);
-  $("#summary").textContent = text;
+  // 화면에는 번호 묶음 + 왼쪽 라벨로 (모름은 흐리게). 복사·공유는 위 text
+  {
+    const box = $("#summary"); box.innerHTML = "";
+    summaryGroups(clue, profile, mode.elapsedMin).forEach((g, i) => {
+      const known = g.rows.filter(([, v]) => v).length;
+      box.append(el("section", { class: "sg" },
+        el("h3", {}, el("span", { class: "sg-n" }, i + 1), g.title, known === 0 ? el("span", { class: "sg-none" }, "모두 모름") : ""),
+        el("dl", {}, ...g.rows.flatMap(([k, v]) => [el("dt", {}, k), el("dd", v ? {} : { class: "unk" }, v ?? "모름")]))));
+    });
+    box.append(el("p", { class: "sg-note" }, SUMMARY_NOTE));
+  }
   const missing = clue.missing ?? [];
   $("#missing-note").textContent = missing.length ? `아직 모름: ${missing.length}개 항목. 경찰이 물으면 "모른다"고 답하면 됩니다.` : "주요 항목이 모두 채워졌습니다.";
   $("#copy").onclick = async () => { try { await navigator.clipboard.writeText(text); $("#copy").textContent = "복사됨 ✓"; } catch { prompt("길게 눌러 복사하세요", text); } };

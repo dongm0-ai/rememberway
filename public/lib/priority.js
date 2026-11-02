@@ -52,23 +52,32 @@ export function haversineM(lat1, lng1, lat2, lng2) {
 }
 
 /** 경찰 전달용 요약문 — 코드가 조립 (AI 아님). 값이 없으면 "모름"으로 적어 누락을 드러낸다. */
-export function buildSummary(clue, profile, elapsedMin) {
-  const v = (x) => (x === null || x === undefined || x === "" ? "모름" : x);
-  const b = (x) => (x === true ? "있음" : x === false ? "없음" : "모름");
-  const h = clue.honorific || profile?.honorific || "어르신"; // 이번에 말한 호칭 > 평소 등록
-  const lines = [
-    `[치매 어르신 실종 — 보호자 정리 내용]`,
-    `대상: ${h}${clue.home_dong || profile?.home_dong ? ` (거주: ${clue.home_dong || profile.home_dong})` : ""}`,
-    `마지막 본 시각: ${v(clue.last_seen?.time)} / 장소: ${v(clue.last_seen?.place)}` + (elapsedMin ? ` (약 ${elapsedMin}분 경과)` : ""),
-    `오늘 가려던 곳: ${v(clue.today_destination)} / 평소 가는 길: ${v(clue.route)}`,
-    `버스·지하철·택시: ${v(clue.transport)}`,
-    `옷차림: 상의 ${v(clue.clothing?.top)}, 하의 ${v(clue.clothing?.bottom)}, 신발 ${v(clue.clothing?.shoes)}, 모자 ${v(clue.clothing?.hat)}`,
-    `걸음걸이: ${v(clue.gait || profile?.gait_note)}`,
-    `소지품: 휴대전화 ${b(clue.items?.phone)}, 지갑 ${b(clue.items?.wallet)}, 지팡이 ${b(clue.items?.cane)}`,
-    `약 복용: ${v(clue.meds)} / 요즘 기억·길 헷갈림: ${v(clue.dementia_signs)}`,
-    `이전에 길 잃은 적: ${v(clue.prior_incidents)}`,
+/**
+ * 경찰에 전달할 요약 — 묶음별 [라벨, 값] (화면용). 값이 null이면 "모름".
+ * 2026-11-02: 한 덩어리 글은 읽기 어렵다는 의견 → 번호 붙은 묶음 6개 + 왼쪽 라벨로 나눔. 복사·공유 글도 같은 순서.
+ */
+export function summaryGroups(clue, profile, elapsedMin) {
+  const v = (x) => (x === null || x === undefined || x === "" ? null : String(x));
+  const b = (x) => (x === true ? "있음" : x === false ? "없음" : v(x)); // 소지품: 예/아니오 또는 보호자 말 그대로
+  const c = clue.clothing ?? {}, it = clue.items ?? {};
+  return [
+    { title: "누구", rows: [["대상", `${clue.honorific || profile?.honorific || "어르신"} (치매)`], ["사는 곳", v(clue.home_dong || profile?.home_dong)]] },
+    { title: "마지막으로 본 때", rows: [["시각", v(clue.last_seen?.time)], ["장소", v(clue.last_seen?.place)], ["지난 시간", elapsedMin ? `약 ${elapsedMin}분` : null]] },
+    { title: "가려던 곳·이동", rows: [["오늘 가려던 곳", v(clue.today_destination)], ["평소 가는 길", v(clue.route)], ["버스·택시", v(clue.transport)], ["보호자가 말한 곳", clue.memory_places?.length ? clue.memory_places.map((p) => p.name).join(", ") : null]] },
+    { title: "옷차림", rows: [["상의", v(c.top)], ["하의", v(c.bottom)], ["신발", v(c.shoes)], ["모자", v(c.hat)]] },
+    { title: "몸·소지품", rows: [["걸음걸이", v(clue.gait || profile?.gait_note)], ["휴대전화", b(it.phone)], ["지갑", b(it.wallet)], ["지팡이", b(it.cane)]] },
+    { title: "건강·이력", rows: [["약 복용", v(clue.meds)], ["요즘 기억·길 헷갈림", v(clue.dementia_signs)], ["이전에 길 잃은 적", v(clue.prior_incidents)]] },
   ];
-  if (clue.memory_places?.length) lines.push(`갈 가능성이 있다고 보호자가 말한 곳: ${clue.memory_places.map((p) => p.name).join(", ")}`);
-  lines.push(`* 이 내용은 보호자가 말한 것을 정리한 것입니다. 이름·주소 상세는 보호자가 직접 전달합니다.`);
+}
+export const SUMMARY_NOTE = "이 내용은 보호자가 말한 것을 정리한 것입니다. 이름·주소 상세는 보호자가 직접 전달합니다.";
+
+/** 복사·공유용 글 (문자·메신저에 붙여 넣어도 읽히게 번호와 줄바꿈) */
+export function buildSummary(clue, profile, elapsedMin) {
+  const lines = ["[치매 어르신 실종 — 보호자 정리 내용]"];
+  summaryGroups(clue, profile, elapsedMin).forEach((g, i) => {
+    lines.push("", `${i + 1}. ${g.title}`);
+    for (const [k, val] of g.rows) lines.push(`- ${k}: ${val ?? "모름"}`);
+  });
+  lines.push("", `* ${SUMMARY_NOTE}`);
   return lines.join("\n");
 }

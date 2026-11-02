@@ -184,3 +184,16 @@ h2 .tag-ai, h2 .tag-rule, h3 .tag-ai, h3 .tag-rule { margin-left: 6px; }
 .ai-card details { margin-top: 10px; }
 .ai-card pre { white-space: pre-wrap; word-break: break-all; font-size: 12.5px; background: var(--soft); border-radius: 12px; padding: 12px; max-height: 320px; overflow: auto; margin: 8px 0 0; }
 .ai-card blockquote { margin: 8px 0 0; padding: 10px 12px; background: var(--soft); border-radius: 12px; font-size: 15px; }
+
+/* 경찰에 전달할 요약: 번호 묶음 + 왼쪽 라벨 (한 덩어리 글 → 표처럼 읽히게) */
+.sumcard { background: var(--card); border-radius: var(--radius); padding: 6px 20px 16px; margin: 8px 0; }
+.sumcard .sg { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.sumcard .sg:last-of-type { border-bottom: 0; }
+.sumcard h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 17px; }
+.sumcard .sg-n { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: inline-grid; place-items: center; font-size: 13px; font-weight: 800; flex: none; font-variant-numeric: tabular-nums; }
+.sumcard .sg-none { margin-left: auto; font-size: 13px; font-weight: 500; color: var(--muted); }
+.sumcard dl { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 7px 12px; margin: 0; }
+.sumcard dt { color: var(--muted); font-size: 15px; line-height: 1.5; }
+.sumcard dd { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.sumcard dd.unk { color: var(--muted); font-weight: 400; }
+.sumcard .sg-note { font-size: 13.5px; color: var(--muted); margin: 6px 0 0; }

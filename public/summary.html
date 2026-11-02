@@ -11,19 +11,19 @@
 <main>
   <div class="topbar"><a class="back" href="/confirm">← 단서 수정</a><span class="step">화면 3 / 3 · 요약·지도</span></div>
   <div class="alert">아직 신고 전이라면 지금 112. 아래 요약을 그대로 읽어 주면 됩니다.<a class="btn btn-danger btn-xl call112" href="tel:112">📞 112 전화하기</a></div>
-  <section class="glance" id="glance"><h2>어르신 정보 한눈에</h2><dl id="glance-list"></dl><p class="small muted" style="margin:8px 0 0">경찰이나 주변 사람에게 이 칸을 보여 주세요. 빈칸은 "모름"입니다.</p></section>
+  <section class="glance" id="glance"><h2>어르신 정보 한눈에 <span class="tag-ai" id="glance-tag">생성형 AI 정리 → 보호자 확인</span></h2><dl id="glance-list"></dl><p class="small muted" style="margin:8px 0 0">경찰이나 주변 사람에게 이 칸을 보여 주세요. 빈칸은 "모름"입니다.</p></section>
 
   <div class="cols">
   <div class="col-text">
-  <h2>경찰에 전달할 요약</h2>
+  <h2>경찰에 전달할 요약 <span class="tag-ai" id="sum-tag">AI 정리값</span> <span class="tag-rule">코드가 서식 조립</span></h2>
   <pre class="summary" id="summary"></pre>
   <div class="row"><button class="btn-primary" id="copy">복사</button><button class="btn-secondary" id="share">공유</button></div>
   <p class="small muted" id="missing-note"></p>
 
-  <h2>지금 할 일</h2>
+  <h2>지금 할 일 <span class="tag-rule">규칙</span></h2>
   <ol id="steps" class="card" style="margin:0;padding-left:34px"></ol>
 
-  <h2 class="after-map">확인할 곳</h2>
+  <h2 class="after-map">확인할 곳 <span class="tag-ai" id="place-tag">장소는 AI가 말에서 뽑음</span> <span class="tag-rule">순서는 규칙</span></h2>
   <div class="card after-map">
     <p class="small" style="margin-top:0"><b>어르신은 목적지에 도착하지 못하고 가는 길에서 발견되는 경우가 많습니다. 이 지도는 보호자가 말한 것을 정리한 것입니다.</b></p>
     <p class="small muted">이동 가능 반경(직선): <b id="rmax"></b> = 경과 <span id="elapsed"></span>분 × 걸음 속도 <span id="speed"></span>m/s</p>
@@ -31,13 +31,13 @@
     <p class="small muted">"가 봤어요"를 누르면 목록에서 빠집니다. 오늘 가려던 곳은 이미 확인했다고 보고 추억 장소를 먼저 둡니다.</p>
   </div>
 
-  <h2 class="after-map">돌아볼 동선</h2>
+  <h2 class="after-map">돌아볼 동선 <span class="tag-rule">규칙 계산</span></h2>
   <div class="card after-map">
     <p class="small muted" style="margin-top:0">위 후보를 <b>모두</b> 들르는 순서입니다. 점수가 높은 묶음부터 가고, 같은 점수 안에서는 1순위를 먼저 간 뒤 나머지를 <b>걷는 거리가 가장 짧은 순서</b>로 돕니다 (가능한 순서를 전부 비교). 점수가 낮은 곳도 빼지 않고 맨 뒤에 들릅니다. 지도의 번호 핀과 빨간 선이 이 순서예요.</p>
     <ol class="rank" id="tour"><li><span></span><span class="muted">동선을 만드는 중…</span></li></ol>
     <p class="small muted" id="tour-total"></p>
   </div>
-  <h2 class="after-map">버스·택시를 탔을 수도 있다면</h2>
+  <h2 class="after-map">버스·택시를 탔을 수도 있다면 <span class="tag-rule">규칙·안내</span></h2>
   <div class="card after-map" id="transit"><p class="small muted" style="margin:0">집 위치를 찾는 중…</p></div>
   <details class="card tight after-map"><summary class="small"><b>우선 확인 순서는 어떻게 정하나요?</b> (가중치 공개)</summary>
     <table style="margin-top:8px"><thead><tr><th>요소</th><th class="num">점수</th></tr></thead><tbody id="weights"></tbody></table>
@@ -46,7 +46,7 @@
   </div>
 
   <div class="col-map">
-    <h2 class="map-title">지도 · 번호는 들르는 순서, ✕는 동선 위 갈림길</h2>
+    <h2 class="map-title">지도 · 번호는 들르는 순서, ✕는 동선 위 갈림길 <span class="tag-rule">위치 예측 아님</span></h2>
     <div class="map-tools" id="ride-tools"><span class="small"><b>어르신이 탈 수 있는 것</b></span>
       <button class="chip" aria-pressed="true" disabled title="걸어서 원은 늘 보입니다">🚶 걸어서</button>
       <button class="chip" id="ride-bus" aria-pressed="false">🚌 버스·지하철</button>
@@ -72,6 +72,7 @@
   const mode = store.sget(KEYS.mode, { elapsedMin: 60, gait: "normal" });
   const profile = store.get(KEYS.profile);
   if (mode.source === "mock") mockBanner({ mock: true });
+  if (mode.source === "form") for (const [id, t] of [["glance-tag", "서식 입력 → 보호자 확인"], ["sum-tag", "서식 입력값"], ["place-tag", "보호자가 적은 곳"]]) { const e = document.getElementById(id); e.className = "tag-rule"; e.textContent = t; }
   if (mode.source === "form") document.querySelector("main").prepend(el("div", { class: "notice", style: "margin-bottom:10px" }, "서식 입력으로 만든 요약입니다 (AI 미사용)."));
 
   // 요약문 (코드 조립)
@@ -253,20 +254,17 @@
   // 지도: 네이버 지도. 장소 좌표·근처 가게는 네이버 검색, 도보 경로·거리표는 Valhalla(보행자 공개 서버) → 예비 OSRM.
   const cfg = await loadConfig();
   const L = await loadMap(cfg.map ?? {});
-  if (!L) {
-    $("#map").textContent = "네이버 지도를 불러오지 못했어요 (인터넷 연결 확인). 목록은 아래에 있습니다.";
-    $("#map-note").textContent = "거리를 알 수 없어 점수에 반경을 반영하지 못했습니다.";
-  } else {
+  // 네이버 지도가 안 떠도(키·도메인·인터넷 문제) 장소 찾기·동선·요약은 서버 검색으로 계속 만든다. 지도 칸만 안내문으로 바뀐다
+  if (!L) $("#map").textContent = "네이버 지도를 불러오지 못했어요. 확인할 곳 목록과 동선은 그대로 아래에 있습니다.";
+  {
     // 집 동네: 보호자가 이번에 말한 것 > 평소 등록 정보 > 마지막 본 곳
     const homeName = clue.home_dong || profile?.home_dong || clue.last_seen?.place;
     setHomeLabel(clue.home_dong || profile?.home_dong || "");
     const home = homeName ? await findHome(homeName) : null;
     const center = home ?? { lat: 36.3504, lng: 127.3845 };
-    $("#map").textContent = "";
-    view = createMap(L, $("#map"), center, home ? rMax : 0);
-    view.setMarkers([]);
+    if (L) { $("#map").textContent = ""; view = createMap(L, $("#map"), center, home ? rMax : 0); view.setMarkers([]); }
     if (home) { homePt = { ...home, label: "집" }; renderRides(); } else $("#ride-tools").classList.add("hidden");
-    if (!home) $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경 원을 그리지 못했습니다. 평소 등록에서 '시 구 동'까지 적어 주세요.";
+    if (!home) $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경과 동선을 만들지 못했습니다. 평소 등록에서 '시 구 동'까지 적어 주세요.";
     else $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 장소를 찾는 중…`;
 
     // 1) 장소 좌표. "카페·편의점·세탁소"처럼 종류만 말한 곳은 집 반경 안에서 실제 가게 2~3곳으로 펼친다
@@ -290,11 +288,11 @@
     renderRank(); drawMarkers();
 
     // 2) 동선: 좌표를 찾은 후보 전부를 점수 높은 묶음부터, 묶음 안에서는 도보 거리 최단 순서로 (보행자 거리표 + 정확한 최단). 경로 위 갈림길은 지도에 ✕로만
-    if (home) await buildTour(home);
+    if (home) await buildTour(home); else $("#tour").innerHTML = '<li><span></span><span class="muted">집 위치를 찾지 못해 동선을 만들 수 없어요. 위 목록 순서대로 확인하세요.</span></li>';
     if (home) renderTransit(home); else $("#transit").innerHTML = '<p class="small muted" style="margin:0">집 위치를 찾지 못해 정류장·대중교통 길을 보여 줄 수 없어요.</p>';
     const approx = places.filter((p) => p.approx).map((p) => `${p.name}→${p.found_name}`);
     const notFound = places.filter((p) => !p.lat).map((p) => p.name);
-    let note = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 지도: 네이버, 길찾기: ${tour?.router === "osrm" ? "OSRM 공개 서버(자동차 도로 기준, 참고용)" : "Valhalla 공개 서버(보행자 경로)"}`;
+    let note = `${home ? `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). ` : ""}지도: ${L ? "네이버" : "불러오지 못함"}, 길찾기: ${!tour ? "연결 실패(직선거리로 표시)" : tour.router === "osrm" ? "OSRM 공개 서버(자동차 도로 기준, 참고용)" : "Valhalla 공개 서버(보행자 경로)"}`;
     if (approx.length) note += ` · 근처로 표시: ${approx.join(", ")}`;
     if (notFound.length) note += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
     $("#map-note").textContent = note;
@@ -317,7 +315,7 @@
     if (seq !== tourSeq) return; // 그 사이 또 "가 봤어요"를 눌렀으면 옛 결과는 버린다
     box.innerHTML = "";
     if (!route) { tourNames = []; box.append(el("p", { class: "muted small" }, "길찾기 서버에 연결하지 못해 동선 대신 직선거리만 표시합니다.")); drawMarkers(); return; }
-    tour = route; view.setRoute(route.geometry);
+    tour = route; view?.setRoute(route.geometry);
     // 교차로를 가중치에 반영해 순위 다시 계산
     // 갈림길: 목록·점수에는 넣지 않고(보호자에게 어수선함), 지도 동선 위에 이름 없는 작은 ✕로만 표시 (근거: 배회는 갈림길에서 시작)
     crossings = route.intersections.slice(0, 6).map((x) => ({ ...x, kind: "intersection", name: "갈림길 — 여기서 길을 잘못 들기 쉬워요" }));

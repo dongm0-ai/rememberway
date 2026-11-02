@@ -47,6 +47,12 @@ export async function api(name, body, timeoutMs = 16000) { // 서버 15초 + 여
   } finally { clearTimeout(t); }
 }
 
+/** 화면에 보일 생성형 AI 이름: "Upstage Solar (solar-pro4)" */
+export function aiName(ai = {}) {
+  const p = { upstage: "Upstage Solar", gemini: "Google Gemini", claude: "Anthropic Claude" }[ai.provider || ai.active];
+  return p ? `${p}${ai.model ? ` · ${ai.model}` : ""}` : "";
+}
+
 export async function loadConfig() {
   const cached = store.sget(KEYS.config);
   if (cached) return cached;

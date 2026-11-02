@@ -45,13 +45,16 @@
     </div>
   </section>
 
+  <div class="ai-explain" id="ai-explain"><span class="tag-ai">생성형 AI</span> <b>단서 정리하기</b>를 누르면 생성형 AI<span id="ai-model"></span>가 이 말을 읽고 경찰 신고 서식(시각·장소·옷·소지품·가실 만한 곳)으로 <b>새로 정리</b>하고, 빠진 것은 질문으로 되묻습니다. 어디를 먼저 볼지는 AI가 아니라 공개된 규칙이 정합니다.</div>
+
   <div class="fixed-bottom"><div class="inner stack">
     <button class="btn-primary" id="go">단서 정리하기 →</button>
     <button class="btn-ghost small" id="to-form">AI 없이 서식으로 입력</button>
   </div></div>
 </main>
 <script type="module">
-  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner } from "/js/common.js";
+  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner, loadConfig, aiName } from "/js/common.js";
+  loadConfig().then((c) => { const n = aiName(c.ai); if (n) $("#ai-model").textContent = `(${n})`; });
   import { EMPTY_CLUE, FIELD_LABELS } from "/lib/schema.js";
   import { classifyPlaces } from "/lib/diary.js";
   import { computeMissing } from "/lib/verify.js";
@@ -120,6 +123,7 @@
     const clue = res.clue;
     clue.memory_places = mergePlaces(clue.memory_places, known);
     store.sset(KEYS.clue, clue); store.sset(KEYS.utterance, utterance); store.sset(KEYS.mode, { ...ctx, source: res.mock ? "mock" : "ai" });
+    store.sset("rw_ai", { ...(res.ai ?? {}), raw: res.raw ?? null, mock: !!res.mock, filled: clue });
     location.href = "/confirm";
   };
 

@@ -11,8 +11,7 @@
 <main>
   <div class="topbar"><a class="back" href="/report">← 다시 말하기</a><span class="step">화면 2 / 3 · 확인·되묻기</span></div>
   <h1>이렇게 정리했어요. 맞나요?</h1>
-  <section class="ai-card" id="ai-card"></section>
-  <p class="muted"><span class="badge warn">⚠</span>는 보호자 말에서 확인되지 않은 값이니 꼭 봐 주세요. ✎로 고칠 수 있고, 고친 칸에는 "보호자 수정"이 붙습니다.</p>
+  <p class="muted">보호자 말에서 정리한 것입니다. <span class="badge warn">⚠</span>는 말에서 확인되지 않은 값이니 꼭 봐 주세요. ✎로 고칠 수 있습니다.</p>
 
   <section id="ask" class="card hidden">
     <div class="small muted" id="ask-count"></div>
@@ -45,7 +44,7 @@
   </div></div>
 </main>
 <script type="module">
-  import { store, KEYS, api, $, $$, el, mockBanner, aiName } from "/js/common.js";
+  import { store, KEYS, api, $, $$, el, mockBanner } from "/js/common.js";
   import { FIELD_LABELS, SOURCE_LABELS } from "/lib/schema.js";
   import { computeMissing, getPath, setPath } from "/lib/verify.js";
   import { buildAnswerInput } from "/js/answer-ui.js";
@@ -65,7 +64,7 @@
     for (const k of keys) {
       const v = show(k), flagged = clue.flags?.[k];
       box.append(el("div", { class: "field" },
-        el("div", { class: "k" }, FIELD_LABELS[k], flagged ? el("span", { class: "badge warn", title: "보호자 말에서 확인되지 않음" }, "⚠ 확인 필요") : "", (clue.edited ?? []).includes(k) ? el("span", { class: "tag-rule", style: "margin-left:6px" }, "보호자 수정") : ""),
+        el("div", { class: "k" }, FIELD_LABELS[k], flagged ? el("span", { class: "badge warn", title: "보호자 말에서 확인되지 않음" }, "⚠ 확인 필요") : ""),
         el("div", { class: "v" + (v ? "" : " empty") }, v ?? "아직 모름"),
         el("button", { class: "edit", onclick: () => edit(k) }, "✎")));
     }
@@ -93,29 +92,8 @@
   }
   $("#place-add").onclick = () => { const n = $("#place-new").value.trim(); if (!n) return; clue.memory_places.push({ name: n, source: "guardian", evidence: "화면 2에서 추가" }); $("#place-new").value = ""; renderPlaces(); };
   function save() { clue.missing = computeMissing(clue); store.sset(KEYS.clue, clue); }
-  renderFields(); renderPlaces(); renderAiCard();
+  renderFields(); renderPlaces();
 
-  // ---- "생성형 AI가 한 일": 원문 → AI 결과 → 코드 검증 → 보호자 확인. 심사·시연 때 AI가 어디에 쓰였는지 보이게 (원리 공개)
-  function renderAiCard() {
-    const box = $("#ai-card"), info = store.sget("rw_ai", null);
-    if (mode.source === "form" || !info) { box.append(el("h2", { style: "margin:0" }, "서식으로 입력했어요 ", el("span", { class: "tag-rule" }, "AI 사용 안 함")), el("p", { class: "small muted", style: "margin:6px 0 0" }, "정해진 질문에 답한 값입니다. 요약·지도는 똑같이 만들어집니다.")); return; }
-    const base = info.filled ?? clue;
-    const val = (k) => { const v = getPath(base, k); return v !== null && v !== undefined && v !== ""; };
-    const filled = keys.filter(val).length + (base.memory_places?.length ?? 0);
-    const warn = Object.keys(base.flags ?? {}).length;
-    const empty = computeMissing(base).length;
-    const name = aiName(info) || "생성형 AI";
-    box.append(
-      el("h2", { style: "margin:0" }, "생성형 AI가 한 일 ", el("span", { class: "tag-ai" }, info.mock ? "모의 응답" : name)),
-      el("p", { class: "small", style: "margin:6px 0 0" }, `보호자가 두서없이 한 말을 읽고 경찰 신고 서식으로 새로 썼어요${info.ms ? ` (${(info.ms / 1000).toFixed(1)}초)` : ""}.`),
-      el("div", { class: "stats" },
-        el("div", { class: "stat" }, el("b", {}, filled), el("span", {}, "AI가 채운 칸·장소")),
-        el("div", { class: "stat" }, el("b", {}, warn), el("span", {}, "⚠ 원문에 없는 값")),
-        el("div", { class: "stat" }, el("b", {}, empty), el("span", {}, "빈 칸 (코드가 셈)"))),
-      el("p", { class: "flow" }, "보호자의 말 → ", el("b", {}, "생성형 AI가 서식으로 정리"), " → 코드가 원문과 대조(⚠)·빈 칸 계산 → ", el("b", {}, "생성형 AI가 빈 칸 질문"), " → 보호자 확인(✎)"),
-      utter ? el("details", {}, el("summary", { class: "small" }, "보호자가 한 말 (원문)"), el("blockquote", {}, utter)) : "",
-      info.raw ? el("details", {}, el("summary", { class: "small" }, "AI가 돌려준 원본 결과(JSON) 보기"), el("pre", {}, JSON.stringify(info.raw, null, 2))) : "");
-  }
 
   // ---- 되묻기 (호출 ②) : 최대 3개, 하나씩
   let questions = [], qi = 0;
@@ -133,7 +111,7 @@
     if (qi >= questions.length) { $("#ask").classList.add("hidden"); return; }
     const q = questions[qi];
     $("#ask").classList.remove("hidden");
-    $("#ask-count").innerHTML = ""; $("#ask-count").append(el("span", { class: "tag-ai" }, "생성형 AI가 만든 질문"), ` ${qi + 1} / ${questions.length} · ${FIELD_LABELS[q.key] ?? q.key} (빈 칸은 코드가 골라 주고, 묻는 문장은 AI가 씀)`);
+    $("#ask-count").textContent = `되묻기 ${qi + 1} / ${questions.length} · ${FIELD_LABELS[q.key] ?? q.key}`;
     $("#ask-bar").style.width = `${(qi / questions.length) * 100}%`;
     $("#ask-q").textContent = q.question;
     askUI = buildAnswerInput(q.key, $("#ask-input"));

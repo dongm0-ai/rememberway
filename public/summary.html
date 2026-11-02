@@ -11,19 +11,19 @@
 <main>
   <div class="topbar"><a class="back" href="/confirm">← 단서 수정</a><span class="step">화면 3 / 3 · 요약·지도</span></div>
   <div class="alert">아직 신고 전이라면 지금 112. 아래 요약을 그대로 읽어 주면 됩니다.<a class="btn btn-danger btn-xl call112" href="tel:112">📞 112 전화하기</a></div>
-  <section class="glance" id="glance"><h2>어르신 정보 한눈에 <span class="tag-ai" id="glance-tag">생성형 AI 정리 → 보호자 확인</span></h2><dl id="glance-list"></dl><p class="small muted" style="margin:8px 0 0">경찰이나 주변 사람에게 이 칸을 보여 주세요. 빈칸은 "모름"입니다.</p></section>
+  <section class="glance" id="glance"><h2>어르신 정보 한눈에</h2><dl id="glance-list"></dl><p class="small muted" style="margin:8px 0 0">경찰이나 주변 사람에게 이 칸을 보여 주세요. 빈칸은 "모름"입니다.</p></section>
 
   <div class="cols">
   <div class="col-text">
-  <h2>경찰에 전달할 요약 <span class="tag-ai" id="sum-tag">AI 정리값</span> <span class="tag-rule">코드가 서식 조립</span></h2>
+  <h2>경찰에 전달할 요약</h2>
   <div class="sumcard" id="summary"></div>
   <div class="row"><button class="btn-primary" id="copy">복사</button><button class="btn-secondary" id="share">공유</button></div>
   <p class="small muted" id="missing-note"></p>
 
-  <h2>지금 할 일 <span class="tag-rule">규칙</span></h2>
+  <h2>지금 할 일</h2>
   <ol id="steps" class="card" style="margin:0;padding-left:34px"></ol>
 
-  <h2 class="after-map">확인할 곳 <span class="tag-ai" id="place-tag">장소는 AI가 말에서 뽑음</span> <span class="tag-rule">순서는 규칙</span></h2>
+  <h2 class="after-map">확인할 곳</h2>
   <div class="card after-map">
     <p class="small" style="margin-top:0"><b>어르신은 목적지에 도착하지 못하고 가는 길에서 발견되는 경우가 많습니다. 이 지도는 보호자가 말한 것을 정리한 것입니다.</b></p>
     <p class="small muted">이동 가능 반경(직선): <b id="rmax"></b> = 경과 <span id="elapsed"></span>분 × 걸음 속도 <span id="speed"></span>m/s</p>
@@ -31,13 +31,13 @@
     <p class="small muted">"가 봤어요"를 누르면 목록에서 빠집니다. 오늘 가려던 곳은 이미 확인했다고 보고 추억 장소를 먼저 둡니다.</p>
   </div>
 
-  <h2 class="after-map">돌아볼 동선 <span class="tag-rule">규칙 계산</span></h2>
+  <h2 class="after-map">돌아볼 동선</h2>
   <div class="card after-map">
     <p class="small muted" style="margin-top:0">위 후보를 <b>모두</b> 들르는 순서입니다. 점수가 높은 묶음부터 가고, 같은 점수 안에서는 1순위를 먼저 간 뒤 나머지를 <b>걷는 거리가 가장 짧은 순서</b>로 돕니다 (가능한 순서를 전부 비교). 점수가 낮은 곳도 빼지 않고 맨 뒤에 들릅니다. 지도의 번호 핀과 빨간 선이 이 순서예요.</p>
     <ol class="rank" id="tour"><li><span></span><span class="muted">동선을 만드는 중…</span></li></ol>
     <p class="small muted" id="tour-total"></p>
   </div>
-  <h2 class="after-map">버스·택시를 탔을 수도 있다면 <span class="tag-rule">규칙·안내</span></h2>
+  <h2 class="after-map">버스·택시를 탔을 수도 있다면</h2>
   <div class="card after-map" id="transit"><p class="small muted" style="margin:0">집 위치를 찾는 중…</p></div>
   <details class="card tight after-map"><summary class="small"><b>우선 확인 순서는 어떻게 정하나요?</b> (가중치 공개)</summary>
     <table style="margin-top:8px"><thead><tr><th>요소</th><th class="num">점수</th></tr></thead><tbody id="weights"></tbody></table>
@@ -46,7 +46,7 @@
   </div>
 
   <div class="col-map">
-    <h2 class="map-title">지도 · 번호는 들르는 순서, ✕는 동선 위 갈림길 <span class="tag-rule">위치 예측 아님</span></h2>
+    <h2 class="map-title">지도 · 번호는 들르는 순서, ✕는 동선 위 갈림길</h2>
     <div class="map-tools" id="ride-tools"><span class="small"><b>어르신이 탈 수 있는 것</b></span>
       <button class="chip" aria-pressed="true" disabled title="걸어서 원은 늘 보입니다">🚶 걸어서</button>
       <button class="chip" id="ride-bus" aria-pressed="false">🚌 버스·지하철</button>
@@ -72,7 +72,6 @@
   const mode = store.sget(KEYS.mode, { elapsedMin: 60, gait: "normal" });
   const profile = store.get(KEYS.profile);
   if (mode.source === "mock") mockBanner({ mock: true });
-  if (mode.source === "form") for (const [id, t] of [["glance-tag", "서식 입력 → 보호자 확인"], ["sum-tag", "서식 입력값"], ["place-tag", "보호자가 적은 곳"]]) { const e = document.getElementById(id); e.className = "tag-rule"; e.textContent = t; }
   if (mode.source === "form") document.querySelector("main").prepend(el("div", { class: "notice", style: "margin-bottom:10px" }, "서식 입력으로 만든 요약입니다 (AI 미사용)."));
 
   // 요약문 (코드 조립)

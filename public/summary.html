@@ -95,6 +95,7 @@
   let ranked = [];
   var intersections = []; // 점수 계산용 (현재 비움 — 갈림길은 후보 목록에 넣지 않는다)
   let crossings = [];      // 지도 표시용 갈림길 (동선 위 작은 ✕, 이름표 없음)
+  let view = null, tour = null, homePt = null; // 지도·동선 (렌더 함수들이 먼저 참조하므로 위에 선언)
   let tourNames = []; // 동선 순서(지도 핀 번호의 기준). buildTour 에서 채운다
   function renderRank() {
     ranked = rankCandidates(places, intersections ?? [], rMax, [...checked]);
@@ -253,7 +254,6 @@
   }
 
   // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim, 도보 경로·거리표는 Valhalla(보행자, OSM 재단 공개 서버) → 예비 OSRM.
-  let view = null, tour = null, homePt = null;
   const cfg = await loadConfig();
   const L = await loadMap(cfg.map ?? {});
   if (!L) {

@@ -14,6 +14,23 @@ export function appearsInSource(value, source) {
 }
 
 /** 스키마 검사: 빠진 키는 EMPTY_CLUE로 채우고, 타입이 어긋나면 null. 실패하면 null 반환 */
+/**
+ * 약 칸은 "복용 여부"만 남긴다 (CLAUDE.md: 성분명 없이). 프롬프트로 막아도 AI가 약 이름을 적은 사례가 있어(실험 C11, 2026-11-03)
+ * AI가 쓴 문장을 그대로 두지 않고 코드가 정해진 표현으로 바꾼다.
+ */
+export function medsOnly(v) {
+  if (!v) return v;
+  const t = String(v);
+  const not = /(안\s*드시|안\s*먹|복용\s*안|복용하지\s*않|드시지\s*않|없음|없어요|안 함)/.test(t);
+  const today = /(오늘|아침|점심|저녁).{0,8}(안\s*드|안\s*먹|거르|빼먹|못\s*드)/.test(t);
+  const taking = /(드시|드세|복용|먹|약|mg|밀리|하루|알씩|정씩)/i.test(t);
+  if (today) return "복용 중 (오늘 약을 안 드셨을 수 있음)";
+  if (not && !taking) return "복용 안 함";
+  if (/(복용\s*안|안\s*드세요|약\s*없|드시는\s*약\s*없)/.test(t)) return "복용 안 함";
+  if (taking) return "복용 중";
+  return "복용 여부 불확실";
+}
+
 export function coerceClue(raw) {
   if (!raw || typeof raw !== "object") return null;
   const r = raw;
@@ -33,7 +50,7 @@ export function coerceClue(raw) {
     clothing: { top: str(cl.top), bottom: str(cl.bottom), shoes: str(cl.shoes), hat: str(cl.hat) },
     gait: str(r.gait),
     items: { phone: bool(it.phone), wallet: bool(it.wallet), cane: bool(it.cane) },
-    meds: str(r.meds),
+    meds: medsOnly(str(r.meds)),
     dementia_signs: str(r.dementia_signs),
     memory_places: places
       .map((p) => obj(p))

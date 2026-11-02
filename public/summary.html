@@ -95,7 +95,7 @@
   let ranked = [];
   var intersections = []; // 점수 계산용 (현재 비움 — 갈림길은 후보 목록에 넣지 않는다)
   let crossings = [];      // 지도 표시용 갈림길 (동선 위 작은 ✕, 이름표 없음)
-  let view = null, tour = null, homePt = null; // 지도·동선 (렌더 함수들이 먼저 참조하므로 위에 선언)
+  let view = null, tour = null, homePt = null, tourSeq = 0; // 지도·동선 (렌더 함수들이 먼저 참조하므로 위에 선언)
   let tourNames = []; // 동선 순서(지도 핀 번호의 기준). buildTour 에서 채운다
   function renderRank() {
     ranked = rankCandidates(places, intersections ?? [], rMax, [...checked]);
@@ -306,7 +306,6 @@
   function applyPins() { for (const c of ranked) if (c.kind !== "intersection") { const k = tourNames.indexOf(c.name); c.pin = k >= 0 ? String(k + 1) : "·"; } }
   function drawMarkers() { if (!view) return; applyPins(); view.setMarkers([...ranked, ...crossings]); }
 
-  let tourSeq = 0;
   async function buildTour(home) { // home = 출발점 (처음엔 집, "가 봤어요" 뒤에는 방금 확인한 곳)
     const seq = ++tourSeq;
     const from = home.label || "집";

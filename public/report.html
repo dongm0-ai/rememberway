@@ -22,17 +22,6 @@
       <textarea id="utter" placeholder="예) 아버지가 점심 드시고 한 시쯤 나가셨는데 안 오세요. 시장 간다고 하셨나… 회색 점퍼였던 것 같고 다리를 좀 저세요. 핸드폰은 두고 가셨어요."></textarea>
     </div>
 
-    <div class="card">
-      <label>마지막으로 본 게 얼마나 지났나요? (확인할 반경 계산에 씁니다)</label>
-      <div class="chips" id="elapsed">
-        <button class="chip" data-min="30">30분</button><button class="chip" data-min="60" aria-pressed="true">1시간</button><button class="chip" data-min="120">2시간</button><button class="chip" data-min="180">3시간</button><button class="chip" data-min="360">6시간+</button>
-      </div>
-      <label>걸음 속도</label>
-      <div class="chips" id="gait">
-        <button class="chip" data-g="slow">느림 (지팡이·절음)</button><button class="chip" data-g="normal" aria-pressed="true">보통</button><button class="chip" data-g="fast">빠름</button>
-      </div>
-      <p class="small muted" id="profile-note"></p>
-    </div>
   </section>
 
   <section id="form" class="hidden">
@@ -44,6 +33,21 @@
       <input type="text" id="form-places" placeholder="예) 삼성동 옛 동네, 중앙시장">
     </div>
   </section>
+
+  <div class="card" id="basics">
+    <label for="home-dong">어르신 집 동네 <span class="small">(지도의 중심이 됩니다 · 동까지만)</span></label>
+    <input type="text" id="home-dong" placeholder="예) 대전 중구 석교동" autocomplete="off">
+    <p class="small muted" style="margin:6px 0 0">번지·아파트 동호수는 적지 마세요. 평소 등록에 적어 두면 자동으로 채워집니다.</p>
+      <label>마지막으로 본 게 얼마나 지났나요? (확인할 반경 계산에 씁니다)</label>
+      <div class="chips" id="elapsed">
+        <button class="chip" data-min="30">30분</button><button class="chip" data-min="60" aria-pressed="true">1시간</button><button class="chip" data-min="120">2시간</button><button class="chip" data-min="180">3시간</button><button class="chip" data-min="360">6시간+</button>
+      </div>
+      <label>걸음 속도</label>
+      <div class="chips" id="gait">
+        <button class="chip" data-g="slow">느림 (지팡이·절음)</button><button class="chip" data-g="normal" aria-pressed="true">보통</button><button class="chip" data-g="fast">빠름</button>
+      </div>
+      <p class="small muted" id="profile-note"></p>
+  </div>
 
   <div class="fixed-bottom"><div class="inner stack">
     <button class="btn-primary" id="go">단서 정리하기 →</button>
@@ -59,6 +63,10 @@
 
   const profile = store.get(KEYS.profile), diary = store.get(KEYS.diary, []);
   const known = classifyPlaces(profile, diary);
+  // 집 동네: 평소 등록 > 이 기기에서 지난번에 적은 값 (기기에만 저장)
+  const LAST_HOME = "rw_last_home";
+  $("#home-dong").value = profile?.home_dong || store.get(LAST_HOME, "") || "";
+  const homeDong = () => { const v = $("#home-dong").value.trim(); if (v) store.set(LAST_HOME, v); return v || null; };
   if (profile) {
     $("#profile-note").textContent = `${profile.honorific} 등록 정보(장소 ${known.length}곳)를 함께 씁니다.`;
     if (profile.gait) { $$("#gait .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.g === profile.gait))); }
@@ -104,6 +112,7 @@
       for (const [k, ui] of Object.entries(formUI)) { const v = ui.value(); if (v !== null && v !== undefined) setPath(clue, k, v); }
       const extra = $("#form-places").value.split(",").map((s) => s.trim()).filter(Boolean).map((name) => ({ name, source: "guardian", evidence: "서식 입력" }));
       clue.memory_places = mergePlaces(extra, known);
+      clue.home_dong = homeDong();
       clue.missing = computeMissing(clue); clue.flags = {};
       store.sset(KEYS.clue, clue); store.sset(KEYS.mode, { ...ctx, source: "form" }); store.sset(KEYS.utterance, "");
       location.href = "/summary"; return;
@@ -119,6 +128,8 @@
     mockBanner(res);
     const clue = res.clue;
     clue.memory_places = mergePlaces(clue.memory_places, known);
+    const typedHome = homeDong(); // 보호자가 칸에 직접 적은 동네가 말에서 뽑은 것보다 우선
+    if (typedHome) { clue.home_dong = typedHome; if (clue.flags) delete clue.flags.home_dong; }
     store.sset(KEYS.clue, clue); store.sset(KEYS.utterance, utterance); store.sset(KEYS.mode, { ...ctx, source: res.mock ? "mock" : "ai" });
     store.sset("rw_ai", { ...(res.ai ?? {}), raw: res.raw ?? null, mock: !!res.mock, filled: clue });
     location.href = "/confirm";

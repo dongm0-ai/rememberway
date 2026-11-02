@@ -254,6 +254,19 @@
   }
   function closeArrive() { arriveBox?.remove(); arriveBox = null; }
 
+  // 집 동네를 못 찾았을 때: 그 자리에서 적고 다시 찾기 (동까지만)
+  function askHome(tried) {
+    const inp = el("input", { type: "text", id: "home-retry", placeholder: "예) 대전 중구 석교동", value: tried && tried !== clue.last_seen?.place ? tried : "" });
+    const go = () => { const v = inp.value.trim(); if (!v) return inp.focus(); clue.home_dong = v; store.sset(KEYS.clue, clue); store.set("rw_last_home", v); location.reload(); };
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    const box = el("div", { class: "card", id: "home-ask", style: "margin:10px 0" },
+      el("b", {}, tried ? `"${tried}" 위치를 찾지 못했어요.` : "어르신 집 동네를 알려 주세요."),
+      el("p", { class: "small muted", style: "margin:4px 0 10px" }, "시·구·동까지 적으면 반경과 동선을 만들 수 있어요. 번지는 적지 마세요."),
+      el("div", { class: "row" }, inp, el("button", { class: "btn-primary", style: "flex:0 0 auto;width:auto", onclick: go }, "다시 찾기")));
+    $("#map").before(box);
+    $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경과 동선을 만들지 못했습니다.";
+  }
+
   // "가 봤어요": 목록에서 빼고, 남은 곳으로 동선을 다시 짠다. 출발점은 방금 확인한 그 장소 (보호자 실시간 위치는 길찾기 서버로 보내지 않는다)
   async function markChecked(c) {
     checked.add(c.name); renderRank(); drawMarkers();
@@ -273,7 +286,7 @@
     const center = home ?? { lat: 36.3504, lng: 127.3845 };
     if (L) { $("#map").textContent = ""; view = createMap(L, $("#map"), center, home ? rMax : 0); view.setMarkers([]); }
     if (home) { homePt = { ...home, label: "집" }; renderRides(); } else $("#ride-tools").classList.add("hidden");
-    if (!home) $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경과 동선을 만들지 못했습니다. 평소 등록에서 '시 구 동'까지 적어 주세요.";
+    if (!home) askHome(homeName);
     else $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 장소를 찾는 중…`;
 
     // 1) 장소 좌표. "카페·편의점·세탁소"처럼 종류만 말한 곳은 집 반경 안에서 실제 가게 2~3곳으로 펼친다

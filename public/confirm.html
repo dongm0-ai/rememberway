@@ -63,7 +63,8 @@
   let unknownOpen = false;
   function renderFields() {
     const box = $("#fields"); box.innerHTML = "";
-    const known = keys.filter((k) => show(k) || clue.flags?.[k]), unknown = keys.filter((k) => !known.includes(k));
+    const isUnknown = (v) => !v || /^\s*(모름|몰라요?|모르겠\S*|알\s*수\s*없\S*|불명|미상)\s*$/.test(String(v));
+    const known = keys.filter((k) => !isUnknown(show(k)) || clue.flags?.[k]), unknown = keys.filter((k) => !known.includes(k));
     const row = (k) => {
       const v = show(k), flagged = clue.flags?.[k];
       return el("div", { class: "field" },

@@ -39,12 +39,12 @@
   <div class="fixed-bottom"><div class="inner"><button class="btn-primary" id="save">저장하고 일지 시작 →</button></div></div>
 </main>
 <script type="module">
-  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner } from "/js/common.js";
+  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner, getHome } from "/js/common.js";
   const existing = store.get(KEYS.profile);
   let places = existing?.places?.map((p) => ({ ...p })) ?? [];
   if (existing) {
     $$("#hon .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.textContent === existing.honorific)));
-    $("#dong").value = existing.home_dong ?? ""; $("#gait-note").value = existing.gait_note ?? ""; $("#habits").value = (existing.habits ?? []).join(", ");
+    $("#dong").value = existing.home_dong ?? getHome()?.label ?? ""; $("#gait-note").value = existing.gait_note ?? ""; $("#habits").value = (existing.habits ?? []).join(", ");
     $$("#gait .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.g === existing.gait)));
     $("#save").textContent = "수정 저장 →";
   }

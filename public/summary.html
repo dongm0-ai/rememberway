@@ -59,7 +59,7 @@
   <div class="fixed-bottom"><div class="inner"><a class="btn btn-primary" href="/record" id="found">찾았어요 → 기록하기</a></div></div>
 </main>
 <script type="module">
-  import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner } from "/js/common.js";
+  import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner, getHome, homeSetup } from "/js/common.js";
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS, RIDE_SPEED_KMH, ARRIVE_M } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary, summaryGroups, SUMMARY_NOTE } from "/lib/priority.js";
   import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, EXACT_LIMIT, setHomeLabel } from "/js/map.js";
@@ -73,18 +73,17 @@
 
   // 요약문 (코드 조립)
   const text = buildSummary(clue, profile, mode.elapsedMin);
-  // 화면에는 아는 것만 번호 묶음 + 왼쪽 라벨로. 모르는 항목은 맨 아래 한 줄로 (복사·공유 글에는 "모름"까지 다 들어감)
+  // 화면·복사 글 모두 아는 것만 번호 묶음 + 왼쪽 라벨로
   {
-    const box = $("#summary"); box.innerHTML = ""; const unknown = [];
+    const box = $("#summary"); box.innerHTML = "";
     let n = 0;
     for (const g of summaryGroups(clue, profile, mode.elapsedMin)) {
-      const rows = g.rows.filter(([k, v]) => (v ? true : (unknown.push(k), false)));
+      const rows = g.rows.filter(([, v]) => v); // 모르는 항목은 아예 보이지 않게
       if (!rows.length) continue;
       box.append(el("section", { class: "sg" },
         el("h3", {}, el("span", { class: "sg-n" }, ++n), g.title),
         el("dl", {}, ...rows.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]))));
     }
-    if (unknown.length) box.append(el("p", { class: "sg-unk" }, el("b", {}, `모름 ${unknown.length}개`), ` · ${unknown.join(", ")}`, el("br"), "경찰이 물으면 \"모른다\"고 답하면 됩니다."));
   }
   $("#copy").onclick = async () => { try { await navigator.clipboard.writeText(text); $("#copy").textContent = "복사됨 ✓"; } catch { prompt("길게 눌러 복사하세요", text); } };
   $("#share").onclick = async () => { if (navigator.share) { try { await navigator.share({ title: "실종 어르신 정리 내용", text }); } catch {} } else $("#copy").click(); };
@@ -241,17 +240,13 @@
   }
   function closeArrive() { arriveBox?.remove(); arriveBox = null; }
 
-  // 집 동네를 못 찾았을 때: 그 자리에서 적고 다시 찾기 (동까지만)
+  // 집 동네를 못 찾았을 때: 처음 화면과 같은 설정 카드를 지도 위에 (현재 위치 또는 동 이름 검색 → 저장 후 다시 계산)
   function askHome(tried) {
-    const inp = el("input", { type: "text", id: "home-retry", placeholder: "예) 대전 중구 석교동", value: tried && tried !== clue.last_seen?.place ? tried : "" });
-    const go = () => { const v = inp.value.trim(); if (!v) return inp.focus(); clue.home_dong = v; store.sset(KEYS.clue, clue); store.set("rw_last_home", v); location.reload(); };
-    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
     const box = el("div", { class: "card", id: "home-ask", style: "margin:10px 0" },
-      el("b", {}, tried ? `"${tried}" 위치를 찾지 못했어요.` : "어르신 집 동네를 알려 주세요."),
-      el("p", { class: "small muted", style: "margin:4px 0 10px" }, "시·구·동까지 적으면 반경과 동선을 만들 수 있어요. 번지는 적지 마세요."),
-      el("div", { class: "row" }, inp, el("button", { class: "btn-primary", style: "flex:0 0 auto;width:auto", onclick: go }, "다시 찾기")));
+      tried ? el("p", { class: "small", style: "margin:0 0 8px" }, el("b", {}, `"${tried}" 위치를 찾지 못했어요.`)) : "",
+      homeSetup(() => location.reload(), { title: "어르신 집 동네를 알려 주세요" }));
     $("#map").before(box);
-    $("#map-note").textContent = "집 위치(동)를 찾지 못해 반경과 동선을 만들지 못했습니다.";
+    $("#map-note").textContent = "집 위치를 몰라 반경과 동선을 만들지 못했습니다.";
   }
 
   // "가 봤어요": 목록에서 빼고, 남은 곳으로 동선을 다시 짠다. 출발점은 방금 확인한 그 장소 (보호자 실시간 위치는 길찾기 서버로 보내지 않는다)
@@ -267,9 +262,11 @@
   if (!L) $("#map").textContent = "네이버 지도를 불러오지 못했어요. 확인할 곳 목록과 동선은 그대로 아래에 있습니다.";
   {
     // 집 동네: 보호자가 이번에 말한 것 > 평소 등록 정보 > 마지막 본 곳
-    const homeName = clue.home_dong || profile?.home_dong || clue.last_seen?.place;
-    setHomeLabel(clue.home_dong || profile?.home_dong || "");
-    const home = homeName ? await findHome(homeName) : null;
+    // 1순위: 처음에 설정해 둔 집(이 기기 저장, 좌표까지 있음) → 보호자가 말한 동네 → 평소 등록 → 마지막 본 곳
+    const saved = getHome();
+    const homeName = saved?.label || clue.home_dong || profile?.home_dong || clue.last_seen?.place;
+    setHomeLabel(saved?.label || clue.home_dong || profile?.home_dong || "");
+    const home = saved ? { lat: saved.lat, lng: saved.lng } : homeName ? await findHome(homeName) : null;
     const center = home ?? { lat: 36.3504, lng: 127.3845 };
     if (L) { $("#map").textContent = ""; view = createMap(L, $("#map"), center, home ? rMax : 0); view.setMarkers([]); }
     if (home) { homePt = { ...home, label: "집" }; renderRides(); } else $("#ride-tools").classList.add("hidden");

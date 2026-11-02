@@ -58,7 +58,9 @@ export function haversineM(lat1, lng1, lat2, lng2) {
  * 2026-11-02: 한 덩어리 글은 읽기 어렵다는 의견 → 번호 붙은 묶음 6개 + 왼쪽 라벨로 나눔. 복사·공유 글도 같은 순서.
  */
 export function summaryGroups(clue, profile, elapsedMin) {
-  const v = (x) => (x === null || x === undefined || x === "" ? null : String(x));
+  // "모름"·"알 수 없음" 같은 값은 쓸모없는 정보라 빈 값으로 본다 (2026-11-03, 지도교사: 모르는 항목은 화면·복사 글 모두에서 빼기)
+  const UNKNOWN = /^\s*(모름|몰라요?|모르겠(어요|음|다)?|모르겠습니다|알\s*수\s*없(음|어요|다)?|불명|미상|확인\s*안\s*됨|없음\s*\?|-|\?)\s*$/;
+  const v = (x) => (x === null || x === undefined || x === "" || UNKNOWN.test(String(x)) ? null : String(x));
   const b = (x) => (x === true ? "있음" : x === false ? "없음" : v(x)); // 소지품: 예/아니오 또는 보호자 말 그대로
   const c = clue.clothing ?? {}, it = clue.items ?? {};
   return [
@@ -72,13 +74,16 @@ export function summaryGroups(clue, profile, elapsedMin) {
 }
 export const SUMMARY_NOTE = "이 내용은 보호자가 말한 것을 정리한 것입니다. 이름·주소 상세는 보호자가 직접 전달합니다.";
 
-/** 복사·공유용 글 (문자·메신저에 붙여 넣어도 읽히게 번호와 줄바꿈) */
+/** 복사·공유용 글 (문자·메신저에 붙여 넣어도 읽히게 번호와 줄바꿈). 아는 항목만 */
 export function buildSummary(clue, profile, elapsedMin) {
   const lines = ["[치매 어르신 실종 — 보호자 정리 내용]"];
-  summaryGroups(clue, profile, elapsedMin).forEach((g, i) => {
-    lines.push("", `${i + 1}. ${g.title}`);
-    for (const [k, val] of g.rows) lines.push(`- ${k}: ${val ?? "모름"}`);
-  });
+  let n = 0;
+  for (const g of summaryGroups(clue, profile, elapsedMin)) {
+    const rows = g.rows.filter(([, val]) => val);
+    if (!rows.length) continue;
+    lines.push("", `${++n}. ${g.title}`);
+    for (const [k, val] of rows) lines.push(`- ${k}: ${val}`);
+  }
   lines.push("", `* ${SUMMARY_NOTE}`);
   return lines.join("\n");
 }

@@ -35,9 +35,7 @@
   </section>
 
   <div class="card" id="basics">
-    <label for="home-dong">어르신 집 동네 <span class="small">(지도의 중심이 됩니다 · 동까지만)</span></label>
-    <input type="text" id="home-dong" placeholder="예) 대전 중구 석교동" autocomplete="off">
-    <p class="small muted" style="margin:6px 0 0">번지·아파트 동호수는 적지 마세요. 평소 등록에 적어 두면 자동으로 채워집니다.</p>
+    <div id="home-slot"></div>
       <label>마지막으로 본 게 얼마나 지났나요? (확인할 반경 계산에 씁니다)</label>
       <div class="chips" id="elapsed">
         <button class="chip" data-min="30">30분</button><button class="chip" data-min="60" aria-pressed="true">1시간</button><button class="chip" data-min="120">2시간</button><button class="chip" data-min="180">3시간</button><button class="chip" data-min="360">6시간+</button>
@@ -55,7 +53,7 @@
   </div></div>
 </main>
 <script type="module">
-  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner } from "/js/common.js";
+  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner, getHome, homeSetup, homeChip } from "/js/common.js";
   import { EMPTY_CLUE, FIELD_LABELS } from "/lib/schema.js";
   import { classifyPlaces } from "/lib/diary.js";
   import { computeMissing } from "/lib/verify.js";
@@ -63,10 +61,14 @@
 
   const profile = store.get(KEYS.profile), diary = store.get(KEYS.diary, []);
   const known = classifyPlaces(profile, diary);
-  // 집 동네: 평소 등록 > 이 기기에서 지난번에 적은 값 (기기에만 저장)
-  const LAST_HOME = "rw_last_home";
-  $("#home-dong").value = profile?.home_dong || store.get(LAST_HOME, "") || "";
-  const homeDong = () => { const v = $("#home-dong").value.trim(); if (v) store.set(LAST_HOME, v); return v || null; };
+  // 집 동네: 처음 화면에서 설정해 둔 값(이 기기에 저장). 없으면 여기서 바로 설정 (배민처럼)
+  const renderHomeSlot = () => {
+    const slot = $("#home-slot"); slot.innerHTML = "";
+    if (getHome()) slot.append(el("div", { class: "home-line" }, el("span", { class: "small muted" }, "어르신 집"), homeChip(renderHomeSlot)));
+    else slot.append(homeSetup(renderHomeSlot, { title: "어르신 집 동네" }));
+  };
+  renderHomeSlot();
+  const homeDong = () => getHome()?.label ?? null;
   if (profile) {
     $("#profile-note").textContent = `${profile.honorific} 등록 정보(장소 ${known.length}곳)를 함께 씁니다.`;
     if (profile.gait) { $$("#gait .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.g === profile.gait))); }

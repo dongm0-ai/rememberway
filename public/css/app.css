@@ -214,3 +214,10 @@ details.fold[open] > summary { margin-bottom: 8px; }
 .unknown-fold { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 10px; }
 .unknown-fold > summary { cursor: pointer; font-size: 16px; color: var(--muted); padding: 4px 0; }
 .unknown-fold > summary b { color: var(--ink); }
+/* 집 동네 설정 (배민처럼 처음에 한 번) */
+.home-setup .btn-secondary { width: 100%; }
+.home-result { margin-top: 12px; display: grid; gap: 10px; background: var(--soft); border-radius: 14px; padding: 12px 14px; }
+.home-result .home-label { font-size: 18px; }
+.home-chip { width: auto; background: var(--card); color: var(--ink); font-size: 16px; font-weight: 700; padding: 8px 14px; border-radius: 999px; max-width: 70vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.home-line .home-chip { background: var(--soft); }

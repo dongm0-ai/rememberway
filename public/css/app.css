@@ -115,13 +115,7 @@ ul.plain li { margin: 4px 0; }
 dialog { border: 0; border-radius: 20px; padding: 20px; width: min(92vw, 440px); background: var(--card); color: var(--ink); box-shadow: 0 20px 50px rgba(0,0,0,.25); }
 dialog::backdrop { background: rgba(0,0,0,.45); }
 
-/* 지도(Leaflet)는 밝은 바탕 그대로 — 다크 모드에서 글자가 흰색이 되지 않게 색을 고정 */
 #map, #map * { color: #212121; }
-.leaflet-container { background: #e8e6e1; }
-.leaflet-tooltip { background: #fff; color: #1c1b1a; border-color: #ccc; font-weight: 700; }
-.leaflet-control-zoom a { background: #fff; color: #1c1b1a; }
-.leaflet-control-attribution { background: rgba(255,255,255,.85); color: #333; }
-.leaflet-control-attribution a { color: #2f6fe4; }
 
 /* 모바일(한 칸): 두 칸을 풀어서 한 줄로 세우고, 지도를 "지금 할 일" 다음·"확인할 곳" 앞에 둔다 */
 .cols { display: flex; flex-direction: column; }

@@ -1,64 +1,33 @@
-// 지도: OpenStreetMap + Leaflet (키·계정 불필요, 한국어 일반 지도).
-//  - 장소 이름 → 좌표: Nominatim (OSM 공개 지오코더). "카페·편의점·세탁소"처럼 종류만 말한 곳은 집 근처에서 여러 개 찾는다.
-//  - 도보 길찾기: OSRM 공개 서버 (foot). 경로선·거리·교차로(갈림길)를 받아 "경로 위 교차로" 가중치에 쓴다.
-//  이 둘은 공개 데모 서버라 호출을 아끼고(1초 1회), 실패하면 직선거리로 내려간다. 결정표 2026-10-29.
-const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+// 지도: 네이버 지도만 쓴다 (2026-11-02, 한국 서비스). 키(Client ID)는 /api/config 가 주는 공개용 값, 도메인 제한.
+//  - 장소 이름 → 좌표, 집 근처 가게: 네이버 지역 검색 (/api/search, 서버에서 Secret 사용)
+//  - 집 동네 → 좌표: 네이버 Geocoding, 없으면 동 행정복지센터 검색 (/api/geocode)
+//  - 도보 길찾기: Valhalla 보행자 경로(공개 서버) → 실패하면 OSRM. 네이버 길찾기 API는 자동차용·유료라 걷는 길은 이것을 쓴다.
 let loading = null;
-let engine = "osm"; // "osm" | "naver" — /api/config 의 map.provider 로 정해짐 (.env MAP_PROVIDER)
+const engine = "naver";
 
-/** 지도 엔진 로드. cfg = /api/config 의 map 객체. 반환: 엔진 객체(window.L 또는 window.naver) 또는 null */
+/** 네이버 지도 로드. cfg = /api/config 의 map 객체. 반환: window.naver 또는 null(키 없음·불러오기 실패) */
 export function loadMap(cfg = {}) {
   if (loading) return loading;
-  if (cfg.provider === "naver" && cfg.naverClientId) {
-    engine = "naver";
-    loading = new Promise((resolve) => {
-      if (window.naver?.maps) return resolve(window.naver);
-      const s = document.createElement("script");
-      s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(cfg.naverClientId)}`;
-      s.onload = () => resolve(window.naver?.maps ? window.naver : null); s.onerror = () => resolve(null);
-      document.head.append(s);
-    });
-    return loading;
-  }
-  engine = "osm";
-  if (window.L?.map) return Promise.resolve(window.L);
+  if (!cfg.naverClientId) return Promise.resolve(null);
   loading = new Promise((resolve) => {
-    const css = document.createElement("link"); css.rel = "stylesheet"; css.href = LEAFLET_CSS; document.head.append(css);
-    const s = document.createElement("script"); s.src = LEAFLET_JS;
-    s.onload = () => resolve(window.L); s.onerror = () => resolve(null);
+    if (window.naver?.maps) return resolve(window.naver);
+    const s = document.createElement("script");
+    s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(cfg.naverClientId)}`;
+    s.onload = () => resolve(window.naver?.maps ? window.naver : null); s.onerror = () => resolve(null);
     document.head.append(s);
   });
   return loading;
 }
 export function mapEngine() { return engine; }
 
-// ---------------------------------------------------------------- 장소 찾기 (Nominatim)
-const cache = new Map();
-let lastCall = 0;
-async function throttle() { const wait = 1100 - (Date.now() - lastCall); if (wait > 0) await new Promise((r) => setTimeout(r, wait)); lastCall = Date.now(); }
-
-async function nominatim(params) {
-  const key = params.toString();
-  if (cache.has(key)) return cache.get(key);
-  await throttle();
-  try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { headers: { accept: "application/json" } });
-    const arr = await r.json();
-    cache.set(key, arr); return arr;
-  } catch { return []; }
-}
-const toPlace = (d, name) => ({ lat: Number(d.lat), lng: Number(d.lon), found_name: d.namedetails?.["name:ko"] || d.namedetails?.name || d.display_name?.split(",")[0] || name, address: d.display_name, category: d.type });
-
-/** 이름 하나 → 좌표 하나. near={lat,lng}면 그 주변(±0.1도 ≈ 10km) 우선 */
-export async function findPlace(name, near, limit = 1) {
-  const p = new URLSearchParams({ q: name, format: "jsonv2", limit: String(limit), countrycodes: "kr", "accept-language": "ko", namedetails: "1" });
-  if (near) { p.set("viewbox", `${near.lng - 0.1},${near.lat + 0.1},${near.lng + 0.1},${near.lat - 0.1}`); p.set("bounded", "0"); }
-  const arr = await nominatim(p);
-  return arr?.[0] ? toPlace(arr[0], name) : null;
+// ---------------------------------------------------------------- 장소 찾기 (네이버 지역 검색)
+/** 이름 하나 → 좌표 하나 (집 근처 우선) */
+export async function findPlace(name, near) {
+  const arr = await naverSearch(name, near, 1);
+  return arr?.[0] ?? null;
 }
 
-/** "카페", "편의점"처럼 종류만 말한 곳 → 집 반경 안 실제 가게 (서버 함수 /api/nearby 가 OSM Overpass를 대신 호출). 최대 n곳, 가까운 순 */
+/** "카페", "편의점"처럼 종류만 말한 곳 → 집 반경 안 실제 가게 (네이버 지역 검색). 최대 n곳, 가까운 순 */
 const GENERIC_KINDS = ["카페","커피숍","커피","편의점","슈퍼","마트","세탁소","무인세탁","무인세탁실","세탁","빨래방","약국","병원","의원","시장","경로당","노인정","교회","성당","절","공원","은행","우체국","목욕탕","사우나","미용실","이발소","정류장","버스정류장","지하철역","역","학교","놀이터","주민센터","복지관"];
 /** "무인세탁소", "집 앞 편의점", "동네 카페"처럼 종류만 말한 이름인지. 고유명("GS25 석교점", "중앙시장")은 아님 */
 export function isGeneric(name) {
@@ -71,7 +40,7 @@ async function naverSearch(q, near, n) {
   try {
     const r = await fetch(`/api/search?q=${encodeURIComponent(q)}&lat=${near?.lat ?? ""}&lng=${near?.lng ?? ""}&n=${n}`, { signal: AbortSignal.timeout(10000) });
     const d = await r.json();
-    return d.ok ? d.places : null; // null = 설정 없음/실패 → 다른 방법으로
+    return d.ok ? d.places : null; // null = 설정 없음/실패
   } catch { return null; }
 }
 const KIND_ALIASES = { "무인세탁소": ["무인세탁소", "셀프빨래방", "세탁소"], "무인세탁실": ["무인세탁소", "셀프빨래방", "세탁소"], "무인세탁": ["무인세탁소", "셀프빨래방"], "세탁": ["세탁소"], "빨래방": ["셀프빨래방", "무인세탁소"], "커피": ["카페"], "커피숍": ["카페"], "노인정": ["경로당"], "슈퍼": ["슈퍼마켓", "마트"] };
@@ -80,38 +49,32 @@ export async function findNearby(kind, home, radiusM = 1500, n = 3) {
   const near = (p) => Number.isFinite(p.distance_m) ? p.distance_m <= limit : haversineM(home.lat, home.lng, p.lat, p.lng) <= limit; // 집 반경 밖(엉뚱한 먼 가게)은 버린다
   for (const q of KIND_ALIASES[kind.replace(/\s+/g, "")] ?? [kind]) {
     const nv = await naverSearch(`${homeLabel} ${q}`.trim(), home, 5);
-    if (nv === null) break; // 네이버 검색 설정 없음 → OSM
+    if (nv === null) break; // 네이버 검색 실패
     // 가게 종류를 물었는데 버스정류장·지하철 출입구("○○성당입구" 정류장 등)가 섞이면 뺀다 (정류장을 물은 경우는 제외)
     const wantStop = /정류장|역$/.test(kind);
     const ok = nv.filter(near).filter((p) => (wantStop ? !/자전거|대여소|주차/.test(p.found_name ?? "") : !/정류장|교통|지하철/.test(p.category ?? "")));
     if (ok.length) return ok.slice(0, n);
   }
-  try {
-    const r = await fetch(`/api/nearby?kind=${encodeURIComponent(kind)}&lat=${home.lat}&lng=${home.lng}&r=${Math.round(radiusM)}&n=${n}`, { signal: AbortSignal.timeout(15000) });
-    const d = await r.json();
-    return d.ok ? d.places.filter(near) : [];
-  } catch { return []; }
+  return [];
 }
 
 /** 이름으로 못 찾으면 더 단순한 이름으로 다시: "삼성동 옛 동네" → "삼성동", "중앙시장 정육점" → "중앙시장" */
 export async function findPlaceLoose(name, near) {
-  // 네이버 검색이 설정돼 있으면 가게·시설 이름은 거기가 훨씬 정확 ("석교동 경로당", "중앙시장 ○○정육점")
-  const nv = await naverSearch(name.includes(" ") || !homeLabel ? name : `${homeLabel.split(/\s+/).slice(-1)[0]} ${name}`, near, 1);
-  const tooFar = (p) => near && haversineM(near.lat, near.lng, p.lat, p.lng) > 30000; // 집에서 30km 넘으면 동명이인 가게일 가능성이 커서 버린다
-  if (nv && nv.length && !tooFar(nv[0])) return { ...nv[0], approx: false };
-  const direct = await findPlace(name, near);
-  if (direct) return { ...direct, approx: false };
-  const tokens = name.split(/\s+/).filter(Boolean);
-  const core = tokens.find((t) => /(동|읍|면|리|시장|역|병원|공원|학교|교회|성당|절|마트|터미널|정류장|경로당|센터)$/.test(t));
-  if (core && core !== name) { const f = await findPlace(core, near); if (f) return { ...f, approx: true }; }
+  const tooFar = (p) => near && haversineM(near.lat, near.lng, p.lat, p.lng) > 30000; // 집에서 30km 넘으면 이름만 같은 다른 곳일 가능성이 커서 버린다
+  const q = name.includes(" ") || !homeLabel ? name : `${homeLabel.split(/\s+/).slice(-1)[0]} ${name}`;
+  for (const [term, approx] of [[q, false], [name, false]]) {
+    const nv = await naverSearch(term, near, 1);
+    if (nv?.length && !tooFar(nv[0])) return { ...nv[0], approx };
+  }
+  const core = name.split(/\s+/).find((t) => /(동|읍|면|리|시장|역|병원|공원|학교|교회|성당|절|마트|터미널|정류장|경로당|센터)$/.test(t));
+  if (core && core !== name) { const nv = await naverSearch(core, near, 1); if (nv?.length && !tooFar(nv[0])) return { ...nv[0], approx: true }; }
   return null;
 }
 
-/** 집(동 단위) 좌표. "대전 중구 석교동"처럼 시·구까지 적으면 정확도가 올라간다 */
+/** 집(동 단위) 좌표. "대전 중구 석교동"처럼 시·구까지 적으면 정확도가 올라간다 (네이버) */
 export async function findHome(dong) {
-  // 네이버가 설정돼 있으면 서버의 네이버 Geocoding 먼저 (주소 정확도 높음), 아니면 OSM
   try { const r = await fetch(`/api/geocode?q=${encodeURIComponent(dong)}`); const d = await r.json(); if (d.ok) return { lat: d.lat, lng: d.lng, found_name: d.found_name }; } catch {}
-  return (await findPlace(dong, null)) ?? (await findPlace(dong.split(/\s+/).slice(-1)[0], null));
+  return null;
 }
 
 // ---------------------------------------------------------------- 도보 길찾기
@@ -277,7 +240,7 @@ export function tourOrderByPriority(home, candidates, matrix = null, tierOf = (c
 
 // ---------------------------------------------------------------- 지도 그리기 (두 엔진 같은 인터페이스: setMarkers(list), setRoute(geometry))
 export function createMap(lib, el, center, rMax) {
-  return engine === "naver" ? createNaverMap(lib, el, center, rMax) : createLeafletMap(lib, el, center, rMax);
+  return createNaverMap(lib, el, center, rMax);
 }
 // 핀 글자: c.pin — 동선 순서 번호("1"…), 갈림길 "✕", 동선에 없는 후보는 "·"(작은 회색 점).
 // 이름표: 멀리서는(줌 < LABEL_ZOOM) "편의점"·"카페"처럼 종류만, 가까이서는(줌 ≥ LABEL_ZOOM) 가게 전체 이름. 화면 픽셀 기준으로 겹치는 이름표는 숨긴다 (번호 핀 → 점 → ✕ 순으로 우선, 오른쪽이 막히면 왼쪽). 핀을 누르면 언제나 말풍선으로 전체 이름.
@@ -327,77 +290,6 @@ const ringTop = (center, r) => ({ lat: center.lat + r / 111320, lng: center.lng 
 // 보호자 "나" 위치: 파란 점 + 흰 테두리 (이 기기에서만 쓰고 저장·전송하지 않음)
 const meHtml = '<div style="width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 2px rgba(26,115,232,.35),0 1px 4px rgba(0,0,0,.4)"></div>';
 const meTagHtml = '<div style="margin-top:2px;padding:0 6px;font-size:11px;font-weight:800;color:#fff;background:#1a73e8;border-radius:999px">나</div>';
-
-function createLeafletMap(L, el, center, rMax) {
-  const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([center.lat, center.lng], 15);
-  // OSM 표준 타일: 한국 지역은 한국어 지명으로 표시되는 일반(도로) 지도. 위성 아님.
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
-  let circle = null;
-  if (rMax) circle = L.circle([center.lat, center.lng], { radius: rMax, color: RING.walk.color, weight: 2, opacity: .7, fillColor: RING.walk.color, fillOpacity: .06 }).addTo(map);
-  L.marker([center.lat, center.lng], { title: "집·마지막 본 곳" }).addTo(map).bindTooltip("집", { permanent: true, direction: "top" });
-  const layer = L.layerGroup().addTo(map);
-  const labelLayer = L.layerGroup().addTo(map);
-  const routeLayer = L.layerGroup().addTo(map);
-  let current = [];
-  function updateLabels() {
-    labelLayer.clearLayers();
-    const zoom = map.getZoom();
-    const items = current.map(({ c, i }) => { const p = map.latLngToContainerPoint([c.lat, c.lng]); return { c, i, px: p.x, py: p.y, text: labelText(c, i, zoom) }; });
-    const show = pickVisibleLabels(items, map.getSize().x);
-    items.forEach((it, k) => {
-      if (!show.has(k)) return;
-      const a = pinAnchor(it.c, it.i), ax = show.get(k) === "left" ? labelW(it.text) + a + 2 : -(a + 2);
-      L.marker([it.c.lat, it.c.lng], { icon: L.divIcon({ className: "", html: labelHtml(it.c, it.i, it.text), iconSize: null, iconAnchor: [ax, 10] }), interactive: false }).addTo(labelLayer);
-    });
-  }
-  map.on("zoomend moveend", updateLabels);
-  const ringLayer = L.layerGroup().addTo(map);
-  let me = null, meAcc = null, lastPts = null, rings = [];
-  const fitPins = () => { if (lastPts && lastPts.length > 1) map.fitBounds(lastPts, { padding: [30, 30], maxZoom: 16 }); else if (circle) map.fitBounds(circle.getBounds(), { padding: [10, 10] }); };
-  return {
-    map, circle,
-    /** 버스·택시 원: list [{key:"bus"|"taxi", r}] (걸어서 원은 처음부터 있음). 원이 새로 생기면 가장 큰 원이 보이게, 다 꺼지면 핀 기준으로 돌아간다 */
-    setRings(list) {
-      ringLayer.clearLayers();
-      const grew = list.some((x) => !rings.some((y) => y.key === x.key)); rings = list;
-      for (const { key, r } of list) {
-        const c = L.circle([center.lat, center.lng], { radius: r, color: RING[key].color, weight: 2, opacity: .8, dashArray: "8 8", fill: false, interactive: false }).addTo(ringLayer);
-        const t = ringTop(center, r);
-        L.marker([t.lat, t.lng], { icon: L.divIcon({ className: "", html: ringLabelHtml(key, r), iconSize: null, iconAnchor: [50, 10] }), interactive: false }).addTo(ringLayer);
-        if (grew && r === Math.max(...list.map((x) => x.r))) map.fitBounds(c.getBounds(), { padding: [20, 20] });
-      }
-      if (!list.length) fitPins();
-    },
-    setMe(pos) {
-      if (!pos) { if (me) { me.remove(); meAcc.remove(); me = meAcc = null; } return; }
-      const ll = [pos.lat, pos.lng];
-      if (!me) {
-        meAcc = L.circle(ll, { radius: pos.acc || 20, color: "#1a73e8", weight: 1, opacity: .4, fillColor: "#1a73e8", fillOpacity: .12, interactive: false }).addTo(map);
-        me = L.marker(ll, { icon: L.divIcon({ className: "", html: `<div style="display:flex;flex-direction:column;align-items:center">${meHtml}${meTagHtml}</div>`, iconSize: [30, 40], iconAnchor: [15, 9] }), zIndexOffset: 1000, interactive: false }).addTo(map);
-      } else { me.setLatLng(ll); meAcc.setLatLng(ll); meAcc.setRadius(pos.acc || 20); }
-    },
-    centerOn(pos) { map.setView([pos.lat, pos.lng], Math.max(map.getZoom(), 16)); },
-    setMarkers(list) {
-      layer.clearLayers(); current = [];
-      const pts = [[center.lat, center.lng]];
-      list.forEach((c, i) => {
-        if (!c.lat) return;
-        const a = pinAnchor(c, i);
-        const icon = L.divIcon({ className: "", html: pinHtml(c, i), iconSize: [a * 2, a * 2], iconAnchor: [a, a] });
-        L.marker([c.lat, c.lng], { icon }).addTo(layer).bindTooltip(pinTitle(c, i), { direction: "right", offset: [a, 0] });
-        current.push({ c, i });
-        if (c.kind !== "intersection" && pinLabel(c, i) !== "·") pts.push([c.lat, c.lng]); // 화면 맞춤은 동선 핀 기준 (회색 점은 제외)
-      });
-      lastPts = pts;
-      if (!rings.length) fitPins();
-      updateLabels();
-    },
-    setRoute(geometry) {
-      routeLayer.clearLayers();
-      if (geometry?.length) L.polyline(geometry, { color: "#b3261e", weight: 5, opacity: .75 }).addTo(routeLayer);
-    },
-  };
-}
 
 function createNaverMap(naver, el, center, rMax) {
   const M = naver.maps;

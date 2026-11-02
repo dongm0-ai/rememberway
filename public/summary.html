@@ -135,8 +135,7 @@
       for (const d of dests) {
         const q = encodeURIComponent(d.name.replace(/\s*\(.*?\)\s*/g, "").split(":").pop().trim());
         const nv = `https://map.naver.com/p/directions/${home.lng},${home.lat},${encodeURIComponent("집")}/${d.lng},${d.lat},${q}/-/transit`;
-        const gg = `https://www.google.com/maps/dir/?api=1&origin=${home.lat},${home.lng}&destination=${d.lat},${d.lng}&travelmode=transit`;
-        ul.append(el("li", {}, `${d.name} `, el("a", { href: nv, target: "_blank", rel: "noopener" }, "네이버 대중교통 길"), " · ", el("a", { href: gg, target: "_blank", rel: "noopener" }, "구글")));
+        ul.append(el("li", {}, `${d.name} `, el("a", { href: nv, target: "_blank", rel: "noopener" }, "네이버 지도로 버스·지하철 보기")));
       }
       box.append(ul);
     }
@@ -164,14 +163,12 @@
       el("li", {}, "버스·택시 블랙박스, 역 CCTV: 보호자가 직접 볼 수 없어요. 경찰에 \"버스·택시를 탔을 수 있다\"고 꼭 말하세요.")));
     box.append(el("p", { class: "small muted" }, "이 앱은 카드·택시 기록에 접근하지 않습니다. 어디서 확인하는지만 알려 드립니다."));
   }
-  // 네이버·구글 지도 앱으로 바로 열기 (키·계정 불필요). 좌표가 있으면 도보 길찾기, 없으면 이름 검색
+  // 네이버 지도 앱으로 바로 열기 (키·계정 불필요). 좌표가 있으면 도보 길찾기, 없으면 이름 검색
   function navLinks(c) {
     const q = encodeURIComponent(c.name.replace(/\s*\(.*?\)\s*/g, "").split(":").pop().trim());
     const naver = c.lat ? `https://map.naver.com/p/directions/-/${c.lng},${c.lat},${q}/-/walk` : `https://map.naver.com/p/search/${q}`;
-    const google = c.lat ? `https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}&travelmode=walking` : `https://www.google.com/maps/search/?api=1&query=${q}`;
     return el("div", { class: "small", style: "margin-top:4px;display:flex;gap:10px" },
-      el("a", { href: naver, target: "_blank", rel: "noopener" }, "네이버 지도로 길찾기"),
-      el("a", { href: google, target: "_blank", rel: "noopener" }, "구글 지도"));
+      el("a", { href: naver, target: "_blank", rel: "noopener" }, "네이버 지도로 길찾기"));
   }
   renderGlance();
   renderRank();
@@ -253,11 +250,11 @@
     if (homePt) await buildTour(c.lat ? { lat: c.lat, lng: c.lng, label: c.name } : homePt);
   }
 
-  // 지도 (OpenStreetMap + Leaflet, 키 없음). 장소 좌표는 Nominatim, 도보 경로·거리표는 Valhalla(보행자, OSM 재단 공개 서버) → 예비 OSRM.
+  // 지도: 네이버 지도. 장소 좌표·근처 가게는 네이버 검색, 도보 경로·거리표는 Valhalla(보행자 공개 서버) → 예비 OSRM.
   const cfg = await loadConfig();
   const L = await loadMap(cfg.map ?? {});
   if (!L) {
-    $("#map").textContent = "지도를 불러오지 못했어요 (인터넷 연결 확인). 목록은 아래에 있습니다.";
+    $("#map").textContent = "네이버 지도를 불러오지 못했어요 (인터넷 연결 확인). 목록은 아래에 있습니다.";
     $("#map-note").textContent = "거리를 알 수 없어 점수에 반경을 반영하지 못했습니다.";
   } else {
     // 집 동네: 보호자가 이번에 말한 것 > 평소 등록 정보 > 마지막 본 곳
@@ -297,7 +294,7 @@
     if (home) renderTransit(home); else $("#transit").innerHTML = '<p class="small muted" style="margin:0">집 위치를 찾지 못해 정류장·대중교통 길을 보여 줄 수 없어요.</p>';
     const approx = places.filter((p) => p.approx).map((p) => `${p.name}→${p.found_name}`);
     const notFound = places.filter((p) => !p.lat).map((p) => p.name);
-    let note = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 지도: ${mapEngine() === "naver" ? "네이버" : "OpenStreetMap"}, 길찾기: ${tour?.router === "osrm" ? "OSRM 공개 서버(자동차 도로 기준, 참고용)" : "Valhalla 공개 서버(보행자 경로)"}`;
+    let note = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 지도: 네이버, 길찾기: ${tour?.router === "osrm" ? "OSRM 공개 서버(자동차 도로 기준, 참고용)" : "Valhalla 공개 서버(보행자 경로)"}`;
     if (approx.length) note += ` · 근처로 표시: ${approx.join(", ")}`;
     if (notFound.length) note += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
     $("#map-note").textContent = note;

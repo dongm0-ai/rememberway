@@ -15,7 +15,7 @@
 - **AI 출력을 검증 없이 쓰지 않는다.** 모든 AI 응답은 `public/lib/verify.js`(스키마 검사, 원문 대조 ⚠)를 거친 뒤에만 화면에 쓴다. `missing`은 AI 값을 믿지 않고 `computeMissing`으로 다시 계산한다.
 - **이름을 입력받지 않는다.** 호칭(아버지·어머니·어르신)만. 주소는 동 단위. 복용약은 성분명 없이 "복용 여부"만. 사진은 저장하지 않는다.
 - **API 키를 브라우저에 두지 않는다.** `UPSTAGE_API_KEY`/`GEMINI_API_KEY`/`ANTHROPIC_API_KEY`는 서버 함수(`api/*.js`, `lib/claude.js`)에서만 읽는다. `.env.local`은 커밋하지 않는다.
-- **서버 DB를 만들지 않는다.** 프로필·일지·사건 기록은 보호자 기기 `localStorage`에만. (예외: 환자 모드 푸시 구독, 맨 마지막 단계)
+- **서버 DB를 만들지 않는다.** 프로필·일지·사건 기록은 보호자 기기 `localStorage`에만. (예외: 푸시 알림 구독 — 알림 주소와 마지막 일지 날짜만 Supabase `push_subs`에. 이름·주소·일지 내용은 서버에 두지 않는다. 결정표 2026-10-30)
 - **녹화 결과를 실시간인 척하지 않는다.** 미리 저장한 결과를 보여 줄 때는 화면에 "녹화 결과"라고 표시한다.
 - **MOCK_AI=1 모의 응답을 실제 AI 결과처럼 쓰지 않는다.** 모의 응답이면 화면 상단 배너(`mockBanner`)를 지우지 않는다.
 - **모의 데이터를 실제인 것처럼 쓰지 않는다.** 모든 사례는 가명·가짜 주소. `data/mock_cases.json`의 `_note`를 유지한다.
@@ -32,7 +32,7 @@ lib/claude.js           생성형 AI 호출 — Upstage Solar / Gemini / Claude 
 lib/http.js             서버 함수 공통 (POST 파싱, 오류 → ok:false)
 api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤  api/weekly.js ⑥  api/config.js(AI 상태만)
 public/*.html           화면. 빌드 없음. 각 화면의 스크립트는 그 HTML 안에 있다
-public/js/common.js     저장·API 호출·음성 입력·공통 UI   public/js/map.js  지도(OSM/Leaflet)·좌표 찾기(Nominatim)
+public/js/common.js     저장·API 호출·음성 입력·공통 UI   public/js/map.js  지도(네이버 지도만)·장소 찾기(네이버 검색)·도보 길찾기(Valhalla)
 data/                   모의 사례·정답표·실험 결과       docs/  결정표·화면 구성·확정안·실험기록 (여기와 어긋나면 docs가 우선)
 ```
 
@@ -57,7 +57,7 @@ data/                   모의 사례·정답표·실험 결과       docs/  결
 
 ## 기술
 
-순수 HTML/CSS/JS PWA (ES 모듈, 빌드 없음) · Vercel 서버리스 함수 `api/*.js` (Node 20+, ESM) · Upstage Solar(OpenAI 호환) / Gemini / Claude 중 `AI_PROVIDER`로 선택, `fetch`로 직접 호출 · OpenStreetMap+Leaflet(키 없음, Nominatim 지오코딩) · Web Speech API(STT, 미지원 브라우저는 글쓰기) · localStorage.
+순수 HTML/CSS/JS PWA (ES 모듈, 빌드 없음) · Vercel 서버리스 함수 `api/*.js` (Node 20+, ESM) · Upstage Solar(OpenAI 호환) / Gemini / Claude 중 `AI_PROVIDER`로 선택, `fetch`로 직접 호출 · 네이버 지도·네이버 검색/Geocoding(서버에서 Secret 사용), 도보 경로는 Valhalla · Web Speech API(STT, 미지원 브라우저는 글쓰기) · localStorage.
 2026-10-28에 Next.js에서 이 구조로 바꿨고, 같은 날 AI를 Claude에서 Gemini(교육용 키)로 바꿨다 (이유: docs/결정표 "추가 결정").
 
 ## 실험

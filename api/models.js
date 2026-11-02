@@ -1,8 +1,10 @@
 // GET /api/models — 현재 키로 쓸 수 있는 Gemini 모델 목록 (기획안 5쪽 모델 비교·모델명 확인용). 키 값은 내보내지 않는다.
 import { activeProvider, hasKey, currentModel, geminiBody } from "../lib/claude.js";
+import { guardGet } from "../lib/http.js";
 const PROVIDER = activeProvider();
 
 export default async function handler(req, res) {
+  if (!guardGet(req, res)) return; // 키로 모델을 시험 호출하므로 우리 화면에서만
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("cache-control", "no-store");
   if (!hasKey()) return res.end(JSON.stringify({ ok: false, reason: "NO_KEY", provider: PROVIDER }));

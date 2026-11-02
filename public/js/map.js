@@ -285,7 +285,7 @@ const LABEL_ZOOM = 16;
 const pinLabel = (c, i) => c.kind === "intersection" ? "✕" : (c.pin ?? String(i + 1));
 const pinHtml = (c, i) => {
   const lbl = pinLabel(c, i), isX = lbl === "✕", isDot = lbl === "·";
-  const size = isX ? 20 : isDot ? 16 : 28, bg = isX ? "#8a5a00" : isDot ? "#7d8796" : "#1a4fc4";
+  const size = isX ? 20 : isDot ? 16 : 28, bg = isX ? "#8a5a00" : isDot ? "#7d8796" : "#2f6fe4";
   return `<div title="${c.name}" style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;background:${bg};color:#fff;font-weight:800;border-radius:50%;border:2px solid #fff;font-size:${isX ? 11 : isDot ? 12 : 14}px;box-shadow:0 1px 4px rgba(0,0,0,.35)">${isDot ? "" : lbl}</div>`;
 };
 const pinTitle = (c, i) => { const l = pinLabel(c, i); return l === "·" || l === "✕" ? c.name : `${l}. ${c.name}`; };
@@ -321,7 +321,7 @@ function pickVisibleLabels(items, viewW = Infinity) {
 
 
 // 반경 원 색: 걸어서(실선 파랑), 버스·지하철(점선 초록), 택시(점선 주황). 버스·택시 원은 "최대로 갈 수 있는 거리"일 뿐 그 안에 있다는 뜻이 아니다
-export const RING = { walk: { color: "#1a4fc4", name: "걸어서" }, bus: { color: "#1e7b4f", name: "버스·지하철" }, taxi: { color: "#b85c00", name: "택시" } };
+export const RING = { walk: { color: "#2f6fe4", name: "걸어서" }, bus: { color: "#1e7b4f", name: "버스·지하철" }, taxi: { color: "#b85c00", name: "택시" } };
 const ringLabelHtml = (k, r) => `<div style="padding:1px 8px;font-size:12px;font-weight:800;color:#fff;background:${RING[k].color};border-radius:999px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)">${RING[k].name} 최대 ${r >= 1000 ? (r / 1000).toFixed(r >= 10000 ? 0 : 1) + "km" : r + "m"}</div>`;
 const ringTop = (center, r) => ({ lat: center.lat + r / 111320, lng: center.lng }); // 원 맨 위(북쪽) 점에 이름표
 // 보호자 "나" 위치: 파란 점 + 흰 테두리 (이 기기에서만 쓰고 저장·전송하지 않음)
@@ -404,7 +404,7 @@ function createNaverMap(naver, el, center, rMax) {
   const map = new M.Map(el, { center: new M.LatLng(center.lat, center.lng), zoom: 15, zoomControl: true });
   let circle = null;
   if (rMax) circle = new M.Circle({ map, center: new M.LatLng(center.lat, center.lng), radius: rMax, strokeColor: RING.walk.color, strokeWeight: 2, strokeOpacity: .7, fillColor: RING.walk.color, fillOpacity: .06 });
-  new M.Marker({ map, position: new M.LatLng(center.lat, center.lng), icon: { content: '<div style="background:#fff;border:2px solid #0d2b5e;border-radius:999px;padding:2px 8px;font-weight:800;font-size:13px;color:#1c1b1a">집</div>', anchor: new M.Point(14, 14) } });
+  new M.Marker({ map, position: new M.LatLng(center.lat, center.lng), icon: { content: '<div style="background:#fff;border:2px solid #191f28;border-radius:999px;padding:2px 8px;font-weight:800;font-size:13px;color:#1c1b1a">집</div>', anchor: new M.Point(14, 14) } });
   let markers = [], labels = [], route = null, current = [];
   const info = new M.InfoWindow({ borderWidth: 1, backgroundColor: "#fff", anchorSize: new M.Size(10, 10) });
   M.Event.addListener(map, "click", () => info.close());

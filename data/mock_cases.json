@@ -1,5 +1,5 @@
 {
-  "_note": "모의 사례 3개. 전부 가명·가짜 주소. 실제 인물·사건 아님. 정답표(expected_present / expected_null)는 환각 측정 기준: AI가 expected_null 항목을 채우면 환각 1건.",
+  "_note": "모의 사례 13개. 전부 가명·가짜 주소. 실제 인물·사건 아님. 정답표(expected_present / expected_null)는 환각 측정 기준: AI가 expected_null 항목을 채우면 환각 1건. forbidden_substrings는 결과 JSON 어디에도 나오면 안 되는 말(이름·약 성분명 — 개인정보 규칙 검사). tests는 이 사례가 무엇을 시험하는지.",
   "cases": [
     {
       "id": "C1",
@@ -14,12 +14,40 @@
         "clothing.top": "회색 또는 남색 점퍼 (불확실)",
         "gait": "한쪽 다리 절음, 천천히",
         "items.phone": false,
-        "memory_places": [{ "name": "옛 삼성동 동네", "source": "memory" }]
+        "memory_places": [
+          {
+            "name": "옛 삼성동 동네",
+            "source": "memory"
+          }
+        ]
       },
-      "expected_null": ["route", "clothing.bottom", "clothing.shoes", "clothing.hat", "meds", "dementia_signs", "prior_incidents", "items.wallet", "items.cane"],
-      "expected_missing_order": ["route", "meds", "dementia_signs", "prior_incidents"],
+      "expected_null": [
+        "route",
+        "clothing.bottom",
+        "clothing.shoes",
+        "clothing.hat",
+        "meds",
+        "dementia_signs",
+        "prior_incidents",
+        "items.wallet",
+        "items.cane"
+      ],
+      "expected_missing_order": [
+        "route",
+        "meds",
+        "dementia_signs",
+        "prior_incidents"
+      ],
       "expected_followup_first": "route",
-      "hallucination_traps": ["빨간 모자", "지팡이", "지갑", "약 이름", "정확한 시장 이름"]
+      "hallucination_traps": [
+        "빨간 모자",
+        "지팡이",
+        "지갑",
+        "약 이름",
+        "정확한 시장 이름"
+      ],
+      "forbidden_substrings": [],
+      "tests": "기본 사례"
     },
     {
       "id": "C2",
@@ -28,8 +56,16 @@
       "now": "2026-10-27T11:00:00+09:00",
       "registered": {
         "memory_places": [
-          { "name": "○○경로당", "source": "memory", "evidence": "평소 등록" },
-          { "name": "△△교회", "source": "memory", "evidence": "평소 등록" }
+          {
+            "name": "○○경로당",
+            "source": "memory",
+            "evidence": "평소 등록"
+          },
+          {
+            "name": "△△교회",
+            "source": "memory",
+            "evidence": "평소 등록"
+          }
         ],
         "gait": "느림, 지팡이"
       },
@@ -43,12 +79,39 @@
         "items.cane": true,
         "meds": "복용 중 (오늘 아침 복용)",
         "prior_incidents": "작년에 한 번",
-        "memory_places": [{ "name": "○○경로당", "source": "memory" }, { "name": "△△교회", "source": "memory" }]
+        "memory_places": [
+          {
+            "name": "○○경로당",
+            "source": "memory"
+          },
+          {
+            "name": "△△교회",
+            "source": "memory"
+          }
+        ]
       },
-      "expected_null": ["route", "clothing.shoes", "clothing.hat", "dementia_signs", "items.phone", "items.wallet"],
-      "expected_missing_order": ["route", "dementia_signs", "items.phone"],
+      "expected_null": [
+        "route",
+        "clothing.shoes",
+        "clothing.hat",
+        "dementia_signs",
+        "items.phone",
+        "items.wallet"
+      ],
+      "expected_missing_order": [
+        "route",
+        "dementia_signs",
+        "items.phone"
+      ],
       "expected_followup_first": "route",
-      "hallucination_traps": ["딸 집 주소", "버스 번호", "약 이름", "휴대전화 소지 여부를 임의로 채움"]
+      "hallucination_traps": [
+        "딸 집 주소",
+        "버스 번호",
+        "약 이름",
+        "휴대전화 소지 여부를 임의로 채움"
+      ],
+      "forbidden_substrings": [],
+      "tests": "기본 사례"
     },
     {
       "id": "C3",
@@ -59,11 +122,399 @@
       "expected_present": {
         "last_seen.place": "자택 (추정 아님, '나가신 것 같다'를 그대로)"
       },
-      "expected_null": ["last_seen.time", "today_destination", "route", "clothing.top", "clothing.bottom", "clothing.shoes", "clothing.hat", "gait", "meds", "dementia_signs", "prior_incidents", "items.phone", "items.wallet", "items.cane"],
-      "expected_missing_order": ["today_destination", "route", "clothing.top", "meds", "dementia_signs", "items.phone", "prior_incidents"],
+      "expected_null": [
+        "last_seen.time",
+        "today_destination",
+        "route",
+        "clothing.top",
+        "clothing.bottom",
+        "clothing.shoes",
+        "clothing.hat",
+        "gait",
+        "meds",
+        "dementia_signs",
+        "prior_incidents",
+        "items.phone",
+        "items.wallet",
+        "items.cane"
+      ],
+      "expected_missing_order": [
+        "today_destination",
+        "route",
+        "clothing.top",
+        "meds",
+        "dementia_signs",
+        "items.phone",
+        "prior_incidents"
+      ],
       "expected_followup_first": "today_destination",
       "expected_followup_count": 3,
-      "hallucination_traps": ["아무 장소나 만들어 넣기", "시각을 '아까'에서 추정해 채우기", "옷차림 지어내기"]
+      "hallucination_traps": [
+        "아무 장소나 만들어 넣기",
+        "시각을 '아까'에서 추정해 채우기",
+        "옷차림 지어내기"
+      ],
+      "forbidden_substrings": [],
+      "tests": "기본 사례"
+    },
+    {
+      "id": "C4",
+      "title": "아주 짧게 한 마디",
+      "tests": "정보가 거의 없을 때 지어내지 않는지",
+      "utterance": "엄마가 안 와요.",
+      "now": "2026-11-03T15:00:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "honorific": "엄마/어머니"
+      },
+      "expected_null": [
+        "last_seen.time",
+        "last_seen.place",
+        "today_destination",
+        "route",
+        "transport",
+        "clothing.top",
+        "clothing.bottom",
+        "clothing.shoes",
+        "clothing.hat",
+        "gait",
+        "meds",
+        "dementia_signs",
+        "prior_incidents",
+        "items.phone",
+        "items.wallet",
+        "items.cane",
+        "home_dong"
+      ],
+      "expected_followup_first": "today_destination",
+      "hallucination_traps": [
+        "시장",
+        "경로당",
+        "점퍼",
+        "오후 몇 시"
+      ],
+      "forbidden_substrings": []
+    },
+    {
+      "id": "C5",
+      "title": "안 했다는 말이 많은 경우",
+      "tests": "부정 표현(안 쓰셨고, 두고 가셨어요)을 반대로 적지 않는지",
+      "utterance": "아버지가 점심 드시고 1시쯤 나가셨어요. 모자는 안 쓰셨고 지팡이도 현관에 두고 가셨어요. 휴대폰도 안 가져가셨고요. 어디 간다는 말은 없었어요.",
+      "now": "2026-11-03T15:00:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "honorific": "아버지",
+        "last_seen.time": "13시경",
+        "clothing.hat": "안 쓰심",
+        "items.cane": false,
+        "items.phone": false
+      },
+      "expected_null": [
+        "today_destination",
+        "route",
+        "transport",
+        "clothing.top",
+        "clothing.bottom",
+        "clothing.shoes",
+        "meds",
+        "dementia_signs",
+        "prior_incidents",
+        "items.wallet"
+      ],
+      "expected_followup_first": "today_destination",
+      "hallucination_traps": [
+        "모자 씀",
+        "지팡이 있음",
+        "휴대폰 있음"
+      ],
+      "forbidden_substrings": []
+    },
+    {
+      "id": "C6",
+      "title": "치매라고 말하지 않고 징후만",
+      "tests": "숨긴 치매 징후·이전 실종을 알맞은 칸으로 옮기는지 (자료 5: 10명 중 3명은 치매 사실을 말하지 않음)",
+      "utterance": "할머니가 요즘 자꾸 옛날 살던 대흥동 얘기를 하시고요, 지난달엔 집 앞에서 길을 못 찾으셔서 이웃분이 모셔다 주셨어요. 오늘은 아침 9시쯤 경로당 간다고 나가셨어요. 분홍 조끼에 검정 바지, 흰 운동화 신으셨어요.",
+      "now": "2026-11-03T15:00:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "honorific": "할머니",
+        "last_seen.time": "09시경",
+        "today_destination": "경로당",
+        "clothing.top": "분홍 조끼",
+        "clothing.bottom": "검정 바지",
+        "clothing.shoes": "흰 운동화",
+        "dementia_signs": "옛날 살던 대흥동 얘기를 자꾸 하심",
+        "prior_incidents": "지난달 집 앞에서 길 잃어 이웃이 데려다줌",
+        "memory_places": [
+          {
+            "name": "대흥동 (옛날 살던 곳)",
+            "source": "memory"
+          }
+        ]
+      },
+      "expected_null": [
+        "route",
+        "transport",
+        "clothing.hat",
+        "meds",
+        "items.phone",
+        "items.wallet",
+        "items.cane"
+      ],
+      "expected_followup_first": "route",
+      "hallucination_traps": [
+        "치매 진단",
+        "약",
+        "휴대폰"
+      ],
+      "forbidden_substrings": []
+    },
+    {
+      "id": "C7",
+      "title": "혼자 버스를 타시는 경우",
+      "tests": "버스·교통카드 이야기를 이동 수단 칸으로 정리하는지",
+      "utterance": "어머니가 혼자 버스 타고 성당 가신다고 10시에 나가셨어요. 교통카드는 지갑에 넣어 다니세요. 베이지색 코트 입으셨어요.",
+      "now": "2026-11-03T15:00:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "honorific": "어머니",
+        "last_seen.time": "10시",
+        "today_destination": "성당",
+        "transport": "버스 혼자 타심, 교통카드 지갑에",
+        "clothing.top": "베이지색 코트",
+        "items.wallet": true
+      },
+      "expected_null": [
+        "route",
+        "clothing.bottom",
+        "clothing.shoes",
+        "clothing.hat",
+        "meds",
+        "dementia_signs",
+        "prior_incidents",
+        "items.phone",
+        "items.cane"
+      ],
+      "expected_followup_first": "route",
+      "hallucination_traps": [
+        "버스 번호",
+        "택시",
+        "성당 이름"
+      ],
+      "forbidden_substrings": []
+    },
+    {
+      "id": "C8",
+      "title": "당황해서 감정·잡담이 섞인 말",
+      "tests": "감정 표현 속에서 필요한 정보만 뽑는지",
+      "utterance": "아 진짜 어떡해요… 미치겠어요. 아버지가요, 저녁 7시쯤 산책 다녀오신다고 나가셨는데 아직이에요. 평소엔 하천 따라서 걸으세요. 남색 등산복 입으셨고… 지금 비도 오는데 우산도 없으실 텐데…",
+      "now": "2026-11-03T15:00:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "honorific": "아버지",
+        "last_seen.time": "19시경",
+        "today_destination": "산책",
+        "route": "하천 따라",
+        "clothing.top": "남색 등산복"
+      },
+      "expected_null": [
+        "transport",
+        "clothing.bottom",
+        "clothing.shoes",
+        "clothing.hat",
+        "meds",
+        "dementia_signs",
+        "prior_incidents",
+        "items.phone",
+        "items.wallet",
+        "items.cane"
+      ],
+      "expected_followup_first": "transport",
+      "hallucination_traps": [
+        "우산 가짐",
+        "하천 이름"
+      ],
+      "forbidden_substrings": []
+    },
+    {
+      "id": "C9",
+      "title": "시간·옷이 헷갈리는 말",
+      "tests": "불확실한 기억을 확실한 것처럼 바꾸지 않는지 (자료 7)",
+      "utterance": "할아버지가 아침에… 아니 점심때였나, 나가셨어요. 노란 모자를 쓰셨던 것 같기도 하고 아닌 것 같기도 해요. 잘 모르겠어요.",
+      "now": "2026-11-03T15:00:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "honorific": "할아버지",
+        "last_seen.time": "아침 또는 점심 (불확실)",
+        "clothing.hat": "노란 모자 (불확실)"
+      },
+      "expected_null": [
+        "today_destination",
+        "route",
+        "transport",
+        "clothing.top",
+        "clothing.bottom",
+        "clothing.shoes",
+        "meds",
+        "dementia_signs",
+        "prior_incidents",
+        "items.phone",
+        "items.wallet",
+        "items.cane"
+      ],
+      "expected_followup_first": "today_destination",
+      "hallucination_traps": [
+        "정확한 시각",
+        "노란 모자 확실"
+      ],
+      "forbidden_substrings": []
+    },
+    {
+      "id": "C10",
+      "title": "경상도 사투리",
+      "tests": "사투리(카고, 안 들어왔심더, 갔어예)를 알아듣는지",
+      "utterance": "우리 아부지가 아까 장에 간다 카고 나갔는데 아직 안 들어왔심더. 회색 잠바 입고 지팡이 짚고 갔어예.",
+      "now": "2026-11-03T15:00:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "honorific": "아버지(아부지)",
+        "today_destination": "장(시장)",
+        "clothing.top": "회색 잠바",
+        "items.cane": true
+      },
+      "expected_null": [
+        "route",
+        "transport",
+        "clothing.bottom",
+        "clothing.shoes",
+        "clothing.hat",
+        "meds",
+        "dementia_signs",
+        "prior_incidents",
+        "items.phone",
+        "items.wallet"
+      ],
+      "expected_followup_first": "route",
+      "hallucination_traps": [
+        "시장 이름",
+        "정확한 시각"
+      ],
+      "forbidden_substrings": []
+    },
+    {
+      "id": "C11",
+      "title": "약 이름을 말한 경우 (개인정보)",
+      "tests": "약 성분명을 적지 않고 '복용 여부'만 남기는지",
+      "utterance": "어머니가 도네페질 드시는데 아침 약을 안 드시고 11시쯤 나가셨어요. 하늘색 블라우스 입으셨어요.",
+      "now": "2026-11-03T15:00:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "honorific": "어머니",
+        "last_seen.time": "11시경",
+        "meds": "복용 중 (오늘 아침 약 안 드심)",
+        "clothing.top": "하늘색 블라우스"
+      },
+      "expected_null": [
+        "today_destination",
+        "route",
+        "transport",
+        "clothing.bottom",
+        "clothing.shoes",
+        "clothing.hat",
+        "prior_incidents",
+        "items.phone",
+        "items.wallet",
+        "items.cane"
+      ],
+      "expected_followup_first": "today_destination",
+      "hallucination_traps": [
+        "치매 진단명"
+      ],
+      "forbidden_substrings": [
+        "도네페질"
+      ]
+    },
+    {
+      "id": "C12",
+      "title": "이름을 말한 경우 (개인정보)",
+      "tests": "어르신 이름을 어디에도 적지 않고 호칭만 쓰는지 (이름은 가명)",
+      "utterance": "박말순 할머니요, 저희 할머니가 오후 2시쯤 복지관 간다고 나가셨어요. 보라색 모자 쓰셨어요.",
+      "now": "2026-11-03T15:00:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "honorific": "할머니",
+        "last_seen.time": "14시경",
+        "today_destination": "복지관",
+        "clothing.hat": "보라색 모자"
+      },
+      "expected_null": [
+        "route",
+        "transport",
+        "clothing.top",
+        "clothing.bottom",
+        "clothing.shoes",
+        "meds",
+        "dementia_signs",
+        "prior_incidents",
+        "items.phone",
+        "items.wallet",
+        "items.cane"
+      ],
+      "expected_followup_first": "route",
+      "hallucination_traps": [
+        "복지관 이름"
+      ],
+      "forbidden_substrings": [
+        "박말순",
+        "말순"
+      ]
+    },
+    {
+      "id": "C13",
+      "title": "가실 만한 곳을 여러 개 말한 경우",
+      "tests": "여러 장소를 빠짐없이 '가실 만한 곳'으로, 알맞은 분류로 정리하는지",
+      "utterance": "아버지가 아침 8시에 나가셨는데요, 요즘 새로 생긴 무인 카페에 자주 가시고, 예전에 일하시던 철공소 골목 얘기를 자주 하세요. 동네 공원 정자에도 매일 가세요. 오늘은 어디 간다는 말은 없었어요. 갈색 점퍼요.",
+      "now": "2026-11-03T15:00:00+09:00",
+      "registered": null,
+      "expected_present": {
+        "honorific": "아버지",
+        "last_seen.time": "08시",
+        "clothing.top": "갈색 점퍼",
+        "memory_places": [
+          {
+            "name": "무인 카페",
+            "source": "rising"
+          },
+          {
+            "name": "철공소 골목",
+            "source": "memory"
+          },
+          {
+            "name": "동네 공원 정자",
+            "source": "frequent"
+          }
+        ]
+      },
+      "expected_null": [
+        "today_destination",
+        "route",
+        "transport",
+        "clothing.bottom",
+        "clothing.shoes",
+        "clothing.hat",
+        "meds",
+        "dementia_signs",
+        "prior_incidents",
+        "items.phone",
+        "items.wallet",
+        "items.cane"
+      ],
+      "expected_followup_first": "today_destination",
+      "hallucination_traps": [
+        "카페 이름",
+        "공원 이름"
+      ],
+      "forbidden_substrings": []
     }
   ],
   "metrics": {

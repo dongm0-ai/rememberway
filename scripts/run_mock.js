@@ -34,6 +34,7 @@ for (const c of cases) {
     filled_expected: `${filled.length}/${Object.keys(c.expected_present ?? {}).length}`,
     hallucinated_keys: hallucinated, unverified_flags: Object.keys(flagged.flags ?? {}),
     followup_first: fu?.[0]?.key, followup_first_ok: fu?.[0]?.key === c.expected_followup_first, followup_count: fu?.length ?? 0,
+    forbidden_found: (c.forbidden_substrings ?? []).filter((w) => JSON.stringify(flagged).includes(w) || JSON.stringify(fu ?? []).includes(w)),
     clue: flagged, followup: fu,
   });
   console.log(`${c.id}: ${latency}ms, 채움 ${filled.length}/${Object.keys(c.expected_present ?? {}).length}, 환각 ${hallucinated.length}건${hallucinated.length ? ` (${hallucinated.join(",")})` : ""}, ⚠ ${Object.keys(flagged.flags ?? {}).length}건, 첫 되묻기 ${fu?.[0]?.key ?? "-"} ${fu?.[0]?.key === c.expected_followup_first ? "✓" : "✗(정답 " + c.expected_followup_first + ")"}`);

@@ -38,6 +38,7 @@ export default async function handler(req, res) {
       id: c.id, title: c.title, latency_ms: Date.now() - t0,
       filled: `${filled.length}/${expected.length}`, filled_missing: expected.filter((k) => !filled.includes(k)),
       hallucinated_keys: hallucinated, unverified_flags: Object.keys(flagged.flags ?? {}),
+      forbidden_found: (c.forbidden_substrings ?? []).filter((w) => JSON.stringify(flagged).includes(w) || JSON.stringify(fu ?? []).includes(w)), tests: c.tests,
       followup_first: fu?.[0]?.key ?? null, followup_first_ok: (fu?.[0]?.key ?? null) === c.expected_followup_first, expected_followup_first: c.expected_followup_first,
       followup_count: Array.isArray(fu) ? fu.length : 0, clue: flagged, followup: fu, fu_raw, fu_error,
     });

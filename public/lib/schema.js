@@ -90,6 +90,7 @@ export const WEIGHTS = {
   guardian: 1,
   intersection: 2,
   outOfRadius: -2,
+  basic: 0, // 보호자가 말한 곳이 하나도 없을 때만 넣는 "집 근처 기본 장소"(경로당·공원·정류장·편의점). 보호자가 말한 곳(+1 이상)보다 항상 뒤 (2026-11-03)
 };
 
 export const SOURCE_LABELS = {
@@ -98,7 +99,10 @@ export const SOURCE_LABELS = {
   frequent: "자주 가는 곳",
   new: "새로운 곳",
   guardian: "보호자가 말한 곳",
+  basic: "집 근처 기본 장소 (보호자가 말한 곳이 없어 넣음)",
 };
+/** 보호자가 말한 곳이 하나도 없을 때 집 근처에서 찾아 넣는 기본 장소 종류 (규칙, 위치 예측 아님) — 근거: 자료조사 9·10 (가까운 곳부터, 출발지로 되돌아옴) */
+export const BASIC_KINDS = ["경로당", "공원", "버스정류장", "편의점"];
 
 /** 보행 속도 구간값 (m/s) */
 export const WALK_SPEED = { slow: 0.5, normal: 0.8, fast: 1.2 };

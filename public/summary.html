@@ -27,7 +27,9 @@
   <h2 class="after-map">돌아볼 곳 <span class="h-sub" id="list-count"></span></h2>
   <div class="card after-map">
     <p class="small" style="margin:0 0 4px"><b>어르신은 목적지에 도착하지 못하고 가는 길에서 발견되는 경우가 많습니다. 이 지도는 보호자가 말한 것을 정리한 것입니다.</b></p>
+    <p class="notice hidden" id="basic-note" style="margin:8px 0">보호자가 말한 곳이 없어 <b>집 근처 기본 장소</b>(경로당·공원·버스정류장·편의점)를 넣었어요. 어르신이 자주 가시던 곳이 떠오르면 아래에 적어 주세요.</p>
     <ol class="rank" id="rank"><li><span></span><span class="muted">장소를 찾는 중…</span></li></ol>
+    <div class="row" style="margin-top:10px"><input type="text" id="add-place" placeholder="가실 만한 곳 추가 (예: 중앙시장, 옛날 살던 동네)" autocomplete="off"><button class="btn-secondary" id="add-place-btn" style="flex:0 0 auto;width:auto">추가</button></div>
     <p class="small muted" id="tour-total" style="margin-bottom:0"></p>
   </div>
 
@@ -60,7 +62,7 @@
 </main>
 <script type="module">
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner, getHome, homeSetup } from "/js/common.js";
-  import { WEIGHTS, WALK_SPEED, SOURCE_LABELS, RIDE_SPEED_KMH, ARRIVE_M } from "/lib/schema.js";
+  import { WEIGHTS, WALK_SPEED, SOURCE_LABELS, RIDE_SPEED_KMH, ARRIVE_M, BASIC_KINDS } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary, summaryGroups, SUMMARY_NOTE } from "/lib/priority.js";
   import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, EXACT_LIMIT, setHomeLabel } from "/js/map.js";
 
@@ -91,7 +93,7 @@
   // 반경
   const rMax = maxRadiusM(mode.elapsedMin, mode.gait);
   $("#rmax").textContent = fmtM(rMax); $("#elapsed").textContent = mode.elapsedMin; $("#speed").textContent = WALK_SPEED[mode.gait] ?? WALK_SPEED.normal;
-  for (const [k, label] of [["memory", "추억 장소"], ["rising", "최근 자주 가기 시작한 곳"], ["frequent", "자주 가는 곳"], ["new", "새로운 곳"], ["guardian", "기타 보호자 입력"], ["intersection", "경로 위 갈림길(교차로)"], ["outOfRadius", "반경 밖"]])
+  for (const [k, label] of [["memory", "추억 장소"], ["rising", "최근 자주 가기 시작한 곳"], ["frequent", "자주 가는 곳"], ["new", "새로운 곳"], ["guardian", "기타 보호자 입력"], ["intersection", "경로 위 갈림길(교차로)"], ["outOfRadius", "반경 밖"], ["basic", "집 근처 기본 장소 (말한 곳이 없을 때만)"]])
     $("#weights").append(el("tr", {}, el("td", {}, label), el("td", { class: "num" }, (WEIGHTS[k] > 0 ? "+" : "") + WEIGHTS[k])));
 
   // 후보 장소: 보호자가 말한 곳 + 등록·일지 장소. 오늘 목적지는 "이미 가 봤다"로 취급 (결정표)
@@ -101,7 +103,7 @@
   let ranked = [];
   var intersections = []; // 점수 계산용 (현재 비움 — 갈림길은 후보 목록에 넣지 않는다)
   let crossings = [];      // 지도 표시용 갈림길 (동선 위 작은 ✕, 이름표 없음)
-  let view = null, tour = null, homePt = null, tourSeq = 0; // 지도·동선 (렌더 함수들이 먼저 참조하므로 위에 선언)
+  let view = null, tour = null, homePt = null, tourSeq = 0, homeRef = null; // 지도·동선 (렌더 함수들이 먼저 참조하므로 위에 선언)
   let tourNames = []; // 동선 순서(지도 핀 번호의 기준). buildTour 에서 채운다
   let tourLegs = new Map(); // 동선이 있으면 이름 → { leg, acc } (이전 곳에서 거리, 출발점부터 누적)
   // 돌아볼 곳: 하나의 목록. 동선이 있으면 그 순서(= 지도 번호), 없으면 우선 확인 순서. 맨 위 "지금 할 일"과 큰 길찾기 버튼도 여기서 갱신
@@ -111,7 +113,7 @@
     const inTour = tourNames.map((n) => ranked.find((c) => c.name === n)).filter(Boolean);
     const list = inTour.length ? [...inTour, ...ranked.filter((c) => !tourNames.includes(c.name))] : ranked;
     const box = $("#rank"); box.innerHTML = "";
-    if (!list.length) box.append(el("li", {}, el("span"), el("span", { class: "muted" }, checked.size > 1 ? "남은 곳을 모두 확인했어요. 확인한 곳을 경찰에 알려 주세요." : "확인할 곳이 없어요. 화면 2에서 가실 만한 곳을 추가하세요.")));
+    if (!list.length) box.append(el("li", {}, el("span"), el("span", { class: "muted" }, checked.size > 1 ? "남은 곳을 모두 확인했어요. 확인한 곳을 경찰에 알려 주세요." : "아직 확인할 곳이 없어요. 아래에 가실 만한 곳을 적어 주세요.")));
     const speed = WALK_SPEED[mode.gait] ?? 0.8;
     list.forEach((c, i) => {
       const t = tourLegs.get(c.name);
@@ -274,23 +276,16 @@
     else $("#map-note").textContent = `원: 집(${homeName}) 기준 이동 가능 반경 ${fmtM(rMax)} (직선). 장소를 찾는 중…`;
 
     // 1) 장소 좌표. "카페·편의점·세탁소"처럼 종류만 말한 곳은 집 반경 안에서 실제 가게 2~3곳으로 펼친다
-    const expanded = [];
-    for (const p of places) {
-      if (p.lat && p.lng) continue;
-      if (checked.has(p.name)) continue; // 오늘 가려던 곳은 이미 확인한 것으로 보고 근처 가게로 펼치지 않는다
-      if (home && isGeneric(p.name)) {
-        const found = await findNearby(p.name, home, Math.min(rMax, 2000), 3);
-        p.skip = true; // 종류만 말한 곳은 이름 검색으로 엉뚱한 먼 곳이 잡히므로, 근처 가게로만 바꾸거나 "못 찾음"으로 둔다
-        if (found.length) found.forEach((f) => expanded.push({ ...p, name: `${p.name}: ${f.found_name}`, lat: f.lat, lng: f.lng, evidence: p.evidence, kindOf: p.name }));
-        else expanded.push({ ...p, name: `${p.name} (집 근처, 지도에서 못 찾음)`, skip: false });
-        continue;
+    homeRef = home;
+    await resolvePlaces(places);
+    // 보호자가 말한 곳이 하나도 없으면(대충 적었거나 서식이 비었을 때): 집 근처 기본 장소를 규칙으로 넣는다 (점수 0, "보호자가 말한 곳 아님" 표시)
+    if (home && !places.some((p) => !checked.has(p.name))) {
+      for (const kind of BASIC_KINDS) {
+        const f = await findNearby(kind, home, Math.min(rMax, 1500), 1);
+        f.forEach((x) => places.push({ name: `${kind}: ${x.found_name}`, lat: x.lat, lng: x.lng, source: "basic", kindOf: kind, distance_m: haversineM(home.lat, home.lng, x.lat, x.lng) }));
       }
-      const f = await findPlaceLoose(p.name, home);
-      if (f) { p.lat = f.lat; p.lng = f.lng; p.found_name = f.found_name; p.approx = f.approx; }
+      if (places.some((p) => p.source === "basic")) $("#basic-note").classList.remove("hidden");
     }
-    for (let i = places.length - 1; i >= 0; i--) if (places[i].skip) places.splice(i, 1);
-    places.push(...expanded);
-    for (const p of places) if (home && p.lat) p.distance_m = haversineM(home.lat, home.lng, p.lat, p.lng);
     renderRank(); drawMarkers();
 
     // 2) 동선: 좌표를 찾은 후보 전부를 점수 높은 묶음부터, 묶음 안에서는 도보 거리 최단 순서로 (보행자 거리표 + 정확한 최단). 경로 위 갈림길은 지도에 ✕로만
@@ -303,6 +298,39 @@
     if (notFound.length) note += ` · 지도에서 못 찾음: ${notFound.join(", ")} (목록에는 있음)`;
     $("#map-note").textContent = note;
   }
+  // 장소 이름 → 좌표 (네이버 검색). 종류만 말한 곳은 집 근처 실제 가게로 펼친다. list 안의 항목을 직접 고친다
+  async function resolvePlaces(list) {
+    const home = homeRef, expanded = [];
+    for (const p of list) {
+      if (p.lat && p.lng) continue;
+      if (checked.has(p.name)) continue; // 오늘 가려던 곳은 이미 확인한 것으로 보고 근처 가게로 펼치지 않는다
+      if (home && isGeneric(p.name)) {
+        const found = await findNearby(p.name, home, Math.min(rMax, 2000), 3);
+        p.skip = true;
+        if (found.length) found.forEach((f) => expanded.push({ ...p, name: `${p.name}: ${f.found_name}`, lat: f.lat, lng: f.lng, evidence: p.evidence, kindOf: p.name, skip: false }));
+        else expanded.push({ ...p, name: `${p.name} (집 근처, 지도에서 못 찾음)`, skip: false });
+        continue;
+      }
+      const f = await findPlaceLoose(p.name, home);
+      if (f) { p.lat = f.lat; p.lng = f.lng; p.found_name = f.found_name; p.approx = f.approx; }
+    }
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].skip) list.splice(i, 1);
+    list.push(...expanded);
+    for (const p of list) if (home && p.lat) p.distance_m = haversineM(home.lat, home.lng, p.lat, p.lng);
+  }
+  // 화면 3에서 바로 "가실 만한 곳" 추가 → 좌표 찾고 순서·동선 다시 계산 (보호자가 말한 곳이 생기면 기본 장소는 뒤로 밀림)
+  async function addPlace() {
+    const name = $("#add-place").value.trim(); if (!name) return $("#add-place").focus();
+    $("#add-place").value = ""; $("#add-place-btn").disabled = true;
+    const p = { name, source: "guardian", evidence: "화면 3에서 추가" };
+    clue.memory_places = [...(clue.memory_places ?? []), { name, source: "guardian", evidence: "화면 3에서 추가" }]; store.sset(KEYS.clue, clue);
+    const added = [p]; await resolvePlaces(added); places.push(...added);
+    $("#add-place-btn").disabled = false;
+    renderRank(); drawMarkers(); if (homePt) await buildTour(homePt);
+  }
+  $("#add-place-btn").onclick = addPlace;
+  $("#add-place").addEventListener("keydown", (e) => { if (e.key === "Enter") addPlace(); });
+
   // 지도 핀 = 들르는 순서(동선). 동선에 없는 후보는 회색 점, 갈림길은 ✕. 동선이 아직 없으면 번호 없이 점만.
   function applyPins() { for (const c of ranked) if (c.kind !== "intersection") { const k = tourNames.indexOf(c.name); c.pin = k >= 0 ? String(k + 1) : "·"; } }
   function drawMarkers() { if (!view) return; applyPins(); view.setMarkers([...ranked, ...crossings]); }

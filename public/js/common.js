@@ -179,42 +179,41 @@ export function mountPushCard(container) {
   render();
 }
 
-// ---------------------------------------------------------------- 어르신 집 동네 (배민처럼 처음에 한 번 설정 → 이 기기에 저장)
-// 저장: localStorage "rw_home" = { label: "대전광역시 중구 석교동", lat, lng, savedAt }. 브라우저 기록(사이트 데이터)을 지우기 전까지 남는다.
-// 좌표는 약 100m 단위로 반올림해서 저장·전송 (집 정확한 위치를 남기지 않는다. 주소는 동 단위 원칙)
+// ---------------------------------------------------------------- 어르신 집 주소 (배민처럼 처음에 한 번 설정 → 이 기기에 저장)
+// 2026-11-03: 도로명·지번·건물명까지 받는다(동·호수는 받지 않음). 저장: localStorage "rw_home" =
+//   { label: "대전광역시 중구 석교동"(행정동, 검색어·요약용), road, jibun, building, lat, lng, savedAt } — 브라우저 사이트 데이터를 지우기 전까지 남는다.
+// 집 주소는 이 기기에만 저장하고 서버에 남기지 않는다. 경찰 요약·공유 글에는 동까지만 (주소 상세는 보호자가 112에 직접).
 const HOME_KEY = "rw_home";
-const round3 = (x) => Math.round(x * 1000) / 1000;
 export function getHome() { const h = store.get(HOME_KEY, null); return h && h.label && Number.isFinite(h.lat) ? h : null; }
-export function saveHome(h) { const v = { label: h.label.trim(), lat: round3(h.lat), lng: round3(h.lng), savedAt: new Date().toLocaleDateString("sv-SE") }; store.set(HOME_KEY, v); return v; }
+export function saveHome(h) { const v = { label: String(h.label ?? "").trim(), road: h.road || null, jibun: h.jibun || null, building: h.building || null, lat: Number(h.lat), lng: Number(h.lng), savedAt: new Date().toLocaleDateString("sv-SE") }; store.set(HOME_KEY, v); return v; }
 export function clearHome() { store.del(HOME_KEY); store.del("rw_last_home"); }
+/** 화면에 보일 짧은 집 이름: 건물명 > 도로명 > 동 */
+export const homeShort = (h) => (h ? (h.building ? `${h.building}` : h.road || h.jibun || h.label) : "");
 
-/** 집 동네 설정 카드. onDone(home) 은 저장 직후 불린다. opts.title 로 제목을 바꿀 수 있다 */
+/** 집 주소 설정 카드. onDone(home) 은 저장 직후 불린다 */
 export function homeSetup(onDone, opts = {}) {
   const box = el("div", { class: "home-setup" });
   const msg = el("p", { class: "small muted", style: "margin:8px 0 0" });
   const result = el("div", { class: "home-result hidden" });
-  const inp = el("input", { type: "text", id: "home-q", placeholder: "동 이름 검색 (예: 석교동, 해운대구 좌동)", autocomplete: "off" });
+  const inp = el("input", { type: "text", id: "home-q", placeholder: "도로명, 지번, 건물명 (예: 대종로 228)", autocomplete: "off" });
   const done = (h) => { const saved = saveHome(h); onDone?.(saved); };
-  const offer = (label, lat, lng, sub) => {
-    result.innerHTML = ""; result.classList.remove("hidden");
-    result.append(el("div", {}, el("b", { class: "home-label" }, label), sub ? el("div", { class: "small muted" }, sub) : ""),
-      el("button", { class: "btn-primary", onclick: () => done({ label, lat, lng }) }, "이 동네로 설정"));
-  };
-  const askName = (lat, lng) => { // 현재 위치는 찾았지만 동 이름을 못 받은 경우: 이름만 적게 한다
-    result.innerHTML = ""; result.classList.remove("hidden");
-    const name = el("input", { type: "text", placeholder: "동 이름 (예: 대전 중구 석교동)", autocomplete: "off" });
-    result.append(el("div", { class: "small" }, "현재 위치를 찾았어요. 화면에 보일 동 이름만 적어 주세요."), name,
-      el("button", { class: "btn-primary", onclick: () => { if (!name.value.trim()) return name.focus(); done({ label: name.value, lat, lng }); } }, "이 위치로 설정"));
-    name.focus();
-  };
+  const card = (it) => el("button", { class: "home-pick", onclick: () => done(it) },
+    el("b", {}, it.building && it.building !== it.road ? it.building : it.road || it.jibun || it.label),
+    it.road ? el("span", { class: "small" }, el("span", { class: "addr-tag" }, "도로명"), it.road) : "",
+    it.jibun ? el("span", { class: "small" }, el("span", { class: "addr-tag" }, "지번"), it.jibun) : "",
+    it.dongOnly ? el("span", { class: "small muted" }, "동까지만 (건물을 찾으면 더 정확해요)") : "");
   const here = el("button", { class: "btn-secondary", onclick: () => {
-    if (!navigator.geolocation) { msg.textContent = "이 브라우저는 위치를 지원하지 않아요. 동 이름으로 검색해 주세요."; return; }
+    if (!navigator.geolocation) { msg.textContent = "이 브라우저는 위치를 지원하지 않아요. 주소로 검색해 주세요."; return; }
     msg.textContent = "현재 위치를 찾는 중… (권한을 물으면 '허용')";
     navigator.geolocation.getCurrentPosition(async (p) => {
-      const lat = round3(p.coords.latitude), lng = round3(p.coords.longitude);
-      try { const d = await (await fetch(`/api/geocode?lat=${lat}&lng=${lng}`)).json(); msg.textContent = ""; if (d.ok && d.label) offer(d.label, lat, lng, "지금 계신 곳 기준"); else askName(lat, lng); }
-      catch { msg.textContent = ""; askName(lat, lng); }
-    }, (e) => { msg.textContent = e.code === 1 ? "위치 권한이 꺼져 있어요. 동 이름으로 검색해 주세요." : "위치를 찾지 못했어요. 동 이름으로 검색해 주세요."; }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
+      const lat = p.coords.latitude, lng = p.coords.longitude;
+      try {
+        const d = await (await fetch(`/api/geocode?lat=${lat.toFixed(6)}&lng=${lng.toFixed(6)}`)).json(); msg.textContent = "";
+        result.innerHTML = ""; result.classList.remove("hidden");
+        if (d.ok && d.label) result.append(el("div", { class: "small muted" }, "지금 계신 곳이 맞나요?"), card({ ...d, lat, lng }));
+        else { msg.textContent = "주소를 찾지 못했어요. 도로명이나 건물명으로 검색해 주세요."; result.classList.add("hidden"); }
+      } catch { msg.textContent = "인터넷 연결을 확인해 주세요."; }
+    }, (e) => { msg.textContent = e.code === 1 ? "위치 권한이 꺼져 있어요. 주소로 검색해 주세요." : "위치를 찾지 못했어요. 주소로 검색해 주세요."; }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
   } }, "📍 현재 위치로 설정 (지금 집이면)");
   const search = async () => {
     const q = inp.value.trim(); if (!q) return inp.focus();
@@ -222,32 +221,29 @@ export function homeSetup(onDone, opts = {}) {
     try {
       const d = await (await fetch(`/api/geocode?q=${encodeURIComponent(q)}&list=1`)).json(); msg.textContent = "";
       const items = d.ok ? d.items : [];
-      if (!items.length) { msg.textContent = "찾지 못했어요. 시·구까지 붙여서 적어 보세요 (예: 대전 중구 석교동)."; return; }
-      if (items.length === 1) return offer(items[0].label, items[0].lat, items[0].lng, "");
-      // 같은 이름 동이 여러 곳이면 배민 주소 검색처럼 목록에서 고르게
+      if (!items.length) { msg.textContent = "찾지 못했어요. 시·구를 붙이거나 도로명+건물번호로 적어 보세요 (예: 대전 중구 대종로 228)."; return; }
       result.innerHTML = ""; result.classList.remove("hidden");
-      result.append(el("div", { class: "small muted" }, "어느 동네인가요?"),
-        ...items.map((it) => el("button", { class: "home-pick", onclick: () => done(it) }, el("b", {}, it.label), el("span", { class: "small muted" }, it.address ?? ""))));
+      result.append(el("div", { class: "small muted" }, "집 주소를 골라 주세요"), ...items.map(card));
     } catch { msg.textContent = "인터넷 연결을 확인해 주세요."; }
   };
   inp.addEventListener("keydown", (e) => { if (e.key === "Enter") search(); });
   box.append(
-    el("h2", { style: "margin:0 0 4px" }, opts.title ?? "어르신 집 동네를 설정해 주세요"),
-    el("p", { class: "small muted", style: "margin:0 0 12px" }, "실종됐을 때 지도의 중심이 돼요. 한 번 설정하면 이 기기에 남아 있어요."),
+    el("h2", { style: "margin:0 0 4px" }, opts.title ?? "어르신 집 주소를 설정해 주세요"),
+    el("p", { class: "small muted", style: "margin:0 0 12px" }, "실종됐을 때 지도와 걷는 길의 출발점이 돼요. 한 번 설정하면 이 기기에 남아 있어요."),
     here,
     el("div", { class: "row", style: "margin-top:10px" }, inp, el("button", { class: "btn-secondary", style: "flex:0 0 auto;width:auto", onclick: search }, "검색")),
     msg, result,
-    el("p", { class: "small muted", style: "margin:10px 0 0" }, "동까지만 저장해요(번지·동호수 없음). 이 기기에만 저장되고, 인터넷 사용 기록을 지우면 사라집니다."));
+    el("p", { class: "small muted", style: "margin:10px 0 0" }, "아파트 동·호수는 적지 않아도 돼요. 주소는 이 기기에만 저장되고(서버에 남지 않음), 인터넷 사용 기록을 지우면 사라집니다. 경찰 요약·공유 글에는 동까지만 들어가요."));
   return box;
 }
 
-/** "📍 대전광역시 중구 석교동 ▾" — 누르면 집 설정 카드를 dialog로 연다. onChange(home) */
+/** "📍 석교동 행정복지센터 ▾" — 누르면 집 주소 설정 카드를 dialog로 연다. onChange(home) */
 export function homeChip(onChange) {
   const h = getHome();
-  const chip = el("button", { class: "home-chip", "aria-label": "어르신 집 동네 바꾸기" }, `📍 ${h ? h.label : "집 동네 설정"}`, el("span", { "aria-hidden": "true" }, " ▾"));
+  const chip = el("button", { class: "home-chip", "aria-label": "어르신 집 주소 바꾸기", title: h ? [h.road, h.jibun].filter(Boolean).join(" / ") : "" }, `📍 ${h ? homeShort(h) : "집 주소 설정"}`, el("span", { "aria-hidden": "true" }, " ▾"));
   chip.onclick = () => {
     const dlg = el("dialog", {});
-    dlg.append(homeSetup((nh) => { dlg.close(); dlg.remove(); chip.firstChild.textContent = `📍 ${nh.label}`; onChange?.(nh); }, { title: "어르신 집 동네" }),
+    dlg.append(homeSetup((nh) => { dlg.close(); dlg.remove(); chip.firstChild.textContent = `📍 ${homeShort(nh)}`; onChange?.(nh); }, { title: "어르신 집 주소" }),
       el("button", { class: "btn-ghost small", style: "margin-top:6px", onclick: () => { dlg.close(); dlg.remove(); } }, "닫기"));
     document.body.append(dlg); dlg.showModal();
   };

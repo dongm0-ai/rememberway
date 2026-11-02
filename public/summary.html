@@ -244,7 +244,7 @@
   function askHome(tried) {
     const box = el("div", { class: "card", id: "home-ask", style: "margin:10px 0" },
       tried ? el("p", { class: "small", style: "margin:0 0 8px" }, el("b", {}, `"${tried}" 위치를 찾지 못했어요.`)) : "",
-      homeSetup(() => location.reload(), { title: "어르신 집 동네를 알려 주세요" }));
+      homeSetup(() => location.reload(), { title: "어르신 집 주소를 알려 주세요" }));
     $("#map").before(box);
     $("#map-note").textContent = "집 위치를 몰라 반경과 동선을 만들지 못했습니다.";
   }

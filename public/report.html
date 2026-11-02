@@ -65,7 +65,7 @@
   const renderHomeSlot = () => {
     const slot = $("#home-slot"); slot.innerHTML = "";
     if (getHome()) slot.append(el("div", { class: "home-line" }, el("span", { class: "small muted" }, "어르신 집"), homeChip(renderHomeSlot)));
-    else slot.append(homeSetup(renderHomeSlot, { title: "어르신 집 동네" }));
+    else slot.append(homeSetup(renderHomeSlot, { title: "어르신 집 주소" }));
   };
   renderHomeSlot();
   const homeDong = () => getHome()?.label ?? null;

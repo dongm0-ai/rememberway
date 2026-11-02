@@ -1,6 +1,6 @@
 // 지도: 네이버 지도만 쓴다 (2026-11-02, 한국 서비스). 키(Client ID)는 /api/config 가 주는 공개용 값, 도메인 제한.
 //  - 장소 이름 → 좌표, 집 근처 가게: 네이버 지역 검색 (/api/search, 서버에서 Secret 사용)
-//  - 집 동네 → 좌표: 네이버 Geocoding, 없으면 동 행정복지센터 검색 (/api/geocode)
+//  - 집: 처음에 설정한 주소의 좌표(이 기기 저장)를 바로 씀. 없을 때만 동 이름 → 좌표 (/api/geocode)
 //  - 도보 길찾기: Valhalla 보행자 경로(공개 서버) → 실패하면 OSRM. 네이버 길찾기 API는 자동차용·유료라 걷는 길은 이것을 쓴다.
 let loading = null;
 const engine = "naver";

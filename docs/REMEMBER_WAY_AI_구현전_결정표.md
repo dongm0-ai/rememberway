@@ -175,4 +175,4 @@ README.md, .env.example, .gitignore, package.json
 - 보호자가 버스·택시를 타실 수 있다고 했으면(규칙 `ridesTransit`) 반경 밖 판단을 버스 반경(경과 시간 × 15km/h) 기준으로. 탈 수 있는 분이면 먼 추억 장소도 실제로 갈 수 있는 곳이 되기 때문.
 - 동점이면 추억 장소 먼저, 그다음 가까운 순 (목록·동선 묶음 모두).
 - 확인 예 (1시간, 보통 걸음, 반경 2.9km): 병원(오늘, 6) → 옛 직장(추억, 5) → 시장(최근, 3) → 경로당(자주, 2) → 고향 12km(추억·반경 밖, 1). 버스 가능이면 고향이 5점으로 3번.
-- 남은 과제: "치매 어르신이 옛집·옛 직장 같은 추억 장소로 향한다"는 직접 근거를 자료조사에 추가.
+- 컨셉 근거(2026-11-03 추가): Koester *Missing Person Behaviour*(2006, 87건) "May attempt to travel to former residence or favorite place", 수색할 곳 "Previous home sites / Between previous home sites and IPP" — 추억 장소 +5와 그 길(동선)의 근거. 같은 자료 89%가 1.6km 안 — 반경 밖 −4의 근거. 영국 Herbert Protocol 양식이 어릴 때 주소·예전 직장·좋아하는 곳을 받음. 국내는 사례(아이뉴스24 2018, 한국일보)뿐, 통계 없음 → 현장 자문으로 확인.

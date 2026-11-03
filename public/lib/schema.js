@@ -83,7 +83,7 @@ export const DIARY_RULES = {
 
 /** 우선 확인 순서 가중치 (화면 3에 숫자 공개. "임의 설정, 실험으로 조정") */
 export const WEIGHTS = {
-  memory: 3,
+  memory: 5, // 컨셉 "추억의 장소로 찾는다" — 반경 밖(−2)이어도 다른 종류(최대 +3)보다 앞. 2026-11-03 팀 결정
   rising: 3,
   frequent: 2,
   new: 2,

@@ -63,7 +63,7 @@
 <script type="module">
   import { store, KEYS, loadConfig, $, $$, el, fmtM, mockBanner, getHome, homeSetup } from "/js/common.js";
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS, RIDE_SPEED_KMH, ARRIVE_M, BASIC_KINDS } from "/lib/schema.js";
-  import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary, summaryGroups, SUMMARY_NOTE } from "/lib/priority.js";
+  import { maxRadiusM, rankCandidates, isMemory, actionSteps, haversineM, buildSummary, summaryGroups, SUMMARY_NOTE } from "/lib/priority.js";
   import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, EXACT_LIMIT, setHomeLabel } from "/js/map.js";
 
   const clue = store.sget(KEYS.clue);
@@ -342,7 +342,7 @@
     if (!top.length) { tourNames = []; tourLegs = new Map(); view?.setRoute(null); crossings = []; renderRank(); drawMarkers(); $("#tour-total").textContent = ""; return; }
     $("#tour-total").textContent = `${from}에서 출발하는 순서를 다시 짜는 중…`;
     const matrix = await walkMatrix([home, ...top]); // 실제 도보 거리표. 없으면 직선거리
-    const order = tourOrderByPriority(home, top, matrix, (c) => c.score); // 점수 높은 묶음부터, 묶음 안에서는 최단
+    const order = tourOrderByPriority(home, top, matrix, (c) => c.score * 2 + isMemory(c)); // 점수 높은 묶음부터(동점이면 추억 장소 묶음 먼저), 묶음 안에서는 최단
     tourNames = order.map((c) => c.name);
     const route = await walkRoute([home, ...order]);
     if (seq !== tourSeq) return; // 그 사이 또 "가 봤어요"를 눌렀으면 옛 결과는 버린다

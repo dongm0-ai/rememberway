@@ -83,19 +83,17 @@ export const DIARY_RULES = {
 
 /** 우선 확인 순서 가중치 (화면 3에 숫자 공개. "임의 설정, 실험으로 조정") */
 export const WEIGHTS = {
-  today: 6, // 보호자가 들은 "오늘 가려던 곳" — 아직 안 가 봤을 수 있어 맨 앞. [가 봤어요]로 빠짐 (2026-11-03)
-  memory: 5, // 컨셉 "추억의 장소로 찾는다" — 반경 밖(−2)이어도 다른 종류(최대 +3)보다 앞. 2026-11-03 팀 결정
+  memory: 3,
   rising: 3,
   frequent: 2,
   new: 2,
   guardian: 1,
   intersection: 2,
-  outOfRadius: -4, // 걸어서 못 가는 곳은 뒤로. 버스·택시를 타실 수 있다고 했으면 버스 반경 기준 (2026-11-03, −2 → −4)
+  outOfRadius: -2,
   basic: 0, // 보호자가 말한 곳이 하나도 없을 때만 넣는 "집 근처 기본 장소"(경로당·공원·정류장·편의점). 보호자가 말한 곳(+1 이상)보다 항상 뒤 (2026-11-03)
 };
 
 export const SOURCE_LABELS = {
-  today: "오늘 가려던 곳",
   memory: "추억 장소",
   rising: "최근 자주 가기 시작한 곳",
   frequent: "자주 가는 곳",

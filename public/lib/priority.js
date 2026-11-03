@@ -30,14 +30,9 @@ export function rankCandidates(places, intersections, rMax, alreadyChecked = [])
     if (x.distance_m > rMax) score += WEIGHTS.outOfRadius;
     out.push({ kind: "intersection", name: x.name, distance_m: x.distance_m, score, lat: x.lat, lng: x.lng, reason: "경로 위 교차로 (배회 시작 지점 후보)" });
   }
-  // 점수 높은 순, 동점이면 추억 장소 먼저(컨셉), 그다음 가까운 순 (거리 모름은 뒤로)
+  // 점수 높은 순, 동점이면 가까운 순 (거리 모름은 뒤로)
   const d = (c) => (typeof c.distance_m === "number" ? c.distance_m : 1e12);
-  return out.sort((a, b) => b.score - a.score || isMemory(b) - isMemory(a) || d(a) - d(b));
-}
-
-/** 추억 장소면 1 — 동점 정렬과 동선 묶음에서 추억 장소를 앞에 두는 데 쓴다 */
-export function isMemory(c) {
-  return c.source === "memory" ? 1 : 0;
+  return out.sort((a, b) => b.score - a.score || d(a) - d(b));
 }
 
 /** 화면 3 "지금 할 일 3가지" — 규칙 기반 체크리스트 (AI 아님) */

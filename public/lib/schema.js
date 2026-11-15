@@ -81,6 +81,16 @@ export const DIARY_RULES = {
   MIN_DAYS_FOR_PATTERN: 7,
 };
 
+/** GPS 기록 → 오래 머문 곳 (코드 규칙, 임의 설정·실험으로 조정. 2026-11-15) — 위치 예측이 아니라 지난 기록을 세는 것 */
+export const GPS_RULES = {
+  STAY_RADIUS_M: 120, // 이 거리 안에 계속 있으면 "머묾"
+  STAY_MIN: 10,       // 10분 이상 머물면 "오래 머문 곳"
+  CLUSTER_M: 150,     // 날이 달라도 150m 안이면 같은 곳
+  HOME_M: 200,        // 집 주소에서 200m 안은 집으로 보고 뺀다
+  MAX_PLACES: 8,      // 보호자에게 되물을 곳은 많이 머문 순으로 8곳까지
+  MAX_ACCURACY_M: 100 // 정확도가 이보다 나쁜 점은 버린다 (기록에 정확도가 있을 때만)
+};
+
 /** 우선 확인 순서 가중치 (화면 3에 숫자 공개. "임의 설정, 실험으로 조정") */
 export const WEIGHTS = {
   memory: 3,

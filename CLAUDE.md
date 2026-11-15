@@ -27,12 +27,14 @@ public/lib/schema.js    타입 설명·가중치·임계값·되묻기 우선순
 public/lib/verify.js    스키마 검사·missing 재계산·환각 대조 (브라우저·서버 공용)
 public/lib/priority.js  R_max, 우선 확인 순서, 지금 할 일 3가지, 요약문 조립 (규칙)
 public/lib/diary.js     일지 → 장소 4분류, 주간 집계 (규칙)
-lib/prompts.js          호출 ①②④⑤⑥ 시스템 프롬프트  ← "없으면 null", "원문에 없는 사실 금지"는 삭제 금지
+public/lib/gps.js       GPS 기록 → 오래 머문 곳(머묾·묶기·집 제외) (규칙). 원본 기록은 저장하지 않는다
+lib/prompts.js          호출 ①②④⑤⑥⑦ 시스템 프롬프트  ← "없으면 null", "원문에 없는 사실 금지"는 삭제 금지
 lib/claude.js           생성형 AI 호출 — Upstage Solar / Gemini / Claude (AI_PROVIDER), fetch, 서버 전용, 15초 타임아웃·대체 모델, MOCK_AI
 lib/http.js             서버 함수 공통 (POST 파싱, 오류 → ok:false)
-api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤  api/weekly.js ⑥  api/config.js(AI 상태만)
+api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤  api/weekly.js ⑥  api/gps.js ⑦(GPS 머문 곳 → 되묻기 질문)  api/config.js(AI 상태만)
 public/*.html           화면. 빌드 없음. 각 화면의 스크립트는 그 HTML 안에 있다
 public/js/common.js     저장·API 호출·음성 입력·공통 UI   public/js/map.js  지도(네이버 지도만)·장소 찾기(네이버 검색)·도보 길찾기(Valhalla)
+hardware/               목걸이·집 수신기 아두이노 코드 (secrets.h는 커밋하지 않는다)
 data/                   모의 사례·정답표·실험 결과       docs/  결정표·화면 구성·확정안·실험기록 (여기와 어긋나면 docs가 우선)
 ```
 

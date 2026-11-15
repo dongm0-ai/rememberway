@@ -10,7 +10,7 @@ export const KEYS = { profile: "rw_profile", diary: "rw_diary", incidents: "rw_i
 
 /** 서버 함수 호출. 10초 넘으면 {ok:false, reason:"TIMEOUT"}. 네트워크 끊김도 ok:false → 서식 모드 */
 // 생성형 AI를 부르는 서버 함수들. 처음 한 번 "보호자의 말이 AI 회사로 전달된다"는 동의를 받는다 (이 기기에 기억)
-const AI_ENDPOINTS = new Set(["extract", "followup", "diary", "weekly", "record", "gps"]);
+const AI_ENDPOINTS = new Set(["extract", "followup", "diary", "weekly", "record"]);
 const CONSENT_KEY = "rw_ai_consent";
 export const aiConsented = () => { try { return Boolean(localStorage.getItem(CONSENT_KEY)); } catch { return false; } };
 /** 동의 창. 동의 → true(기억), "AI 없이" → false(이번 방문 동안 다시 묻지 않음, 서식 입력으로) */

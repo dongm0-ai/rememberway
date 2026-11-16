@@ -15,7 +15,7 @@
 - **AI 출력을 검증 없이 쓰지 않는다.** 모든 AI 응답은 `public/lib/verify.js`(스키마 검사, 원문 대조 ⚠)를 거친 뒤에만 화면에 쓴다. `missing`은 AI 값을 믿지 않고 `computeMissing`으로 다시 계산한다.
 - **이름을 입력받지 않는다.** 호칭(아버지·어머니·어르신)만. 집 주소는 도로명·지번·건물명까지만(아파트 동·호수는 받지 않음), 보호자 기기 `localStorage`(`rw_home`)에만 저장하고 서버에 남기지 않는다. 경찰 요약·공유 글·AI 호출에는 동까지만. 복용약은 성분명 없이 "복용 여부"만. 사진은 저장하지 않는다. (2026-11-03 지도교사 결정)
 - **API 키를 브라우저에 두지 않는다.** `UPSTAGE_API_KEY`/`GEMINI_API_KEY`/`ANTHROPIC_API_KEY`는 서버 함수(`api/*.js`, `lib/claude.js`)에서만 읽는다. `.env.local`은 커밋하지 않는다.
-- **서버 DB를 만들지 않는다.** 프로필·일지·사건 기록은 보호자 기기 `localStorage`에만. (예외: 푸시 알림 구독 — 알림 주소와 마지막 일지 날짜만 Supabase `push_subs`에. 이름·주소·일지 내용은 서버에 두지 않는다. 결정표 2026-10-30)
+- **서버 DB를 만들지 않는다.** 프로필·일지·사건 기록은 보호자 기기 `localStorage`에만. (예외 1: 푸시 알림 구독 — 알림 주소와 마지막 일지 날짜만 Supabase `push_subs`에. 결정표 2026-10-30. 예외 2: 목걸이 실시간 위치 — 연결 코드 해시·좌표·시각만 Supabase `loc_events`에, 보호자가 [기록 모두 지우기]로 지운다. 이름·주소·일지 내용은 서버에 두지 않는다. 결정표 2026-11-16 지도교사 결정)
 - **녹화 결과를 실시간인 척하지 않는다.** 미리 저장한 결과를 보여 줄 때는 화면에 "녹화 결과"라고 표시한다.
 - **MOCK_AI=1 모의 응답을 실제 AI 결과처럼 쓰지 않는다.** 모의 응답이면 화면 상단 배너(`mockBanner`)를 지우지 않는다.
 - **모의 데이터를 실제인 것처럼 쓰지 않는다.** 모든 사례는 가명·가짜 주소. `data/mock_cases.json`의 `_note`를 유지한다.
@@ -30,9 +30,12 @@ public/lib/diary.js     일지 → 장소 4분류, 주간 집계 (규칙)
 lib/prompts.js          호출 ①②④⑤⑥ 시스템 프롬프트  ← "없으면 null", "원문에 없는 사실 금지"는 삭제 금지
 lib/claude.js           생성형 AI 호출 — Upstage Solar / Gemini / Claude (AI_PROVIDER), fetch, 서버 전용, 15초 타임아웃·대체 모델, MOCK_AI
 lib/http.js             서버 함수 공통 (POST 파싱, 오류 → ok:false)
-api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤  api/weekly.js ⑥  api/config.js(AI 상태만)
+api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤  api/weekly.js ⑥  api/config.js(AI 상태만)  api/loc.js(목걸이 위치 중계, AI 없음)
+                        ※ Vercel 무료 플랜 함수 12개 한도 — 지금 12개. 새 API는 기존 파일에 action으로 합친다
 public/*.html           화면. 빌드 없음. 각 화면의 스크립트는 그 HTML 안에 있다
 public/js/common.js     저장·API 호출·음성 입력·공통 UI   public/js/map.js  지도(네이버 지도만)·장소 찾기(네이버 검색)·도보 길찾기(Valhalla)
+hardware/               목걸이·현관 수신기 아두이노 코드 (secrets.h는 커밋하지 않는다)
+android/                어르신 휴대폰용 위치 중계 앱 (Kotlin, 외부 라이브러리 없음). GitHub Actions가 APK를 만들어 릴리스 tracker-apk 에 올린다
 data/                   모의 사례·정답표·실험 결과       docs/  결정표·화면 구성·확정안·실험기록 (여기와 어긋나면 docs가 우선)
 ```
 

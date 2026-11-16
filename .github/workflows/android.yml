@@ -1,0 +1,26 @@
+# 어르신용 위치 중계 앱(android/)을 GitHub에서 빌드해 "tracker-apk" 릴리스에 APK로 올린다 (휴대폰에서 바로 받기)
+name: android-apk
+on:
+  push:
+    paths: ["android/**", ".github/workflows/android.yml"]
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.7" }
+      - name: Build debug APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Publish release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk RememberWay-location.apk
+          gh release delete tracker-apk -y --cleanup-tag || true
+          gh release create tracker-apk RememberWay-location.apk --title "어르신용 위치 중계 앱 (시제품)" --notes "목걸이(블루투스) → 이 휴대폰 → 서버 → 보호자 웹앱 /track. 시제품(디버그 빌드)입니다. 커밋 ${GITHUB_SHA::7}" --prerelease

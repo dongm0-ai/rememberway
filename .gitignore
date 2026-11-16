@@ -7,3 +7,9 @@ data/results_*.json
 
 # 하드웨어 비밀값 (와이파이·텔레그램 봇 토큰)
 hardware/**/secrets.h
+
+# 안드로이드 빌드 결과
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>목걸이 위치 — REMEMBER WAY AI</title>
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#f2f4f6">
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    #map { height: 340px; border-radius: 18px; overflow: hidden; background: var(--line); margin: 10px 0; }
+    .code { font-size: 26px; font-weight: 800; letter-spacing: 2px; text-align: center; padding: 14px; background: var(--line); border-radius: 14px; margin: 8px 0; user-select: all; }
+    .big { font-size: 20px; font-weight: 800; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="topbar"><a class="back" href="/">← 처음</a><span class="step">목걸이 위치 (어르신 휴대폰 연동)</span></div>
+  <h1>목걸이 위치</h1>
+  <div class="alert" style="margin-top:6px">어르신이 안 보이시면 먼저 112에 전화하세요.<a class="btn btn-danger btn-xl call112" href="tel:112">📞 112 전화하기</a></div>
+
+  <section id="pair" class="hidden">
+    <p class="muted">목걸이 위치는 <b>어르신 휴대폰의 REMEMBER WAY 위치 앱</b>을 거쳐 이 화면으로 옵니다. 먼저 연결 코드를 만들어 어르신 휴대폰 앱에 입력해 주세요.</p>
+    <div class="card tight">
+      <label class="small"><input type="checkbox" id="agree"> 어르신 본인(또는 보호 의무가 있는 가족)의 동의를 받았습니다. 위치는 찾기 위해서만 보고, 찾은 뒤에는 기록을 지웁니다.</label>
+    </div>
+    <button class="btn-primary btn-xl" id="make" disabled>연결 코드 만들기</button>
+  </section>
+
+  <section id="live" class="hidden">
+    <div class="card tight">
+      <div class="small muted">연결 코드 (어르신 휴대폰 앱에 입력)</div>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card">
+      <div class="big" id="when">위치를 기다리는 중…</div>
+      <div class="small muted" id="detail">어르신 휴대폰 앱이 켜져 있고 목걸이가 가까이 있어야 위치가 옵니다.</div>
+      <div id="map"></div>
+      <div class="stack">
+        <a class="btn btn-primary hidden" id="nav" target="_blank" rel="noopener">네이버 지도에서 이 위치로 길찾기</a>
+        <a class="btn btn-secondary hidden" id="find" href="/find">근처에 왔으면: 목걸이 소리로 찾기</a>
+      </div>
+    </div>
+    <div class="card tight">
+      <div class="small"><b>알아 두세요</b></div>
+      <ul class="plain small muted">
+        <li>시각은 <b>GPS가 잰 시각</b>이에요. 받은 시각이 늦을 수 있어요(휴대폰이 인터넷에 늦게 연결된 경우).</li>
+        <li>어르신이 <b>휴대폰을 두고 나가시거나</b>, 목걸이와 휴대폰이 멀어지거나, 실내라 GPS가 안 잡히면 위치가 오지 않아요. 그때는 <b>마지막으로 받은 위치</b>와 시각을 보여 줍니다.</li>
+        <li>10초마다 새로 확인해요 (목걸이가 10초마다 보냄 — Shoval 외 2008).</li>
+      </ul>
+    </div>
+    <button class="btn-secondary" id="clear">찾은 뒤: 위치 기록 모두 지우기</button>
+    <button class="btn-ghost" id="unpair">연결 코드 지우기 (이 휴대폰에서)</button>
+    <p class="small" id="msg"></p>
+  </section>
+</main>
+<script type="module">
+  import { $, el, loadConfig } from "/js/common.js";
+  import { loadMap } from "/js/map.js";
+  const K = "rw_track";
+  const get = () => { try { return JSON.parse(localStorage.getItem(K) || "null"); } catch { return null; } };
+  const set = (v) => { try { v ? localStorage.setItem(K, JSON.stringify(v)) : localStorage.removeItem(K); } catch {} };
+  let pair = get(), map = null, marker = null, line = null, timer = null;
+
+  function newKey() { const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", b = crypto.getRandomValues(new Uint8Array(16)); return [...b].map((x) => A[x % 32]).join(""); }
+  const pretty = (k) => k.match(/.{4}/g).join("-");
+
+  $("#agree").onchange = (e) => ($("#make").disabled = !e.target.checked);
+  $("#make").onclick = () => { pair = { key: newKey(), created: new Date().toISOString() }; set(pair); show(); };
+  $("#unpair").onclick = () => { if (!confirm("이 휴대폰에서 연결 코드를 지울까요? 어르신 앱에도 새 코드를 넣어야 해요.")) return; set(null); pair = null; clearInterval(timer); show(); };
+  $("#clear").onclick = async () => {
+    if (!confirm("서버에 있는 이 목걸이의 위치 기록을 모두 지울까요? 되돌릴 수 없어요.")) return;
+    const r = await post({ action: "clear", key: pair.key }); $("#msg").textContent = r.ok ? "위치 기록을 모두 지웠어요." : `지우지 못했어요 (${r.reason})`; if (r.ok) refresh();
+  };
+
+  async function post(body) { try { return await (await fetch("/api/loc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json(); } catch { return { ok: false, reason: "NETWORK" }; } }
+  const hhmmss = (iso) => new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const ago = (iso, now) => { const s = Math.max(0, Math.round((Date.parse(now) - Date.parse(iso)) / 1000)); return s < 60 ? `${s}초 전` : s < 3600 ? `${Math.round(s / 60)}분 전` : `${Math.round(s / 3600)}시간 전`; };
+
+  async function refresh() {
+    const r = await post({ action: "latest", key: pair.key, limit: 360 });
+    if (!r.ok) { $("#detail").textContent = r.reason === "NO_STORE" ? "서버 저장소가 아직 연결되지 않았어요 (관리자 설정 필요)." : `위치를 불러오지 못했어요 (${r.reason}).`; return; }
+    const pts = r.points;
+    if (!pts.length) { $("#when").textContent = "아직 받은 위치가 없어요"; return; }
+    const p = pts[0], t = p.gps_time || p.received_at;
+    $("#when").textContent = `${p.gps_time ? "GPS 측정" : "받은 시각"} ${hhmmss(t)} (${ago(t, r.now)})`;
+    $("#detail").textContent = `받은 시각 ${hhmmss(p.received_at)} · 좌표 ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.speed_kmh != null ? ` · 속도 ${p.speed_kmh.toFixed(1)}km/h` : ""} · 최근 위치 ${pts.length}개`;
+    $("#nav").href = `https://map.naver.com/p/directions/-/${p.lng},${p.lat},${encodeURIComponent("목걸이 마지막 위치")}/-/walk`; $("#nav").classList.remove("hidden"); $("#find").classList.remove("hidden");
+    const nv = await mapLib(); if (!nv) { $("#map").textContent = "지도를 불러오지 못했어요. 위 좌표와 길찾기 버튼을 쓰세요."; return; }
+    const pos = new nv.maps.LatLng(p.lat, p.lng), path = pts.slice().reverse().map((x) => new nv.maps.LatLng(x.lat, x.lng));
+    if (!map) map = new nv.maps.Map($("#map"), { center: pos, zoom: 16 });
+    if (!marker) marker = new nv.maps.Marker({ map, position: pos, icon: { content: '<div style="width:22px;height:22px;border-radius:50%;background:#d92d20;border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)"></div>', anchor: new nv.maps.Point(11, 11) } });
+    else marker.setPosition(pos);
+    if (!line) line = new nv.maps.Polyline({ map, path, strokeColor: "#2f6fe4", strokeWeight: 4, strokeOpacity: 0.7 }); else line.setPath(path);
+    map.setCenter(pos);
+  }
+  let libP = null;
+  function mapLib() { return (libP ??= loadConfig().then((c) => loadMap(c?.map ?? {}))); }
+
+  function show() {
+    $("#pair").classList.toggle("hidden", !!pair); $("#live").classList.toggle("hidden", !pair);
+    if (!pair) return;
+    $("#code").textContent = pretty(pair.key);
+    refresh(); clearInterval(timer); timer = setInterval(refresh, 10000);
+  }
+  show();
+</script>
+</body>
+</html>

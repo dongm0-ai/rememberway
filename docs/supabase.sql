@@ -15,3 +15,21 @@ create table if not exists app_kv (
 -- 브라우저용 공개 키(anon)로는 읽기·쓰기 불가. 서버 함수는 service_role 키로만 접근.
 alter table push_subs enable row level security;
 alter table app_kv    enable row level security;
+
+-- ---------------------------------------------------------------- 실시간 위치 중계 (2026-11-16 지도교사 결정, 한 번만 Run)
+-- 목걸이 → 어르신 휴대폰 앱 → /api/loc → 여기 → 보호자 웹앱 지도.
+-- dev 는 연결 코드의 해시(코드 자체는 저장 안 함). 이름·주소는 저장하지 않는다. 보호자가 [기록 모두 지우기]로 지운다.
+create table if not exists loc_events (
+  id          bigserial primary key,
+  dev         text not null,
+  lat         double precision not null,
+  lng         double precision not null,
+  gps_time    timestamptz,                 -- GPS가 잰 시각 (UTC)
+  received_at timestamptz default now(),   -- 서버가 받은 시각
+  speed_kmh   double precision,
+  fix_age_ms  integer,
+  seq         bigint,
+  fw          text
+);
+create index if not exists loc_events_dev_time on loc_events (dev, received_at desc);
+alter table loc_events enable row level security;

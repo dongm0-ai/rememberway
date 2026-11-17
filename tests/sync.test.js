@@ -118,25 +118,53 @@ test("setCurrentElder swaps synced keys and rw_track per elder", () => {
   setCurrentElder(E1);
   assert.deepEqual(lsGet(KEYS.diary)[0].visited, ["a", "b"]); assert.equal(lsGet("rw_track").key, "AAAAAAAAAAAAAAAA");
 });
-test("setCurrentElder with no previous elder keeps the phone's old connection code as the first elder's", () => {
-  reset(); lsSet("rw_track", { key: "LEGACYLEGACYLEGA" });
+test("first elder pick never inherits this phone's old data: it goes to a device-only backup", () => {
+  reset();
+  lsSet(KEYS.profile, { honorific: "아버지" }); lsSet(KEYS.diary, [{ date: "d", visited: ["a"] }]);
+  lsSet("rw_track", { key: "LEGACYLEGACYLEGA" }); lsSet("rw_home", HOME);
   setCurrentElder(E1);
-  assert.equal(lsGet("rw_track").key, "LEGACYLEGACYLEGA");
-  setCurrentElder(E2); setCurrentElder(E1);
-  assert.equal(lsGet("rw_track").key, "LEGACYLEGACYLEGA");
+  for (const k of [...SYNCED, "rw_track", "rw_home", "rw_home:" + E1.id]) assert.equal(mem.has(k), false, k);
+  const keys = fam.phoneBackups();
+  assert.equal(keys.length, 1); assert.match(keys[0], /^rw_backup_\d+/);
+  const b = lsGet(keys[0]);
+  assert.equal(b.profile.honorific, "아버지"); assert.equal(b.track.key, "LEGACYLEGACYLEGA"); assert.equal(b.home.label, "석교동");
+  assert.equal(lsGet("rw_dirty"), null, "보관한 데이터는 올리지 않는다");
+});
+test("invited to another family's elder with old phone data: nothing leaks into that elder", async () => {
+  reset();
+  lsSet(KEYS.profile, { honorific: "우리 아버지", places: [{ name: "비밀 장소" }] }); lsSet("rw_track", { key: "LEGACYLEGACYLEGA" }); lsSet("rw_home", HOME);
+  const server = { profile: { honorific: "어머니", places: [] }, diary: [], incidents: [], updated_at: base0 };
+  const calls = fakeServer((b) => (b.action === "me" ? { ok: true, elders: [E2] } : b.action === "data.load" ? { ok: true, data: server } : { ok: false, reason: "BAD_ACTION" }));
+  const elders = await listElders();
+  assert.equal((await importLocalData({ elders, userId: "u9", ask: () => true })).skipped, true);
+  setCurrentElder(E2);
+  assert.equal(await pull(), "ok");
+  assert.deepEqual(lsGet(KEYS.profile), server.profile);
+  assert.equal(mem.has("rw_track"), false); assert.equal(mem.has("rw_home:" + E2.id), false); assert.equal(getHome(), null);
+  assert.deepEqual(calls.map((c) => c.action), ["me", "data.load"], "이 폰 데이터를 올리지 않았다");
+  assert.equal(fam.phoneBackups().length, 1);
+});
+test("after an account switch the old account's connection code does not become the new account's elder's", () => {
+  reset();
+  lsSet("rw_owner_user", "u1"); setCurrentElder(E1); lsSet("rw_track", { key: "OLDACCOUNTCODE23" }); lsSet("rw_home:" + E1.id, HOME);
+  assert.equal(checkAccount("u2"), "switched");
+  setCurrentElder(E2);
+  assert.equal(mem.has("rw_track"), false);
+  assert.equal(lsGet(fam.phoneBackups()[0]).track.key, "OLDACCOUNTCODE23");
+  assert.equal(getHome(), null);
 });
 
 // ---- 집 주소 (common.js) ----------------------------------------------------------------
-test("home is per elder; the old rw_home moves to the first elder", () => {
+test("home is per elder; the old rw_home is never handed to whichever elder is picked", () => {
   reset(); lsSet("rw_home", HOME);
   assert.equal(getHome().label, "석교동");   // 어르신이 없으면 옛 키
   lsSet("rw_elder", E1);
-  assert.equal(getHome().label, "석교동");
-  assert.equal(mem.has("rw_home"), false); assert.equal(lsGet("rw_home:" + E1.id).label, "석교동");
+  assert.equal(getHome(), null);
+  assert.ok(mem.has("rw_home"), "옮기지 않는다");
+  saveHome({ label: "대흥동", lat: 36.32, lng: 127.42 });
+  assert.equal(lsGet("rw_home:" + E1.id).label, "대흥동");
   lsSet("rw_elder", E2);
   assert.equal(getHome(), null, "다른 어르신은 집 주소가 따로");
-  saveHome({ label: "대흥동", lat: 36.32, lng: 127.42 });
-  assert.equal(lsGet("rw_home:" + E2.id).label, "대흥동"); assert.equal(lsGet("rw_home:" + E1.id).label, "석교동");
 });
 test("store.set calls the hook after writing", () => {
   reset(); const seen = [];
@@ -351,4 +379,87 @@ test("conflict while the guardian edited another key meanwhile: that edit is kep
   assert.deepEqual(calls[1].incidents, [{ id: 9 }]); assert.deepEqual(calls[1].diary.map((d) => d.date), ["d0", "d1"]);
   assert.deepEqual(lsGet(KEYS.profile), server.profile);
   assert.equal(mem.has("rw_dirty"), false);
+});
+
+// ---- 고친 것 (리뷰 1회차) ----------------------------------------------------------------
+test("conflict: a diary edit to the same key made while the save was in flight survives", async () => {
+  withElder({ diary: [{ date: "d1", visited: ["a"] }] });
+  const server = { profile: null, diary: [{ date: "d0", visited: ["z"] }], incidents: [], updated_at: base1 };
+  const calls = fakeServer((b, n) => {
+    if (n === 1) { store.set(KEYS.diary, [{ date: "d1", visited: ["a", "b"] }, { date: "d2", visited: ["c"] }]); return { ok: false, reason: "CONFLICT", data: server }; }
+    return { ok: true, updated_at: base2 };
+  });
+  store.set(KEYS.diary, [{ date: "d1", visited: ["a", "b"] }]);
+  assert.equal(await flush(), "ok");
+  assert.deepEqual(lsGet(KEYS.diary).map((d) => d.date), ["d0", "d1", "d2"]);
+  assert.deepEqual(calls[1].diary.map((d) => d.date), ["d0", "d1", "d2"]);
+  assert.equal(mem.has("rw_dirty"), false);
+});
+test("conflict: a profile edit to the same key made while the save was in flight survives (server profile untouched)", async () => {
+  const p0 = { honorific: "아버지", places: [] };
+  withElder({ profile: p0, base: { profile: p0, diary: [], incidents: [] } });
+  const server = { profile: p0, diary: [{ date: "d", visited: ["x"] }], incidents: [], updated_at: base1 };
+  const calls = fakeServer((b, n) => {
+    if (n === 1) { store.set(KEYS.profile, { honorific: "아버지", places: [{ name: "시장" }, { name: "공원" }] }); return { ok: false, reason: "CONFLICT", data: server }; }
+    return { ok: true, updated_at: base2 };
+  });
+  store.set(KEYS.profile, { honorific: "아버지", places: [{ name: "시장" }] });
+  assert.equal(await flush(), "ok");
+  assert.deepEqual(lsGet(KEYS.profile).places.map((p) => p.name), ["시장", "공원"]);
+  assert.deepEqual(calls[1].profile.places.map((p) => p.name), ["시장", "공원"]);
+});
+test("pull keeps this phone's raw text and near-home points when the server holds the sanitized same data", async () => {
+  withElder(); lsSet("rw_home:" + E1.id, HOME);
+  const localDiary = [{ date: "d", visited: ["경로당"], spoken: "오늘 경로당에…", coords: { 경로당: NEAR } }];
+  const localProfile = { honorific: "아버지", places: [{ name: "경로당", ...NEAR }] };
+  lsSet(KEYS.diary, localDiary); lsSet(KEYS.profile, localProfile);
+  const data = { profile: sanitizeForUpload(KEYS.profile, localProfile, HOME), diary: sanitizeForUpload(KEYS.diary, localDiary, HOME), incidents: [], updated_at: base1 };
+  fakeServer(() => ({ ok: true, data }));
+  assert.equal(await pull(), "ok");
+  assert.deepEqual(lsGet(KEYS.diary), localDiary); assert.deepEqual(lsGet(KEYS.profile), localProfile);
+  fakeServer(() => ({ ok: true, data: { ...data, diary: [{ date: "d", visited: ["시장"] }], updated_at: base2 } }));
+  await pull();
+  assert.deepEqual(lsGet(KEYS.diary), [{ date: "d", visited: ["시장"] }], "서버 값이 정말 다르면 서버 값");
+});
+test("mergeDiary same day unions extracted places and mentions and keeps both notes", () => {
+  const m = mergeDiary([{ date: "d", visited: [], extracted: { new_places: [{ name: "약국" }], mentions: [{ place: "바다", kind: "memory" }], notes: "기침" } }],
+    [{ date: "d", visited: [], extracted: { new_places: [{ name: "시장" }, { name: "약국" }], mentions: [], notes: "잘 주무심" } }]);
+  assert.deepEqual(m[0].extracted.new_places.map((p) => p.name).sort(), ["시장", "약국"]);
+  assert.deepEqual(m[0].extracted.mentions, [{ place: "바다", kind: "memory" }]);
+  assert.equal(m[0].extracted.notes, "잘 주무심 / 기침");
+});
+test("gone event tells the shell the home address was removed", () => {
+  reset(); setCurrentElder(E1); lsSet("rw_home:" + E1.id, HOME);
+  const events = []; const off = onSync((e) => events.push(e));
+  applyLoadResult({ ok: false, reason: "GONE" }, E1.id); off();
+  assert.deepEqual(events, [{ type: "gone", elderId: E1.id, homeRemoved: true, wasCurrent: true }]);
+});
+test("importLocalData marks asked only after ask() resolves", async () => {
+  reset(); lsSet(KEYS.profile, { honorific: "아버지" });
+  await assert.rejects(importLocalData({ elders: [], userId: "u1", ask: async () => { throw new Error("closed"); } }));
+  assert.equal(mem.has("rw_import_asked"), false);
+});
+test("listElders forgets every cached elder (and its home) that is not in the server list", async () => {
+  reset(); setCurrentElder(E2);
+  lsSet(`rw_cache:${E1.id}`, { profile: { honorific: "아버지" } }); lsSet("rw_home:" + E1.id, HOME); lsSet(`rw_cache:${E2.id}`, {});
+  fakeServer(() => ({ ok: true, elders: [E2] }));
+  await listElders();
+  assert.equal(mem.has(`rw_cache:${E1.id}`), false); assert.equal(mem.has("rw_home:" + E1.id), false);
+  assert.ok(mem.has(`rw_cache:${E2.id}`)); assert.deepEqual(currentElder(), E2);
+});
+test("a save answered after an account switch does not write the old account's cache", async () => {
+  withElder(); lsSet("rw_owner_user", "u1");
+  let release; const gate = new Promise((r) => (release = r));
+  fakeServer(async () => { await gate; return { ok: false, reason: "CONFLICT", data: { profile: { honorific: "x" }, diary: [], incidents: [], updated_at: base1 } }; });
+  store.set(KEYS.profile, { honorific: "아버지" });
+  const p = flush();
+  await new Promise((r) => setImmediate(r));
+  checkAccount("u2"); release();
+  await p;
+  assert.equal(mem.has(`rw_cache:${E1.id}`), false); assert.equal(mem.has(KEYS.profile), false); assert.equal(mem.has("rw_dirty"), false);
+});
+test("sanitize treats string numbers and [lat,lng] tuples as points", () => {
+  const p = sanitizeForUpload(KEYS.profile, { places: [{ name: "a", lat: String(NEAR.lat), lng: String(NEAR.lng) }], path: [[NEAR.lat, NEAR.lng], [FAR.lat, FAR.lng]] }, HOME);
+  assert.equal(p.places[0].lat, undefined); assert.equal(p.places[0].name, "a");
+  assert.deepEqual(p.path, [[FAR.lat, FAR.lng]]);
 });

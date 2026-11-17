@@ -60,12 +60,25 @@ function emit(e) {
 // ---------------------------------------------------------------- 서버 호출 (테스트는 바꿔 끼운다)
 let transport = (body) => authFetch(body);
 let timer = null;
+let generation = 0;   // 다른 계정으로 로그인하면 올라간다 — 그 전에 보낸 요청의 응답은 버린다
 /** 테스트용: 서버 호출 함수 바꾸기 (대기 중인 올리기도 취소) */
 export function _setTransport(fn) { transport = fn; clearTimeout(timer); timer = null; }
 async function call(body) { try { return (await transport(body)) ?? { ok: false, reason: "NETWORK" }; } catch { return { ok: false, reason: "NETWORK" }; } }
 
 // ---------------------------------------------------------------- 순수 함수
-/** 일지 합치기: 날짜별. 같은 날이면 visited 합집합(+ 이 폰 쪽 다른 칸 우선), 날짜순 */
+const unionBy = (a, b, keyOf) => { const m = new Map(); for (const x of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) if (x && !m.has(keyOf(x))) m.set(keyOf(x), x); return [...m.values()]; };
+/** 같은 날 AI가 뽑은 것 합치기: 장소·언급은 이름으로 합집합, 특이사항은 둘이 다르면 둘 다 (서버 것 먼저) */
+function mergeExtracted(s, l) {
+  if (!s || typeof s !== "object") return l;
+  if (!l || typeof l !== "object") return s;
+  const notes = [...new Set([s.notes, l.notes].filter((x) => typeof x === "string" && x.trim()))];
+  return { ...s, ...l,
+    new_places: unionBy(s.new_places, l.new_places, (p) => p?.name ?? JSON.stringify(p)),
+    mentions: unionBy(s.mentions, l.mentions, (m) => `${m?.place ?? ""}|${m?.kind ?? ""}`),
+    notes: notes.length ? notes.join(" / ") : null };
+}
+/** 일지 합치기: 날짜별, 날짜순. 같은 날이면 visited·coords·extracted(장소·언급·특이사항)는 합집합, 나머지 칸은 이 폰 쪽 우선.
+ *  지운 날은 따로 기록하지 않으므로, 한쪽에서 지운 날이 다른 쪽에 남아 있으면 합칠 때 되살아난다 (일지는 지우는 일이 드물고, 잃는 것보다 낫다) */
 export function mergeDiary(local, server) {
   const byDate = new Map();
   for (const e of Array.isArray(server) ? server : []) if (e && e.date) byDate.set(String(e.date), clone(e));
@@ -75,6 +88,7 @@ export function mergeDiary(local, server) {
     if (!s) { byDate.set(String(e.date), clone(e)); continue; }
     const m = { ...s, ...clone(e), visited: [...new Set([...(s.visited ?? []), ...(e.visited ?? [])])] };
     if (s.coords || e.coords) m.coords = { ...(s.coords ?? {}), ...(e.coords ?? {}) };
+    if (s.extracted || e.extracted) m.extracted = mergeExtracted(clone(s.extracted), clone(e.extracted));
     if (m.visited.length) { m.stayed_home = false; m.unknown = false; }   // 누군가 다녀온 곳을 적었으면 "집에만"·"모름"은 맞지 않다
     byDate.set(String(e.date), m);
   }
@@ -89,10 +103,17 @@ export function sanitizeForUpload(key, value, home) {
   if (value === null || value === undefined) return value ?? null;
   const v = clone(value);
   const h = home && Number.isFinite(Number(home.lat)) && Number.isFinite(Number(home.lng)) ? { lat: Number(home.lat), lng: Number(home.lng) } : null;
-  const nearHome = (o) => h && typeof o.lat === "number" && typeof o.lng === "number" && haversineM(h.lat, h.lng, o.lat, o.lng) <= ARRIVE_M;
+  const num = (x) => (typeof x === "number" ? x : typeof x === "string" && x.trim() !== "" ? Number(x) : NaN);   // "36.3" 같은 글자 숫자도
+  const near = (lat, lng) => h && Number.isFinite(lat) && Number.isFinite(lng) && haversineM(h.lat, h.lng, lat, lng) <= ARRIVE_M;
+  const nearHome = (o) => near(num(o.lat), num(o.lng ?? o.lon));
+  const isTuple = (a) => a.length === 2 && a.every((x) => Number.isFinite(num(x)));   // [lat, lng]
   const walk = (node) => {   // false 를 돌려주면 부모에서 지운다
     if (!node || typeof node !== "object") return true;
-    if (Array.isArray(node)) { for (let i = node.length - 1; i >= 0; i--) if (!walk(node[i])) node.splice(i, 1); return true; }
+    if (Array.isArray(node)) {
+      if (isTuple(node) && near(num(node[0]), num(node[1]))) return false;
+      for (let i = node.length - 1; i >= 0; i--) if (!walk(node[i])) node.splice(i, 1);
+      return true;
+    }
     for (const k of Object.keys(node)) if (RAW_SPEECH.has(k)) delete node[k];
     if (nearHome(node)) {
       if (Object.keys(node).every((k) => POINT_ONLY.has(k))) return false;
@@ -122,8 +143,38 @@ function setDirty(id, fields) {
 /** 현재 어르신 {id,label,role} | null */
 export function currentElder() { const e = jget(ELDER_KEY, null); return e && typeof e.id === "string" && e.id ? e : null; }
 
+const BACKUP_PREFIX = "rw_backup_";
+const LEGACY_HOME = homeKeyFor(null);   // "rw_home"
+const HOME_PREFIX = homeKeyFor("x").slice(0, -1);   // "rw_home:"
+/** 어르신을 고르지 않은 상태의 이 폰 데이터(SYNCED 키·rw_track·옛 rw_home)를 어느 어르신에도 넘기지 않고 따로 보관한 뒤 비운다.
+ *  보관 키 "rw_backup_<시각>" — 이 폰에만, 서버로 올리지 않는다. 보관할 게 없으면 null */
+function backupPhoneData() {
+  const b = {};
+  for (const f of Object.keys(EMPTY)) { const v = jget(KEY_OF[f], null); if (v !== null) b[f] = v; }
+  const t = jget(TRACK_KEY, null), h = jget(LEGACY_HOME, null);
+  if (t !== null) b.track = t;
+  if (h !== null) b.home = h;
+  if (!Object.keys(b).length) return null;
+  let k = BACKUP_PREFIX + Date.now();
+  while (rawGet(k) !== null) k += "_";
+  jset(k, { ...b, saved_at: new Date().toISOString() });
+  for (const f of Object.keys(EMPTY)) writeWorking(f, null);
+  del(TRACK_KEY); del(LEGACY_HOME);
+  return k;
+}
+/** 이 폰에 따로 보관된 옛 데이터 키 목록 (설정 화면에서 안내·삭제용) */
+export function phoneBackups() { return allKeys().filter((k) => k.startsWith(BACKUP_PREFIX)).sort(); }
+
+/** 사본을 현재 SYNCED 키·rw_track 으로 꺼낸다 */
+function loadWorking(id) {
+  const c = readCache(id);
+  for (const f of Object.keys(EMPTY)) writeWorking(f, f in c ? c[f] : null);
+  if (c.track) jset(TRACK_KEY, c.track); else del(TRACK_KEY);
+}
+
 /** 현재 어르신 바꾸기: 떠나는 어르신의 SYNCED 키·rw_track 사본을 rw_cache 에 보관하고, 새 어르신 사본을 꺼낸다.
- *  처음 고르는 것(이전 어르신 없음)이고 새 어르신 사본에 연결 코드가 없으면, 이 폰의 기존 rw_track 은 그 어르신 것으로 남긴다. null → 고른 어르신 없음 */
+ *  이전 어르신이 없을 때 이 폰에 남아 있던 데이터(계정 전 데이터, 다른 계정의 연결 코드 등)는 고른 어르신에 넘기지 않고 rw_backup_* 으로 옮긴다
+ *  (그 데이터를 어르신으로 올리는 건 importLocalData 만). null → 고른 어르신 없음 */
 export function setCurrentElder(e) {
   const prev = currentElder();
   if (prev) {
@@ -138,34 +189,36 @@ export function setCurrentElder(e) {
     if (prev) { for (const f of Object.keys(EMPTY)) writeWorking(f, null); del(TRACK_KEY); }
     return;
   }
+  if (prev?.id === e.id) { jset(ELDER_KEY, { id: e.id, label: e.label ?? "", role: e.role ?? "member" }); return; }
+  if (!prev) backupPhoneData();
   jset(ELDER_KEY, { id: e.id, label: e.label ?? "", role: e.role ?? "member" });
-  if (prev?.id === e.id) return;
-  const hasCache = rawGet(cacheKey(e.id)) !== null;
-  const c = readCache(e.id);
-  if (hasCache || prev) for (const f of Object.keys(EMPTY)) writeWorking(f, f in c ? c[f] : null);
-  if (c.track) jset(TRACK_KEY, c.track); else if (prev) del(TRACK_KEY);
+  loadWorking(e.id);
 }
 
-/** 그 어르신의 이 폰 사본을 모두 지운다 (서버가 GONE) */
+/** 그 어르신의 이 폰 사본을 모두 지운다 (서버가 GONE, 또는 내 목록에 없음). 집 주소도 지우고 이벤트로 알린다 */
 function forget(elderId) {
+  const homeRemoved = rawGet(homeKeyFor(elderId)) !== null;
   del(cacheKey(elderId)); setDirty(elderId, []); del(homeKeyFor(elderId));
   const list = jget(ELDERS_KEY, null);
   if (Array.isArray(list)) jset(ELDERS_KEY, list.filter((x) => x?.id !== elderId));
-  if (currentElder()?.id === elderId) { del(ELDER_KEY); for (const f of Object.keys(EMPTY)) writeWorking(f, null); del(TRACK_KEY); }
-  emit({ type: "gone", elderId });
+  const wasCurrent = currentElder()?.id === elderId;
+  if (wasCurrent) { del(ELDER_KEY); for (const f of Object.keys(EMPTY)) writeWorking(f, null); del(TRACK_KEY); }
+  emit({ type: "gone", elderId, homeRemoved, wasCurrent });
 }
 
 /** data.load 응답 → 사본 반영. "ok" | "gone"(GONE: 그 어르신 사본·rw_elder 삭제) | "offline"(그 밖의 실패: 이 폰 사본 그대로) */
 export function applyLoadResult(res, elderId) {
   if (res?.ok && res.data) {
-    const d = res.data, c = readCache(elderId), isCur = currentElder()?.id === elderId, dirty = dirtyOf(elderId);
+    const d = res.data, c = readCache(elderId), isCur = currentElder()?.id === elderId, dirty = dirtyOf(elderId), home = homeFor(elderId);
     const base = {};
     for (const f of Object.keys(EMPTY)) {
       const srv = d[f] ?? EMPTY[f];
       base[f] = clone(srv);
       const local = isCur ? readWorking(f) : (c[f] ?? EMPTY[f]);
-      // 응답을 기다리는 사이 이 폰에서 고친 칸은 지우지 않는다 (다음 올리기 때 보냄)
-      c[f] = !dirty.includes(f) ? srv : f === "diary" ? mergeDiary(local, srv) : local;
+      // 응답을 기다리는 사이 이 폰에서 고친 칸은 지우지 않는다 (다음 올리기 때 보냄).
+      // 서버 값이 이 폰 사본을 정리한 것과 같으면 이 폰 사본(원문·집 근처 좌표가 남은 것)을 그대로 둔다
+      if (dirty.includes(f)) c[f] = f === "diary" ? mergeDiary(local, srv) : local;
+      else c[f] = same(srv, sanitizeForUpload(KEY_OF[f], local, home)) ? local : srv;
       if (isCur) writeWorking(f, c[f]);
     }
     c.updated_at = d.updated_at ?? null; c.base = base;
@@ -211,11 +264,13 @@ async function saveNow(elderId) {
   let fields = dirtyOf(elderId);
   if (!fields.length) return "ok";
   let conflicted = false;
+  const g = generation;
   for (let attempt = 0; attempt <= MAX_RESAVE && fields.length; attempt++) {
     const c = readCache(elderId), isCur = currentElder()?.id === elderId, home = homeFor(elderId);
     const local = {}, up = {};
     for (const f of fields) { local[f] = isCur ? readWorking(f) : (c[f] ?? EMPTY[f]); up[f] = sanitizeForUpload(KEY_OF[f], local[f], home); }
     const res = await call({ action: "data.save", elderId, ...up, base: c.updated_at ?? null });
+    if (g !== generation) return "offline";   // 기다리는 사이 다른 계정으로 로그인했다 — 이전 계정 사본을 되살리지 않는다
     if (res?.ok) {
       const c2 = readCache(elderId);
       c2.updated_at = res.updated_at ?? c2.updated_at ?? null;
@@ -229,23 +284,22 @@ async function saveNow(elderId) {
     }
     if (res?.reason === "GONE") { forget(elderId); return "gone"; }
     if (res?.reason === "CONFLICT" && res.data) {
+      // 응답을 받은 지금의 이 폰 값으로 판단한다 (기다리는 사이 같은 칸·다른 칸을 또 고쳤을 수 있다 — 훅이 사본에 바로 적는다)
       const srv = res.data, c2 = readCache(elderId), base = c2.base ?? null, resave = [];
-      const late = dirtyOf(elderId).filter((f) => !fields.includes(f));   // 응답을 기다리는 사이 이 폰에서 고친 칸
+      const mineNow = (f) => (currentElder()?.id === elderId ? readWorking(f) : (c2[f] ?? EMPTY[f]));
+      const dirtyNow = new Set([...fields, ...dirtyOf(elderId)]);
       for (const f of Object.keys(EMPTY)) {
         const sv = srv[f] ?? EMPTY[f];
-        if (late.includes(f)) {   // 지우지 않고 다음에 보냄 (일지는 서버 것과 합쳐서)
-          const mine = currentElder()?.id === elderId ? readWorking(f) : (c2[f] ?? EMPTY[f]);
-          c2[f] = f === "diary" ? mergeDiary(mine, sv) : mine; resave.push(f); continue;
-        }
-        if (!fields.includes(f)) { c2[f] = sv; continue; }   // 내가 안 고친 칸은 서버 값
+        if (!dirtyNow.has(f)) { c2[f] = sv; continue; }   // 내가 안 고친 칸은 서버 값
+        const mine = mineNow(f);
         if (f === "diary") {
-          const merged = mergeDiary(local.diary, sv);
+          const merged = mergeDiary(mine, sv);
           c2.diary = merged;
           if (!same(sanitizeForUpload(KEYS.diary, merged, home), sv)) resave.push("diary");
           continue;
         }
         const untouched = base ? same(sv, base[f] ?? EMPTY[f]) : same(sv, EMPTY[f]);   // 다른 가족은 이 칸을 안 고쳤다
-        if (untouched) { c2[f] = local[f]; resave.push(f); }
+        if (untouched) { c2[f] = mine; resave.push(f); }
         else { c2[f] = sv; conflicted = true; emit({ type: "conflict", key: KEY_OF[f], elderId, text: CONFLICT_TEXT }); }
       }
       c2.updated_at = srv.updated_at ?? null;
@@ -275,29 +329,39 @@ export async function pull() {
     if (r === "gone") return "gone";
     if (dirtyOf(e.id).length) return "offline";   // 아직 못 올림 — 서버 값으로 덮지 않는다
   }
-  const r = applyLoadResult(await call({ action: "data.load", elderId: e.id }), e.id);
-  return r;
+  const g = generation;
+  const res = await call({ action: "data.load", elderId: e.id });
+  if (g !== generation) return "offline";
+  return applyLoadResult(res, e.id);
 }
 
 /** 내 어르신 목록 [{id,label,role}] (me). 서버가 안 되면 이 폰에 마지막으로 받은 목록.
- *  현재 어르신이 목록에 없으면(내보내졌거나 지워짐) 그 사본을 지운다 */
+ *  목록에 없는 어르신(내보내졌거나 지워짐)의 사본·집 주소는 모두 지운다 (현재 어르신이면 rw_elder 도) */
 export async function listElders() {
+  const g = generation;
   const res = await call({ action: "me" });
-  if (!res?.ok || !Array.isArray(res.elders)) { const l = jget(ELDERS_KEY, []); return Array.isArray(l) ? l : []; }
+  if (g !== generation || !res?.ok || !Array.isArray(res.elders)) { const l = jget(ELDERS_KEY, []); return Array.isArray(l) ? l : []; }
   const list = res.elders.filter((x) => x && typeof x.id === "string").map((x) => ({ id: x.id, label: x.label ?? "", role: x.role ?? "member" }));
   jset(ELDERS_KEY, list);
-  const cur = currentElder();
-  if (cur) {
-    const mine = list.find((x) => x.id === cur.id);
-    if (!mine) forget(cur.id);
-    else if (mine.label !== cur.label || mine.role !== cur.role) jset(ELDER_KEY, mine);
+  const ids = new Set(list.map((x) => x.id));
+  const stale = new Set();
+  for (const k of allKeys()) {
+    if (k.startsWith(CACHE_PREFIX)) stale.add(k.slice(CACHE_PREFIX.length));
+    else if (k.startsWith(HOME_PREFIX)) stale.add(k.slice(HOME_PREFIX.length));
   }
+  const cur = currentElder();
+  if (cur) stale.add(cur.id);
+  for (const id of stale) if (id && !ids.has(id)) forget(id);
+  const now = currentElder(), mine = now && list.find((x) => x.id === now.id);
+  if (mine && (mine.label !== now.label || mine.role !== now.role)) jset(ELDER_KEY, mine);
   return list;
 }
 
 /** 새 어르신 등록 (나는 owner). → {ok:true, elder, deviceCode} | {ok:false, reason}. 새 연결 코드는 그 어르신 사본(track)에 둔다. 현재 어르신은 바꾸지 않는다 */
 export async function createElder(label) {
+  const g = generation;
   const res = await call({ action: "elder.create", label: String(label ?? "").trim() });
+  if (g !== generation) return { ok: false, reason: "ACCOUNT_CHANGED" };
   if (!res?.ok || !res.elder?.id) return { ok: false, reason: res?.reason ?? "UNKNOWN" };
   const c = readCache(res.elder.id);
   if (res.deviceCode) c.track = { key: res.deviceCode, created: new Date().toISOString() };
@@ -316,9 +380,11 @@ export function checkAccount(userId) {
   if (owner === userId) return "same";
   jset(OWNER_KEY, userId);
   if (owner === null) return "first";
+  generation++;
   for (const k of allKeys()) if (k.startsWith(CACHE_PREFIX)) del(k);
   for (const k of [...SYNCED, ELDER_KEY, ELDERS_KEY, DIRTY_KEY]) del(k);
   clearTimeout(timer); timer = null;
+  // 이전 계정의 연결 코드(rw_track)·집 주소는 지우지 않는다. 새 계정에서 처음 어르신을 고를 때 rw_backup_* 으로 옮겨져 어느 어르신에도 넘어가지 않는다
   return "switched";
 }
 
@@ -334,15 +400,16 @@ const IMPORT_TEXT = {
 export async function importLocalData({ elders, userId, ask }) {
   const profile = jget(KEYS.profile, null);
   if (!profile || (Array.isArray(elders) && elders.length) || !userId || jget(ASKED_KEY, null) === userId) return { skipped: true };
+  const yes = await ask("이 폰의 등록 정보를 새 어르신으로 올릴까요?");   // 창을 닫거나 오류면 아래로 가지 않아 다음에 다시 묻는다
   jset(ASKED_KEY, userId);
-  if (!(await ask("이 폰의 등록 정보를 새 어르신으로 올릴까요?"))) return { skipped: true };
+  if (!yes) return { skipped: true };
 
   const local = { profile, diary: jget(KEYS.diary, []) ?? [], incidents: jget(KEYS.incidents, []) ?? [] };
-  const legacyTrack = jget(TRACK_KEY, null);
+  const legacyTrack = jget(TRACK_KEY, null), legacyHome = jget(LEGACY_HOME, null);
   const label = String(profile.honorific ?? "").trim().slice(0, 20) || "어르신";
   const made = await createElder(label);
   if (!made.ok) { del(ASKED_KEY); return { ok: false, reason: made.reason }; }   // 다음에 다시 물을 수 있게
-  const id = made.elder.id, home = homeFor(id);
+  const id = made.elder.id, home = homeFor(null);   // 아직 옮기기 전의 옛 집 주소
 
   const c = readCache(id);
   Object.assign(c, clone(local));
@@ -356,11 +423,12 @@ export async function importLocalData({ elders, userId, ask }) {
     else message = IMPORT_TEXT[r?.reason] ?? IMPORT_TEXT.OTHER;
   }
   writeCache(id, c);
-  // 현재 어르신으로: 이전 어르신이 없으니 사본(=이 폰 데이터)을 그대로 꺼낸다. 옛 집 주소(rw_home)는 첫 getHome 때 이 어르신 키로 옮겨진다
-  del(ELDER_KEY);
-  setCurrentElder(made.elder);
+  // 이 폰 데이터를 넘겨받는 건 방금 만든 이 어르신뿐: 사본(=이 폰 데이터)·연결 코드를 꺼내고 옛 집 주소를 이 어르신 키로 옮긴다
+  // (setCurrentElder 를 쓰지 않는다 — 그건 이 폰 데이터를 rw_backup_* 으로 치운다)
+  jset(ELDER_KEY, { id, label: made.elder.label ?? label, role: made.elder.role ?? "owner" });
+  loadWorking(id);
+  if (legacyHome !== null) { if (rawGet(homeKeyFor(id)) === null) jset(homeKeyFor(id), legacyHome); del(LEGACY_HOME); }
   if (!saved?.ok) setDirty(id, Object.keys(EMPTY));   // 못 올렸으면 다음 pull 때 다시
-  if (!jget(homeKeyFor(id), null) && jget("rw_home", null)) { jset(homeKeyFor(id), jget("rw_home", null)); del("rw_home"); }
   return message ? { ok: true, elder: made.elder, message } : { ok: true, elder: made.elder };
 }
 

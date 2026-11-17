@@ -187,7 +187,8 @@ export function mountPushCard(container) {
 //   { label: "대전광역시 중구 석교동"(행정동, 검색어·요약용), road, jibun, building, lat, lng, savedAt } — 브라우저 사이트 데이터를 지우기 전까지 남는다.
 // 집 주소는 이 기기에만 저장하고 서버에 남기지 않는다. 경찰 요약·공유 글에는 동까지만 (주소 상세는 보호자가 112에 직접).
 // 2026-11-17 보호자 계정: 어르신마다 따로 "rw_home:<elderId>" (현재 어르신 = localStorage "rw_elder"). 어르신을 고르기 전엔 옛 키 "rw_home".
-//   옛 "rw_home" 값은 처음 고른 어르신의 키로 옮긴다.
+//   옛 "rw_home" 값은 아무 어르신에게나 넘기지 않는다: family.js 가 "이 폰 데이터를 새 어르신으로 올리기"를 고른 그 어르신에게만 옮기고,
+//   아니면 처음 어르신을 고를 때 이 폰의 보관 키(rw_backup_*)로 치운다.
 const LEGACY_HOME_KEY = "rw_home";
 const isHome = (h) => Boolean(h && h.label && Number.isFinite(h.lat));
 /** 그 어르신의 집 주소 키. elderId 가 없으면 옛 키 */
@@ -195,14 +196,10 @@ export const homeKeyFor = (elderId) => (elderId ? `rw_home:${elderId}` : LEGACY_
 function homeKey() {
   let id = null;
   try { id = JSON.parse(localStorage.getItem("rw_elder") || "null")?.id ?? null; } catch {}
-  const k = homeKeyFor(id);
-  if (id) { // 옛 값 옮기기 (그 어르신 키가 비어 있을 때만)
-    try { const old = localStorage.getItem(LEGACY_HOME_KEY); if (old !== null && localStorage.getItem(k) === null) localStorage.setItem(k, old); if (old !== null) localStorage.removeItem(LEGACY_HOME_KEY); } catch {}
-  }
-  return k;
+  return homeKeyFor(id);
 }
-/** 그 어르신의 집 주소 (없으면 아직 안 옮긴 옛 "rw_home"). family.js 가 업로드 정리에 쓴다 */
-export function homeFor(elderId) { const h = store.get(homeKeyFor(elderId), null) ?? store.get(LEGACY_HOME_KEY, null); return isHome(h) ? h : null; }
+/** 그 어르신의 집 주소 (elderId 가 없으면 옛 "rw_home"). family.js 가 업로드 정리에 쓴다 */
+export function homeFor(elderId) { const h = store.get(homeKeyFor(elderId), null); return isHome(h) ? h : null; }
 export function getHome() { const h = store.get(homeKey(), null); return isHome(h) ? h : null; }
 export function saveHome(h) { const v = { label: String(h.label ?? "").trim(), road: h.road || null, jibun: h.jibun || null, building: h.building || null, lat: Number(h.lat), lng: Number(h.lng), savedAt: new Date().toLocaleDateString("sv-SE") }; store.set(homeKey(), v); return v; }
 export function clearHome() { store.del(homeKey()); store.del("rw_last_home"); }

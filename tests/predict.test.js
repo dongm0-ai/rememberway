@@ -203,7 +203,7 @@ test("candidateFeatures: shape, integer rounding, original fields kept", () => {
   for (const k of ["dist_m", "bearing_diff_deg", "path_dist_m"]) assert.ok(Number.isInteger(f[k]), `${k} ${f[k]}`);
   assert.ok(Math.abs(f.dist_m - 400) <= 1);
   assert.equal(f.reachable, true);                                 // 400 ≤ 480
-  assert.ok(Math.abs(f.path_dist_m - Math.round(Math.abs(600 * m.speedMps - 400))) <= 2, `path ${f.path_dist_m}`);
+  assert.ok(f.path_dist_m <= 2, `on the line, path ${f.path_dist_m}`);             // 마지막 위치에서 예상 위치까지 선 위에 있다
   assert.equal(Object.keys(place).includes("dist_m"), false, "input not mutated");
 });
 
@@ -214,12 +214,59 @@ test("candidateFeatures: reachable uses walking speed × elapsed", () => {
   assert.deepEqual(f.map((x) => x.reachable), [true, false]);
 });
 
-test("candidateFeatures: path_dist_m is distance to the nearest projected point", () => {
+test("candidateFeatures: path_dist_m is the distance to the path polyline (100m east of the 20-min point)", () => {
   const m = north();
   const path = projectPath(m, m.t + 30 * MIN);
   const place = { id: "x", lat: path[1].lat, lng: path[1].lng + 100 * M_LNG, source: "memory" };   // 20분 지점에서 동쪽 100m
   const [f] = candidateFeatures(m, m.t + 30 * MIN, [place]);
   assert.ok(Math.abs(f.path_dist_m - 100) <= 1, `path ${f.path_dist_m}`);
+});
+
+test("path_dist_m: place on the path midway between two samples → < 20 (sample-only distance would be hundreds of m)", () => {
+  const m = north(), now = m.t + 30 * MIN;
+  const [a, b] = projectPath(m, now);
+  const place = { id: "mid", lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2, source: "memory" };
+  assert.ok(Math.min(distM(place, a), distM(place, b)) > 250, "fixture: far from both samples");
+  const [f] = candidateFeatures(m, now, [place]);
+  assert.ok(f.path_dist_m < 20, `path ${f.path_dist_m}`);
+});
+
+test("path_dist_m: place 100 m ahead of the last fix, before the first sample → < 20", () => {
+  const m = north(), now = m.t + 30 * MIN;
+  const [f] = candidateFeatures(m, now, [{ id: "soon", ...ahead(m, 100), source: "memory" }]);
+  assert.ok(Math.abs(f.dist_m - 100) <= 1);
+  assert.ok(f.path_dist_m < 20, `path ${f.path_dist_m}`);
+});
+
+test("path_dist_m: slanted heading (45°), place on the line between samples → < 20", () => {
+  const m = { state: "moving_lost", lat: LAT, lng: LNG, t: T0, speedMps: 1, bearingDeg: 45 };
+  const place = { id: "diag", ...projectPath(m, T0 + 15 * MIN).at(-1), source: "memory" };   // 15분 지점: 10분·20분 표본 사이
+  assert.ok(Math.min(...projectPath(m, T0 + 30 * MIN).map((q) => distM(q, place))) > 200, "fixture: between samples");
+  const [f] = candidateFeatures(m, T0 + 30 * MIN, [place]);
+  assert.ok(f.path_dist_m < 20, `path ${f.path_dist_m}`);
+});
+
+test("path_dist_m: clamps to the ends of the polyline (behind the last fix, past the end point)", () => {
+  const m = north(), now = m.t + 30 * MIN;                          // 선: 마지막 위치 ~ 1800m 앞
+  const f = candidateFeatures(m, now, [
+    { id: "behind", ...ahead(m, -200), source: "memory" },
+    { id: "past", ...ahead(m, 1801 + 300), source: "memory" },
+  ]);
+  assert.ok(Math.abs(f[0].path_dist_m - 200) <= 2, `behind ${f[0].path_dist_m}`);
+  assert.ok(Math.abs(f[1].path_dist_m - 300) <= 3, `past ${f[1].path_dist_m}`);
+});
+
+test("path_dist_m never exceeds dist_m for moving_lost (the last fix is on the polyline)", () => {
+  const m = north(), now = m.t + 25 * MIN;
+  const places = [-500, 0, 50, 300, 900, 1600, 2500].flatMap((d) => [0, 80, -250].map((e, i) => ({ id: `${d}/${i}`, lat: m.lat + d * M_LAT, lng: m.lng + e * M_LNG, source: "places" })));
+  for (const f of candidateFeatures(m, now, places)) assert.ok(f.path_dist_m <= f.dist_m + 1, `${f.id}: path ${f.path_dist_m} > dist ${f.dist_m}`);
+});
+
+test("path_dist_m: moving_lost with no time elapsed → distance to the last fix (a number, not null)", () => {
+  const m = north();
+  const [f] = candidateFeatures(m, m.t, [{ id: "z", ...ahead(m, 250), source: "memory" }]);
+  assert.equal(f.path_dist_m, f.dist_m);
+  assert.ok(Math.abs(f.path_dist_m - 250) <= 1);
 });
 
 test("candidateFeatures skips places without coords", () => {

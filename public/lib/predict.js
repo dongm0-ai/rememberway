@@ -10,6 +10,7 @@
 // ② projectPath  마지막 시각부터 지금까지 같은 방향·속도로 직선 이동한 예상 위치 (대권 목적지 공식, 10분마다 + 지금)
 // ③ reachM       끊긴 뒤 걸어서 닿을 수 있는 최대 거리 (경과 시간 × 걸음 속도 WALK_SPEED.normal)
 // ④ candidateFeatures  후보 장소마다 마지막 위치까지 거리·진행 방향과의 각도 차·닿을 수 있는지·예상 경로까지 거리 (정수 반올림)
+//    예상 경로까지 거리 = 꺾은선 [마지막 위치, ...예상 위치]까지 최소 거리(점-선분 거리). 10분 간격 점만 재면 점 사이 길 위의 장소가 수백 m 멀게 나온다.
 // ⑤ fallbackOrder  AI가 안 될 때 쓰는 코드 순서: 닿을 수 있는 곳 먼저 → 예상 경로에 가까운 순 → 같으면 추억의 장소(memory) 먼저
 
 import { distM } from "./gps.js";
@@ -23,7 +24,20 @@ const WINDOW_MS = 10 * MIN_MS, WINDOW_N = 6;                 // 속도·방향 �
 const MAX_PATH_POINTS = 1000;                                // 끝없이 오래된 기록에도 배열이 무한히 커지지 않게
 
 const num = (v) => typeof v === "number" && Number.isFinite(v);
-const validPoint = (p) => !!p && num(p.t) && num(p.lat) && num(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180 && !(p.lat === 0 && p.lng === 0);
+/** 점 p에서 선분 a-b까지 거리(m). 선분 둘레 평면(등장방형)으로 투영해 가장 가까운 위치를 찾고, 끝점이 가장 가까우면 distM */
+function segDistM(p, a, b) {
+  const k = Math.cos(rad((a.lat + b.lat) / 2));
+  const xy = (q) => [rad(q.lng - a.lng) * k * R, rad(q.lat - a.lat) * R];
+  const [bx, by] = xy(b), [px, py] = xy(p), len2 = bx * bx + by * by;
+  const t = len2 > 0 ? (px * bx + py * by) / len2 : 0;
+  if (t <= 0) return distM(p, a);
+  if (t >= 1) return distM(p, b);
+  return Math.hypot(px - t * bx, py - t * by);
+}
+/** 점 p에서 꺾은선(점 1개 이상)까지 최소 거리(m) */
+const polylineDistM = (p, line) => line.length < 2 ? distM(p, line[0]) : line.slice(1).reduce((m, b, i) => Math.min(m, segDistM(p, line[i], b)), Infinity);
+const hasCoord = (p) => !!p && num(p.lat) && num(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180 && !(p.lat === 0 && p.lng === 0);
+const validPoint = (p) => hasCoord(p) && num(p.t);
 const median = (a) => { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 /** a → b 처음 방위각(0~360, 북 0·동 90) */
@@ -42,7 +56,6 @@ function destination(p, brg, distance) {
   if (lng > 180 || lng < -180) lng = ((lng + 540) % 360) - 180;
   return { lat: deg(f2), lng };
 }
-const hasCoord = (p) => !!p && num(p.lat) && num(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180 && !(p.lat === 0 && p.lng === 0);
 
 /**
  * GPS 점 → 마지막 움직임.
@@ -94,16 +107,17 @@ export function reachM(motion, nowMs, speedMps = WALK_SPEED.normal) {
  * 후보 장소마다 계산값을 붙인다. 좌표 없는 장소는 뺀다. GPS 기록이 없으면(none) 거리를 잴 수 없어 [].
  * @param {{id:string, name:string, lat:number, lng:number, source:string, evidence?:string}[]} places
  * @returns {Array<object>} 입력 필드 + dist_m(마지막 위치까지) · bearing_diff_deg(moving_lost만 0~180, 아니면 null)
- *   · reachable(걸어서 닿을 수 있나) · path_dist_m(예상 경로 점들까지 최소 거리, 경로 없으면 null) — 모두 정수
+ *   · reachable(걸어서 닿을 수 있나) · path_dist_m(꺾은선 [마지막 위치, ...projectPath]까지 최소 거리, moving_lost가 아니면 null) — 모두 정수
  */
 export function candidateFeatures(motion, nowMs, places) {
   if (!motion || !num(motion.lat) || !num(motion.lng) || !Array.isArray(places)) return [];
-  const reach = reachM(motion, nowMs), path = projectPath(motion, nowMs);
+  const reach = reachM(motion, nowMs);
+  const line = motion.state === "moving_lost" ? [motion, ...projectPath(motion, nowMs)] : null;   // 예상 경로(꺾은선): 마지막 위치에서 시작
   const heading = motion.state === "moving_lost" && num(motion.bearingDeg);
   return places.filter(hasCoord).map((p) => {
     const dist = distM(motion, p);
     const diff = !heading ? null : dist > 0 ? angleDiff(bearing(motion, p), motion.bearingDeg) : 0;
-    const onPath = path.length ? path.reduce((m, q) => Math.min(m, distM(q, p)), Infinity) : null;
+    const onPath = line ? polylineDistM(p, line) : null;
     return { ...p, dist_m: Math.round(dist), bearing_diff_deg: diff === null ? null : Math.round(diff), reachable: dist <= reach, path_dist_m: onPath === null ? null : Math.round(onPath) };
   });
 }

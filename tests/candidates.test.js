@@ -204,7 +204,7 @@ test("motionSummary: moving_lost with unusable speed/bearing still returns finit
 
 // ---------------------------------------------------------------- 프롬프트 규칙 (고치면 안 되는 문구)
 test("SYSTEM_CANDIDATES keeps the required rules", () => {
-  for (const s of ["최대 3개", "목록 안", "존댓말", "입력에 없는 숫자", "입력에 없는 장소", "evidence", "추억의 장소", "JSON", `{"ranked":[{"id":"","reason":""}]}`, "확률", "%", "AI가 추천", "dist_text", "path_dist_text", "elapsed_text", "그대로 인용", "다른 후보의 숫자", "none"]) assert.ok(SYSTEM_CANDIDATES.includes(s), s);
+  for (const s of ["최대 3개", "목록 안", "존댓말", "입력에 없는 숫자", "입력에 없는 장소", "evidence", "추억의 장소", "JSON", `{"ranked":[{"id":"","reason":""}]}`, "확률", "%", "AI가 추천", "실종 가능성", "dist_text", "path_dist_text", "elapsed_text", "그대로 인용", "다른 후보의 숫자", "none"]) assert.ok(SYSTEM_CANDIDATES.includes(s), s);
 });
 test("mock routing phrases do not collide between SYSTEM_CANDIDATES and the other prompts", () => {
   const routing = ["되물을 질문", "하루 기록을 정리", "자주 머문 곳", "기억 꺼내기", "지난주 기록을 짧게", "찾은 뒤 보호자가 남기는 기록"];

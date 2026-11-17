@@ -5,7 +5,7 @@
 //   {action:"push", key, p}         ← 어르신 휴대폰 앱(android/). p = 목걸이 위치 JSON (hardware/necklace, GPS_BLE 가이드 v1 형식)
 //                                     폐기된 코드(revoked_devices: 어르신 삭제·연결 코드 재발급)는 410 GONE → 앱은 대기열 비우고 멈춤.
 //                                     모르는 코드(계정 전 rw_track 코드 등)는 지금처럼 받는다. Origin 검사 없음(앱은 브라우저가 아님).
-//   {action:"latest", key}          ← 옛 rw_track 흐름(/report 등): 마지막 위치 1개만 (limit 은 1로 고정)
+//   (연결 코드만으로 위치를 읽는 옛 {action:"latest", key} 는 없앴다 — 코드를 아는 누구나 어르신 위치를 볼 수 있었다. key 만 보내면 400 BAD_ACTION)
 // 로그인 필요 (Authorization: Bearer <Supabase access token>, 우리 앱 Origin):
 //   me · elder.create {label} · data.load {elderId} · data.save {elderId, profile?, diary?, incidents?, base}
 //   invite.create {elderId} · invite.accept {token} · members.list {elderId} · members.remove {elderId, userId}
@@ -117,15 +117,15 @@ export async function route(body, ctx) {
   const { db, fam, now = () => new Date(), storeReady = true } = ctx;
   const b = body && typeof body === "object" ? body : {};
   const action = b.action;
-  const keyLatest = action === "latest" && b.elderId == null && b.key != null;   // 옛 rw_track 흐름
-  if (action !== "push" && !keyLatest && !LOGIN_ACTIONS.has(action)) return out(400, { ok: false, reason: "BAD_ACTION" });
+  if (action !== "push" && !LOGIN_ACTIONS.has(action)) return out(400, { ok: false, reason: "BAD_ACTION" });
+  // 연결 코드(key)로 할 수 있는 건 push 뿐. 위치 읽기는 로그인 + member 만 (key 만 보낸 latest 는 400)
+  if (action === "latest" && b.elderId == null && b.key != null) return out(400, { ok: false, reason: "BAD_ACTION" });
 
   try {
-    if (action === "push" || keyLatest) {
+    if (action === "push") {
       if (!KEY_RE.test(cleanKey(b.key))) return out(400, { ok: false, reason: "BAD_KEY" });
       if (!storeReady) return out(503, { ok: false, reason: "NO_STORE" });   // 앱은 503이면 대기열에 두고 나중에 다시 보냄
-      if (action === "push") return await push(b, db, now);
-      return await readLatest(db, deviceHashOf(cleanKey(b.key)), 1, now);   // 로그인 없이는 마지막 1개만
+      return await push(b, db, now);
     }
 
     // ---- 여기부터 로그인 필요 ----
@@ -169,13 +169,25 @@ export async function route(body, ctx) {
   }
 }
 
-export default async function handler(req, res) {
-  if (req.method !== "POST") return send(res, 405, { ok: false, reason: "METHOD" });
-  if (!rateOk(req)) return send(res, 429, { ok: false, reason: "RATE_LIMIT" });
-  let b; try { b = await readJson(req); } catch { return send(res, 400, { ok: false, reason: "BAD_INPUT" }); }
-  // push 는 앱에서 옴 (브라우저가 아니라 Origin 없음) → 연결 코드로만 확인. 나머지는 보호자 웹앱에서만
-  if (b?.action !== "push" && !allowedOrigin(req)) return send(res, 403, { ok: false, reason: "FORBIDDEN" });
-  const token = bearer(req);
-  const r = await route(b, { db: kvDb, fam: familyApi({ db: kvDb }), storeReady: kvReady(), auth: () => checkToken(token) });
-  return send(res, r.status, r.body);
+// 호출량: AI 키를 지키는 공용 제한(분당 20회)과 따로 센다. 위치 화면은 자주 다시 읽고(보호자 둘 + 어르신 폰이 같은 Wi-Fi = 같은 IP),
+// 어르신 폰 앱은 움직이는 동안 10초마다·밀린 대기열을 한꺼번에 보내므로 push 는 더 넉넉한 별도 몫. 하루 상한(AI 할당량)에는 세지 않는다.
+export const LOC_RATE = { push: Number(process.env.RATE_PUSH_PER_MIN || 600), read: Number(process.env.RATE_LOC_PER_MIN || 240) };
+
+/** HTTP 처리기 만들기. deps = { db, fam?, storeReady?, auth? } — 테스트는 가짜 db 를 넣는다 (실제 저장소에 쓰지 않게) */
+export function makeHandler(deps) {
+  return async function handler(req, res) {
+    if (req.method !== "POST") return send(res, 405, { ok: false, reason: "METHOD" });
+    let b; try { b = await readJson(req); } catch { return send(res, 400, { ok: false, reason: "BAD_INPUT" }); }
+    const isPush = b?.action === "push";
+    if (!rateOk(req, isPush ? { bucket: "loc-push", perMin: LOC_RATE.push, countDay: false } : { bucket: "loc", perMin: LOC_RATE.read, countDay: false }))
+      return send(res, 429, { ok: false, reason: "RATE_LIMIT" });
+    // push 는 앱에서 옴 (브라우저가 아니라 Origin 없음) → 연결 코드로만 확인. 나머지는 보호자 웹앱에서만
+    if (!isPush && !allowedOrigin(req)) return send(res, 403, { ok: false, reason: "FORBIDDEN" });
+    const token = bearer(req);
+    const { db, fam = familyApi({ db }), storeReady = () => true, auth = checkToken } = deps;
+    const r = await route(b, { db, fam, storeReady: storeReady(), auth: () => auth(token) });
+    return send(res, r.status, r.body);
+  };
 }
+
+export default makeHandler({ db: kvDb, storeReady: kvReady });

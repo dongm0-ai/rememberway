@@ -84,14 +84,14 @@ test("auth function resolving to user is used", async () => {
   assert.equal(r.body.elders[0].who, U1.id);
 });
 
-test("latest by key without user → limit forced to 1", async () => {
-  const db = fakeDb([["GET", /^loc_events\?/, [{ lat: 1, lng: 2 }]]]);
-  const r = await route({ action: "latest", key: KEY, limit: 500 }, { db, fam: throwingFam });
-  assert.equal(r.status, 200);
-  assert.equal(r.body.ok, true);
-  const get = db.calls.find((c) => c.method === "GET" && c.path.startsWith("loc_events"));
-  assert.match(get.path, new RegExp(`dev=eq\\.${DEV}`));
-  assert.match(get.path, /limit=1$/);
+test("latest by key alone → 400 BAD_ACTION, nothing read (only push uses the connection code)", async () => {
+  for (const ctx of [{}, { user: U1 }]) {
+    const db = fakeDb([["GET", /^loc_events\?/, [{ lat: 1, lng: 2 }]]]);
+    const r = await route({ action: "latest", key: KEY, limit: 500 }, { db, fam: throwingFam, ...ctx });
+    assert.equal(r.status, 400);
+    assert.deepEqual(r.body, { ok: false, reason: "BAD_ACTION" });
+    assert.equal(db.calls.length, 0, "no store access");
+  }
 });
 
 test("latest by elderId requires membership", async () => {
@@ -307,16 +307,46 @@ function fakeRes() {
 let ipN = 0;
 const freshIp = () => `10.1.${Math.floor(++ipN / 250)}.${ipN % 250}`;   // 테스트마다 다른 IP (분당 제한이 섞이지 않게)
 
-test("handler: push works without Origin (not 403)", async () => {
-  const { default: handler } = await import("../api/loc.js");
+// 처리기 테스트는 항상 가짜 db 를 넣는다 (실제 저장소(kvDb)에 쓰지 않게)
+const stubHandler = async (db = fakeDb([["POST", /^loc_events$/, [{ id: 1, received_at: "t" }]]])) => {
+  const { makeHandler } = await import("../api/loc.js");
+  const h = makeHandler({ db, auth: async () => ({ error: "INVALID" }) });
+  h.db = db;
+  return h;
+};
+
+test("handler: push works without Origin (not 403) and writes only to the injected db", async () => {
+  const handler = await stubHandler();
   const res = fakeRes();
   await handler(fakeReq({ action: "push", key: KEY, p: P }, { "x-forwarded-for": freshIp() }), res);
-  assert.notEqual(res.statusCode, 403);
-  assert.notEqual(res.body.reason, "FORBIDDEN");
+  assert.equal(res.statusCode, 201);
+  assert.ok(handler.db.calls.some((c) => c.method === "POST" && c.path === "loc_events"), "stub db received the write");
+});
+
+test("handler: push has its own generous budget (elder phone flushing a queue is not 429)", async () => {
+  const handler = await stubHandler();
+  const ip = freshIp();
+  for (let i = 0; i < 120; i++) {
+    const res = fakeRes();
+    await handler(fakeReq({ action: "push", key: KEY, p: P }, { "x-forwarded-for": ip }), res);
+    assert.equal(res.statusCode, 201, `push #${i + 1}`);
+  }
+});
+
+test("handler: location reads have a separate, larger budget than the AI limit (2 guardians + elder phone on one Wi-Fi)", async () => {
+  const handler = await stubHandler();
+  const { rateOk } = await import("../lib/http.js");
+  const ip = freshIp();
+  for (let i = 0; i < 60; i++) {   // 옛 공용 제한(분당 20회)의 3배
+    const res = fakeRes();
+    await handler(fakeReq({ action: "me" }, { "x-forwarded-for": ip, origin: "https://rememberway.vercel.app" }), res);
+    assert.equal(res.statusCode, 401, `read #${i + 1}`);
+  }
+  assert.equal(rateOk({ headers: { "x-forwarded-for": ip } }), true, "AI budget for the same IP untouched");
 });
 
 test("handler: non-push actions without an allowed Origin → 403 FORBIDDEN", async () => {
-  const { default: handler } = await import("../api/loc.js");
+  const handler = await stubHandler();
   for (const [body, headers] of [
     [{ action: "me" }, {}],
     [{ action: "latest", key: KEY }, {}],
@@ -336,10 +366,11 @@ test("handler: non-push actions without an allowed Origin → 403 FORBIDDEN", as
 });
 
 test("handler: rate limit runs before the Origin check", async () => {
-  const { default: handler } = await import("../api/loc.js");
+  const handler = await stubHandler();
+  const { LOC_RATE } = await import("../api/loc.js");
   const ip = freshIp();
   let last;
-  for (let i = 0; i < 25; i++) {   // 분당 20회 넘김
+  for (let i = 0; i < LOC_RATE.read + 5; i++) {   // 위치 읽기 몫을 넘김
     last = fakeRes();
     await handler(fakeReq({ action: "me" }, { "x-forwarded-for": ip }), last);
   }

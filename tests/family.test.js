@@ -172,6 +172,14 @@ test("owner creates elder, member cannot load other elder", async () => {
   assert.equal(s.t.elder_data[0].profile, null);
 });
 
+test("label length counts characters (code points), same as the registration dialog", async () => {
+  const s = setup();
+  const twenty = "👵".repeat(20);   // 20글자 = UTF-16 40칸
+  assert.equal((await s.api.createElder(A, { label: twenty })).ok, true);
+  assert.deepEqual(await s.api.createElder(A, { label: "👵".repeat(21) }), { ok: false, reason: "BAD_INPUT" });
+  assert.equal((await s.api.createElder(A, { label: "가".repeat(20) })).ok, true);
+});
+
 test("bad label and malformed ids are rejected without touching other rows", async () => {
   const s = setup();
   assert.deepEqual(await s.api.createElder(A, { label: "" }), { ok: false, reason: "BAD_INPUT" });

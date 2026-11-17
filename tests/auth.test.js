@@ -75,3 +75,20 @@ test("checkToken: network error, timeout, 5xx, 429, bad body → UNAVAILABLE", a
   assert.deepEqual(await checkToken("t", async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("x"); } })), { error: "UNAVAILABLE" });
   assert.deepEqual(await checkToken("t", async () => ({ ok: true, status: 200, json: async () => ({}) })), { error: "UNAVAILABLE" });
 });
+
+test("NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are accepted as fallbacks (server token check + /api/config)", async () => {
+  const prev = saveEnv("SUPABASE_URL", "SUPABASE_ANON_KEY", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  delete process.env.SUPABASE_URL; delete process.env.SUPABASE_ANON_KEY;
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://np.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "np-anon";
+  let seen;
+  try {
+    await userFromToken("tok", async (url, o) => { seen = { url, o }; return { ok: true, json: async () => ({ id: "u1" }) }; });
+    const { supabasePublic } = await import("../api/config.js");
+    assert.deepEqual(supabasePublic(), { url: "https://np.supabase.co", anonKey: "np-anon" });
+    assert.deepEqual(supabasePublic({ SUPABASE_URL: "a", NEXT_PUBLIC_SUPABASE_URL: "b", SUPABASE_ANON_KEY: "c", NEXT_PUBLIC_SUPABASE_ANON_KEY: "d" }), { url: "a", anonKey: "c" });
+    assert.deepEqual(supabasePublic({}), { url: null, anonKey: null });
+  } finally { restoreEnv(prev); }
+  assert.equal(seen.url, "https://np.supabase.co/auth/v1/user");
+  assert.equal(seen.o.headers.apikey, "np-anon");
+});

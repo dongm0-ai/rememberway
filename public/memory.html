@@ -64,7 +64,7 @@
   const DONE_KEY = "rw_memory_done"; // 이 탭에서 이미 지나간 주제 (새로 고침해도 이어서)
   const norm = (s) => String(s).replace(/\s+/g, "").toLowerCase();
   let profile = store.get(KEYS.profile);
-  let done = store.sget(DONE_KEY, []), topic = null, question = "", followedUp = false, answerText = "", pendingFollowup = null, cands = [], savedTotal = 0, savedInTopic = 0;
+  let done = store.sget(DONE_KEY, []), topic = null, question = "", followedUp = false, answerText = "", pendingFollowup = null, cands = [], savedTotal = 0, savedInTopic = 0, reqId = 0;
   const ta = $("#answer");
   let speech = null;
 
@@ -81,6 +81,7 @@
     nextTopic();
   }
 
+  const resetExtract = () => { $("#extract").disabled = false; $("#extract").textContent = "이 답에서 장소 뽑기 (AI)"; };
   const honorific = () => profile.honorific || "어르신";
   const knownNames = () => (profile.places ?? []).map((p) => p.name);
   const view = (ids) => ["#ask-ui", "#cands", "#manual", "#nav", "#talk", "#done"].forEach((id) => $(id).classList.toggle("hidden", !ids.includes(id)));
@@ -94,6 +95,7 @@
   function finishTopic() { if (topic && !done.includes(topic.key)) { done.push(topic.key); store.sset(DONE_KEY, done); } }
 
   function ask(q, note = "") {
+    reqId++; resetExtract(); // 기다리던 AI 응답이 있었다면 그 응답은 이제 버려진다
     question = q; cands = []; $("#cands").innerHTML = ""; ta.value = ""; $("#interim").textContent = ""; $("#manual-name").value = "";
     $("#question").textContent = q;
     $("#progress").textContent = `${MEMORY_TOPICS.indexOf(topic) + 1} / ${MEMORY_TOPICS.length} · ${topic.label}`;
@@ -105,9 +107,11 @@
     const answer = ta.value.trim();
     if (answer.length < 2) { $("#note").textContent = "답을 말하거나 적어 주세요."; return; }
     speech?.stop();
+    const mine = ++reqId;
     $("#extract").disabled = true; $("#extract").innerHTML = '<span class="spinner"></span> 뽑는 중';
     const res = await api("diary", { mode: "memory", honorific: honorific(), topic: topic.key, question, answer, knownPlaces: knownNames() });
-    $("#extract").disabled = false; $("#extract").textContent = "이 답에서 장소 뽑기 (AI)";
+    if (mine !== reqId) return; // 기다리는 동안 건너뛰기·그만하기·다음 주제로 넘어갔다 → 늦게 온 응답이 다음 화면을 덮어쓰지 않게 버린다
+    resetExtract();
     mockBanner(res);
     if (!res.ok) return manual((res.reason === "NO_CONSENT" ? "AI 정리에 동의하지 않아 AI를 쓰지 않았어요" : `AI를 쓸 수 없어요 (${res.reason})`) + ". 같은 질문에 장소 이름을 직접 적어 주세요.");
     answerText = answer; pendingFollowup = res.followup ?? null;
@@ -143,6 +147,9 @@
     return true;
   }
 
+  const nameEdited = (c) => c.edited && !appearsExactly(c.name, c.evidence); // 보호자가 고쳐서 근거 문장에 더는 없는 이름
+  const evidenceOf = (c) => (nameEdited(c) ? `${topic.label} (직접 수정)` : c.evidence || topic.label);
+
   function renderCands() {
     const box = $("#cands"); box.innerHTML = "";
     for (const c of cands) {
@@ -153,9 +160,9 @@
       box.append(el("div", { class: "card" },
         el("div", { class: "v" }, c.name, exact ? "" : el("span", { class: "badge warn", title: "말씀하신 내용에서 확인되지 않음" }, "⚠ 확인 필요")),
         exact ? "" : el("p", { class: "small muted" }, "말씀하신 내용에 이 이름이 그대로는 없어요. 맞는지 확인해 주세요."),
-        c.evidence ? el("p", { class: "small muted" }, `"${c.evidence}"`) : "",
+        nameEdited(c) ? el("p", { class: "small muted" }, "직접 고친 이름이에요.") : c.evidence ? el("p", { class: "small muted" }, `"${c.evidence}"`) : "",
         el("div", { class: "stack", style: "margin-top:10px" },
-          el("button", { class: "btn-primary", onclick: () => { c.state = saveName(c.name, c.evidence || topic.label) ? "saved" : "dup"; settle(); } }, "저장"),
+          el("button", { class: "btn-primary", onclick: () => { c.state = saveName(c.name, evidenceOf(c)) ? "saved" : "dup"; settle(); } }, "저장"),
           el("div", { class: "row" },
             el("button", { class: "btn-secondary", onclick: () => { c.state = "no"; settle(); } }, "아니에요"),
             el("button", { class: "btn-secondary", onclick: () => { c.editing = true; renderCands(); } }, "✎ 수정")))));
@@ -164,7 +171,7 @@
   function editCard(c) {
     const inp = el("input", { type: "text", "aria-label": "장소 이름 고치기", autocomplete: "off" });
     inp.value = c.name;
-    const ok = () => { const v = inp.value.trim().replace(/\s+/g, " "); if (v.length < 2) return inp.focus(); c.name = v; c.editing = false; renderCands(); };
+    const ok = () => { const v = inp.value.trim().replace(/\s+/g, " "); if (v.length < 2) return inp.focus(); if (v !== c.name) c.edited = true; c.name = v; c.editing = false; renderCands(); };
     inp.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); });
     queueMicrotask(() => inp.focus());
     return el("div", { class: "card" }, el("label", {}, "장소 이름 고치기"), inp,
@@ -181,6 +188,7 @@
   }
 
   function finish() {
+    reqId++; resetExtract();
     const left = MEMORY_TOPICS.some((t) => !done.includes(t.key));
     if (!left) { done = []; store.sset(DONE_KEY, done); } // 한 바퀴를 다 돌았으면 다음에 처음부터
     $("#done-title").textContent = savedTotal ? `${savedTotal}곳을 저장했어요` : "수고하셨어요";

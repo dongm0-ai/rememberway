@@ -32,8 +32,9 @@ async function memoryPlaces({ honorific, topic, question, answer, knownPlaces })
   const t = MEMORY_TOPICS.find((x) => x.key === topic);
   if (!t || typeof answer !== "string" || !answer.trim() || answer.length > 1000) return { ok: false, reason: "BAD_INPUT" };
   const known = (Array.isArray(knownPlaces) ? knownPlaces : []).map((k) => String(k).slice(0, 40)).slice(0, 200);
-  const raw = await askJSON(SYSTEM_MEMORY, userMemory(String(honorific ?? "어르신").slice(0, 10), t.label, String(question ?? "").slice(0, 200), answer, known), { maxTokens: 700 });
-  return { ok: true, ...verifyMemory(raw, answer, known) };
+  const q = String(question ?? "").slice(0, 200);
+  const raw = await askJSON(SYSTEM_MEMORY, userMemory(String(honorific ?? "어르신").slice(0, 10), t.label, q, answer, known), { maxTokens: 700 });
+  return { ok: true, ...verifyMemory(raw, answer, known, q) };
 }
 
 export default postHandler(async (body) => {

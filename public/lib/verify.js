@@ -90,7 +90,11 @@ export function flagHallucinations(c, utterance, registered) {
   check("today_destination", c.today_destination); check("route", c.route);
   check("clothing.top", c.clothing.top); check("clothing.bottom", c.clothing.bottom);
   check("clothing.shoes", c.clothing.shoes); check("clothing.hat", c.clothing.hat);
-  check("gait", c.gait); if (c.meds && !/(약|복용|mg|밀리|알씩|정씩)/i.test(src)) flags.meds = "unverified"; // 약 칸은 코드가 정해진 표현으로 바꿔 두므로 "원문에 약 이야기가 있었는지"로 확인 check("dementia_signs", c.dementia_signs); check("prior_incidents", c.prior_incidents);
+  check("gait", c.gait);
+  // 약 칸은 코드가 정해진 표현으로 바꿔 두므로 "원문에 약 이야기가 있었는지"로 확인
+  if (c.meds && !/(약|복용|mg|밀리|알씩|정씩)/i.test(src)) flags.meds = "unverified";
+  check("dementia_signs", c.dementia_signs);
+  check("prior_incidents", c.prior_incidents);
   c.memory_places.forEach((p, i) => { if (!appearsInSource(p.name, src)) flags[`memory_places.${i}`] = "unverified"; });
   return { ...c, flags };
 }
@@ -108,7 +112,7 @@ export function setPath(obj, path, value) {
 
 // ---------------------------------------------------------------- 기억 꺼내기 대화 (api/diary.js mode "memory", 화면 memory.html)
 const MEMORY_BANNED = /(위험|예측|확률|실종 가능성|AI가 추천)/;
-const PHONE_LIKE = /\d{2,4}[-\s.]?\d{3,4}[-\s.]?\d{4}/;
+const PHONE_LIKE = /\d{2,4}[-\s.]?\d{3,4}[-\s.]?\d{4}|\d{3,4}[-\s.]\d{4}/;
 
 /** 값이 원문에 글자 그대로(공백·대소문자 무시) 들어 있는가. appearsInSource(두 글자만 겹쳐도 통과)보다 엄격 — 아니면 화면에 ⚠ */
 export function appearsExactly(value, source) {
@@ -119,27 +123,30 @@ export function appearsExactly(value, source) {
 /** 근거 문장: AI가 준 evidence가 원문에 그대로 있을 때만 쓴다. 아니면 코드가 원문에서 이름이 나온 부분을 직접 잘라 쓴다 (AI가 만든 문장은 저장하지 않음) */
 function memoryEvidence(name, evidence, answer) {
   const ev = typeof evidence === "string" ? evidence.trim() : "";
-  if (ev && appearsExactly(ev, answer)) return ev.slice(0, 80);
+  if (ev && appearsExactly(ev, answer)) return PHONE_LIKE.test(ev) ? name : ev.slice(0, 80);
   const clauses = answer.split(/[.!?。\n]+/).map((c) => c.trim()).filter(Boolean);
   const clause = clauses.find((c) => appearsExactly(name, c)) ?? clauses.find((c) => appearsInSource(name, c)) ?? "";
+  if (PHONE_LIKE.test(clause)) return name; // 전화번호가 근거 문장에 섞여 있으면 저장하지 않는다 (잘라 쓰기 전의 문장 전체로 검사)
   if (clause.length <= 60) return clause;
   const start = Math.max(0, clause.indexOf(name) - 20); // 말로 입력하면 마침표가 없어 한 문장이 길다 → 이름 둘레만
   return clause.slice(start, start + 60).trim();
 }
 
-function memoryFollowup(f) {
+function memoryFollowup(f, input) {
   if (typeof f !== "string") return null;
   const t = f.trim();
   if (t.length < 3 || t.length > 160 || !/[?？]$/.test(t) || (t.match(/[?？]/g) ?? []).length > 1 || MEMORY_BANNED.test(t)) return null;
-  return t;
+  const nums = new Set(input.match(/\d+/g) ?? []); // 질문·답에 없는 숫자(연도·나이 등)를 끼워 넣었으면 버린다
+  return (t.match(/\d+/g) ?? []).every((n) => nums.has(n)) ? t : null;
 }
 
 /**
  * 호출 ⑧ 검증(코드): AI가 뽑은 장소 중 보호자 답(answer)에 없는 이름·이미 아는 이름·전화번호 꼴·중복은 버리고(최대 5곳),
- * 근거는 원문에서만 가져온다. exact=false(이름이 원문에 글자 그대로는 없음)면 화면이 ⚠를 붙인다.
- * followup은 160자 이하의 질문 1개일 때만 남기고, 아니면 null.
+ * 근거는 원문에서만 가져온다(전화번호꼴이 섞이면 이름으로 대신). 이름이 원문에 글자 그대로는 없으면(appearsExactly 가 false) 화면이 ⚠를 붙인다.
+ * followup은 160자 이하의 질문 1개이고 숫자가 question·answer에 있는 것뿐일 때만 남기고, 아니면 null.
+ * question(선택): 보호자에게 한 질문. followup 숫자 대조에만 쓴다.
  */
-export function verifyMemory(raw, answer, knownPlaces = []) {
+export function verifyMemory(raw, answer, knownPlaces = [], question = "") {
   const r = raw && typeof raw === "object" ? raw : {};
   const src = String(answer ?? "");
   const known = new Set((Array.isArray(knownPlaces) ? knownPlaces : []).map((k) => norm(k)));
@@ -149,8 +156,8 @@ export function verifyMemory(raw, answer, knownPlaces = []) {
     const name = p.name.trim().replace(/\s+/g, " "), key = norm(name);
     if (key.length < 2 || name.length > 30 || PHONE_LIKE.test(name) || !appearsInSource(name, src) || known.has(key) || seen.has(key)) continue;
     seen.add(key);
-    places.push({ name, evidence: memoryEvidence(name, p.evidence, src), exact: appearsExactly(name, src) });
+    places.push({ name, evidence: memoryEvidence(name, p.evidence, src) });
     if (places.length === 5) break;
   }
-  return { places, followup: memoryFollowup(r.followup) };
+  return { places, followup: memoryFollowup(r.followup, src + " " + String(question ?? "")) };
 }

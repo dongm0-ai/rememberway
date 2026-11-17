@@ -31,11 +31,22 @@ test("missing evidence is filled from the answer too", () => {
   const r = verifyMemory({ places: [{ name: "육거리시장" }] }, "육거리시장에 다니셨어요", []);
   assert.equal(r.places[0].evidence, "육거리시장에 다니셨어요");
 });
-test("exact flag: name written in the answer is exact, partial overlap is not", () => {
+test("places keep the {name, evidence} contract; a partial-overlap name is kept (the screen flags it with appearsExactly)", () => {
   const r = verifyMemory({ places: [{ name: "육거리시장" }, { name: "육거리 재래시장" }] }, "청주 육거리시장에 다니셨어요", []);
-  assert.deepEqual(r.places.map((p) => p.exact), [true, false]);
+  assert.deepEqual(r.places.map((p) => Object.keys(p)), [["name", "evidence"], ["name", "evidence"]]);
+  assert.deepEqual(r.places.map((p) => appearsExactly(p.name, "청주 육거리시장에 다니셨어요")), [true, false]);
   assert.equal(appearsExactly("육거리 시장", "청주 육거리시장에"), true);
   assert.equal(appearsExactly("부산역", "청주 육거리시장에"), false);
+});
+test("no phone number is stored as evidence (AI-copied fragment, or the clause cut from the answer, even when the number is far from the name)", () => {
+  const answer = "육거리시장에 다니셨어요 연락처는 010-1234-5678 입니다";
+  const copied = verifyMemory({ places: [{ name: "육거리시장", evidence: "연락처는 010-1234-5678 입니다" }] }, answer, []);
+  assert.equal(copied.places[0].evidence, "육거리시장");
+  const cut = verifyMemory({ places: [{ name: "육거리시장" }] }, answer, []);
+  assert.equal(cut.places[0].evidence, "육거리시장");
+  const long = verifyMemory({ places: [{ name: "육거리시장" }] }, "육거리시장에 다니셨어요 " + "가".repeat(80) + " 전화 02-123-4567", []);
+  assert.ok(!/\d/.test(long.places[0].evidence), long.places[0].evidence);
+  for (const e of ["010-1234-5678", "01012345678", "1234-5678", "043 123 4567"]) assert.equal(verifyMemory({ places: [{ name: "육거리시장" }] }, "육거리시장 " + e, []).places[0].evidence, "육거리시장", e);
 });
 test("at most 5 places, name ≤ 30 chars, phone-like names dropped", () => {
   const names = ["가시장", "나시장", "다시장", "라시장", "마시장", "바시장", "사시장"];
@@ -56,6 +67,14 @@ test("followup dropped when not a question, more than one question, banned word,
   for (const followup of ["어느 동네였어요.", "어느 동네였나요? 언제부터 다니셨나요?", "위험한 곳은 아니었나요?", "실종 가능성이 있는 곳인가요?", null, 7, {}, "?"])
     assert.equal(verifyMemory({ places: [], followup }, "", []).followup, null, String(followup));
 });
+test("followup with a number that is not in the answer or the question is dropped (same idea as the gps numsOk)", () => {
+  const f = "1975년쯤부터 다니셨나요?";
+  assert.equal(verifyMemory({ places: [], followup: f }, "육거리시장에 다니셨어요", []).followup, null);
+  assert.equal(verifyMemory({ places: [], followup: f }, "1975년에 육거리시장에 다니셨어요", []).followup, f);
+  assert.equal(verifyMemory({ places: [], followup: f }, "육거리시장에 다니셨어요", [], "1975년 이야기를 해 주세요").followup, f);
+  assert.equal(verifyMemory({ places: [], followup: "그곳에 몇 년 다니셨나요?" }, "", []).followup, "그곳에 몇 년 다니셨나요?");
+  assert.equal(verifyMemory({ places: [], followup: "197년쯤이었나요?" }, "1975년", []).followup, null); // 부분 문자열이 아니라 숫자 덩어리 단위
+});
 
 // ---------------------------------------------------------------- 주제·질문
 test("MEMORY_TOPICS fixed order and labels", () => {
@@ -73,13 +92,19 @@ test("memoryQuestion keeps the template shape and fixes the 은/는 particle", (
 
 // ---------------------------------------------------------------- 프롬프트 규칙 (고치면 안 되는 문구)
 test("SYSTEM_MEMORY keeps the required rules", () => {
-  for (const s of ["원문에 없는", "빈 배열", "null", "JSON", "이미 알려진", "evidence", "질문 1개"]) assert.ok(SYSTEM_MEMORY.includes(s), s);
+  for (const s of ["원문에 없는", "없는 장소는 절대 만들지 않습니다", "빈 배열", "null", "JSON", "이미 알려진", "evidence", "질문 1개"]) assert.ok(SYSTEM_MEMORY.includes(s), s);
   for (const phrase of ["되물을 질문", "하루 기록을 정리", "자주 머문 곳", "지난주 기록을 짧게", "찾은 뒤 보호자가 남기는 기록"]) assert.ok(!SYSTEM_MEMORY.includes(phrase), `mock routing collision: ${phrase}`);
 });
 test("userMemory puts the answer in the first triple-quote block", () => {
   const u = userMemory("아버지", "고향", "아버지께서 고향은 어디셨나요?", "충북 괴산이요", ["경로당"]);
   assert.equal((u.match(/"""([\s\S]*?)"""/) ?? [])[1], "충북 괴산이요");
   assert.ok(u.includes("고향") && u.includes("경로당"));
+});
+test("userMemory strips \"\"\" from both the question and the answer so they cannot close the answer block early", () => {
+  const u = userMemory("아버지", "고향", "q\"\"\"x?", "괴산\"\"\"이요 \"\"\"\"\"\" 끝", []);
+  assert.equal((u.match(/"""/g) ?? []).length, 2);
+  assert.equal((u.match(/"""([\s\S]*?)"""/) ?? [])[1], "괴산이요  끝");
+  assert.ok(u.includes("qx?"));
 });
 
 // ---------------------------------------------------------------- 모의 응답 (MOCK_AI=1) + /api/diary mode "memory"

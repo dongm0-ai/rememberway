@@ -1,11 +1,14 @@
 // 공통: 저장(localStorage/sessionStorage), API 호출(10초 타임아웃), 음성 입력, 작은 UI 도우미
 export const store = {
   get(key, fallback = null) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
-  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} },
+  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} try { onSet?.(key, value); } catch {} }, // 훅: family.js 가 서버로 올린다
   del(key) { try { localStorage.removeItem(key); } catch {} },
   sget(key, fallback = null) { try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
   sset(key, value) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch {} },
 };
+// store.set 뒤에 불리는 훅 (family.js 동기화). 페이지 코드는 그대로 store.set 만 부르면 된다
+let onSet = null;
+export function setStoreHook(fn) { onSet = typeof fn === "function" ? fn : null; }
 export const KEYS = { profile: "rw_profile", diary: "rw_diary", incidents: "rw_incidents", clue: "rw_clue", utterance: "rw_utterance", mode: "rw_mode", config: "rw_config" };
 
 /** 서버 함수 호출. 10초 넘으면 {ok:false, reason:"TIMEOUT"}. 네트워크 끊김도 ok:false → 서식 모드 */
@@ -22,7 +25,7 @@ export function askAiConsent() {
       el("h2", { id: "consent-title", style: "margin-top:0" }, "AI 정리 전에 확인해 주세요"),
       el("ul", { class: "plain small" },
         el("li", {}, "보호자가 말하거나 쓴 내용과 등록 정보가 정리를 위해 ", el("b", {}, "AI 회사(Upstage, 장애 시 Google)"), "로 전달됩니다."),
-        el("li", {}, "이 앱의 서버는 그 내용을 저장하지 않습니다. 이름은 묻지 않으니 이름·전화번호는 말하지 말아 주세요."),
+        el("li", {}, "AI 서버는 저장하지 않습니다. 정리된 결과는 가족 계정으로만 공유됩니다. 이름은 묻지 않으니 이름·전화번호는 말하지 말아 주세요."),
         el("li", {}, "동의하지 않아도 ", el("b", {}, "정해진 질문(서식)"), "으로 똑같이 요약을 만들 수 있습니다.")),
       el("div", { class: "stack", style: "margin-top:14px" },
         el("button", { class: "btn-primary", onclick: () => { try { localStorage.setItem(CONSENT_KEY, new Date().toISOString().slice(0, 10)); } catch {} done(true); } }, "동의하고 AI로 정리"),
@@ -183,10 +186,26 @@ export function mountPushCard(container) {
 // 2026-11-03: 도로명·지번·건물명까지 받는다(동·호수는 받지 않음). 저장: localStorage "rw_home" =
 //   { label: "대전광역시 중구 석교동"(행정동, 검색어·요약용), road, jibun, building, lat, lng, savedAt } — 브라우저 사이트 데이터를 지우기 전까지 남는다.
 // 집 주소는 이 기기에만 저장하고 서버에 남기지 않는다. 경찰 요약·공유 글에는 동까지만 (주소 상세는 보호자가 112에 직접).
-const HOME_KEY = "rw_home";
-export function getHome() { const h = store.get(HOME_KEY, null); return h && h.label && Number.isFinite(h.lat) ? h : null; }
-export function saveHome(h) { const v = { label: String(h.label ?? "").trim(), road: h.road || null, jibun: h.jibun || null, building: h.building || null, lat: Number(h.lat), lng: Number(h.lng), savedAt: new Date().toLocaleDateString("sv-SE") }; store.set(HOME_KEY, v); return v; }
-export function clearHome() { store.del(HOME_KEY); store.del("rw_last_home"); }
+// 2026-11-17 보호자 계정: 어르신마다 따로 "rw_home:<elderId>" (현재 어르신 = localStorage "rw_elder"). 어르신을 고르기 전엔 옛 키 "rw_home".
+//   옛 "rw_home" 값은 처음 고른 어르신의 키로 옮긴다.
+const LEGACY_HOME_KEY = "rw_home";
+const isHome = (h) => Boolean(h && h.label && Number.isFinite(h.lat));
+/** 그 어르신의 집 주소 키. elderId 가 없으면 옛 키 */
+export const homeKeyFor = (elderId) => (elderId ? `rw_home:${elderId}` : LEGACY_HOME_KEY);
+function homeKey() {
+  let id = null;
+  try { id = JSON.parse(localStorage.getItem("rw_elder") || "null")?.id ?? null; } catch {}
+  const k = homeKeyFor(id);
+  if (id) { // 옛 값 옮기기 (그 어르신 키가 비어 있을 때만)
+    try { const old = localStorage.getItem(LEGACY_HOME_KEY); if (old !== null && localStorage.getItem(k) === null) localStorage.setItem(k, old); if (old !== null) localStorage.removeItem(LEGACY_HOME_KEY); } catch {}
+  }
+  return k;
+}
+/** 그 어르신의 집 주소 (없으면 아직 안 옮긴 옛 "rw_home"). family.js 가 업로드 정리에 쓴다 */
+export function homeFor(elderId) { const h = store.get(homeKeyFor(elderId), null) ?? store.get(LEGACY_HOME_KEY, null); return isHome(h) ? h : null; }
+export function getHome() { const h = store.get(homeKey(), null); return isHome(h) ? h : null; }
+export function saveHome(h) { const v = { label: String(h.label ?? "").trim(), road: h.road || null, jibun: h.jibun || null, building: h.building || null, lat: Number(h.lat), lng: Number(h.lng), savedAt: new Date().toLocaleDateString("sv-SE") }; store.set(homeKey(), v); return v; }
+export function clearHome() { store.del(homeKey()); store.del("rw_last_home"); }
 /** 화면에 보일 짧은 집 이름: 건물명 > 도로명 > 동 */
 export const homeShort = (h) => (h ? (h.building ? `${h.building}` : h.road || h.jibun || h.label) : "");
 

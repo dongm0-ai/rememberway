@@ -164,23 +164,52 @@ export function verifyMemory(raw, answer, knownPlaces = [], question = "") {
 
 // ---------------------------------------------------------------- 예상 후보지 (api/diary.js mode "candidates", 화면 summary.html·track.html)
 const CAND_MAX = 3, CAND_REASON_MAX = 200;
+const round1 = (x) => Math.round(x * 10) / 10;
 
-/** 입력(motion·candidates)에 나온 숫자 덩어리 집합. 값만 훑는다 — 키 이름의 숫자(direction_8)와 id(c1 같은 이름표)는 계산값이 아니라서 뺀다 */
-function inputNumbers(...parts) {
-  const nums = new Set();
+/** 거리(m) → 화면·AI 공통 문구. 1000m 미만 "800m", 이상 "1.2km"(소수 1자리, 끝이 .0이면 "1km"). 숫자가 아니거나 음수면 null */
+export function fmtDist(m) {
+  if (typeof m !== "number" || !Number.isFinite(m) || m < 0) return null;
+  const r = Math.round(m);
+  return r < 1000 ? r + "m" : round1(r / 1000) + "km";
+}
+/** 경과 분 → 화면·AI 공통 문구. 60분 미만 "40분", 이상 "1시간 15분"("2시간"). 숫자가 아니거나 음수면 null */
+export function fmtElapsed(min) {
+  if (typeof min !== "number" || !Number.isFinite(min) || min < 0) return null;
+  const r = Math.round(min), h = Math.floor(r / 60), m = r % 60;
+  return h === 0 ? m + "분" : m === 0 ? h + "시간" : h + "시간 " + m + "분";
+}
+
+// 같은 코드 값에서 사람이 흔히 쓰는 다른 꼴 (1200m → 1.2km·1km, 75분 → 1시간 15분, 시속 3.6 → 약 4). 이 꼴의 숫자는 새 숫자가 아니다.
+const DERIVED = {
+  dist_m: (v) => [round1(v / 1000), Math.round(v / 1000)],
+  path_dist_m: (v) => [round1(v / 1000), Math.round(v / 1000)],
+  minutes_since: (v) => [Math.floor(v / 60), v % 60, round1(v / 60)],
+  speed_kmh: (v) => [Math.round(v)],
+};
+const NUM_RE = /\d+(?:\.\d+)?/g;
+const numTokens = (x) => (String(x).match(NUM_RE) ?? []).map((t) => String(Number(t)));
+const NOT_FACTS = new Set(["id", "lat", "lng"]); // id는 이름표, 좌표는 AI에 보내지 않는 값 — 이유가 인용해도 되는 숫자가 아니다
+
+/** part(motion 또는 후보 하나)의 값에 나온 숫자를 set에 모은다. 값만 훑는다 — 키 이름의 숫자(direction_8)는 아니다. 숫자는 소수까지 한 덩어리("1.2"), 비교는 String(Number(...))로 */
+function inputNumbers(part, set = new Set()) {
   const walk = (v, key) => {
-    if (key === "id") return;
-    if (typeof v === "number" || typeof v === "string") for (const n of String(v).match(/\d+/g) ?? []) nums.add(n);
+    if (NOT_FACTS.has(key)) return;
+    if (typeof v === "number") {
+      if (!Number.isFinite(v)) return;
+      numTokens(v).forEach((n) => set.add(n));
+      for (const d of DERIVED[key]?.(v) ?? []) set.add(String(d));
+    } else if (typeof v === "string") numTokens(v).forEach((n) => set.add(n));
     else if (Array.isArray(v)) v.forEach((x) => walk(x));
     else if (v && typeof v === "object") Object.entries(v).forEach(([k, x]) => walk(x, k));
   };
-  parts.forEach((p) => walk(p));
-  return nums;
+  walk(part);
+  return set;
 }
 
 /**
  * 호출 ⑨ 검증(코드): AI가 고른 후보 중 목록(candidates)에 없는 id·중복 id·이유가 없거나 200자를 넘는 항목은 버린다(자르지 않고 버림). 최대 3개, AI가 준 순서 그대로.
- * 이유 안의 숫자(연속된 숫자 덩어리)가 입력(motion·candidates의 값)에 없는 것이 하나라도 있으면 warn:true — 버리지 않고 화면이 ⚠를 붙인다.
+ * 이유 안의 숫자(소수 포함 덩어리)가 "그 후보의 값 + motion의 값"에 없는 것이 하나라도 있으면 warn:true — 버리지 않고 화면이 ⚠를 붙인다.
+ * 같은 값의 다른 꼴은 새 숫자가 아니다: dist_m·path_dist_m → km(소수 1자리·반올림), minutes_since → 시간·분·시간(소수 1자리), speed_kmh → 반올림 정수. 다른 후보의 숫자는 인용할 수 없다.
  * 쓸 만한 게 없으면 [] — 화면이 fallbackOrder(코드 순서)를 쓴다.
  * @param {*} raw AI가 돌려준 JSON {ranked:[{id, reason}]}
  * @param {{id:string}[]} candidates AI에 보낸 후보 목록
@@ -188,15 +217,16 @@ function inputNumbers(...parts) {
  * @returns {{id:string, reason:string, warn:boolean}[]}
  */
 export function verifyCandidates(raw, candidates, motion) {
-  const list = Array.isArray(candidates) ? candidates : [];
-  const ids = new Set(list.map((c) => c?.id).filter((id) => typeof id === "string"));
-  const nums = inputNumbers(motion, list);
+  const byId = new Map();
+  for (const c of Array.isArray(candidates) ? candidates : []) if (typeof c?.id === "string" && !byId.has(c.id)) byId.set(c.id, c);
+  const motionNums = inputNumbers(motion);
   const out = [], seen = new Set();
   for (const r of Array.isArray(raw?.ranked) ? raw.ranked : []) {
     const id = r?.id, reason = typeof r?.reason === "string" ? r.reason.trim() : "";
-    if (typeof id !== "string" || !ids.has(id) || seen.has(id) || !reason || reason.length > CAND_REASON_MAX) continue;
+    if (typeof id !== "string" || !byId.has(id) || seen.has(id) || !reason || reason.length > CAND_REASON_MAX) continue;
     seen.add(id);
-    out.push({ id, reason, warn: !(reason.match(/\d+/g) ?? []).every((n) => nums.has(n)) });
+    const nums = inputNumbers(byId.get(id), new Set(motionNums));
+    out.push({ id, reason, warn: !numTokens(reason).every((n) => nums.has(n)) });
     if (out.length === CAND_MAX) break;
   }
   return out;

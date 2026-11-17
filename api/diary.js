@@ -8,7 +8,7 @@
 import { askJSON } from "../lib/claude.js";
 import { SYSTEM_DIARY, userDiary, SYSTEM_GPS, userGps, SYSTEM_MEMORY, userMemory, SYSTEM_CANDIDATES, userCandidates } from "../lib/prompts.js";
 import { postHandler } from "../lib/http.js";
-import { appearsInSource, verifyMemory, verifyCandidates } from "../public/lib/verify.js";
+import { appearsInSource, verifyMemory, verifyCandidates, fmtDist, fmtElapsed } from "../public/lib/verify.js";
 import { MEMORY_TOPICS } from "../public/lib/schema.js";
 import { DIRECTIONS_8 } from "../public/lib/predict.js";
 
@@ -41,7 +41,8 @@ async function memoryPlaces({ honorific, topic, question, answer, knownPlaces })
   return { ok: true, ...verifyMemory(raw, answer, known, q) };
 }
 
-// 호출 ⑨ 입력 정리(코드): 필요한 칸만 새 객체로 옮겨 담는다 → 좌표·주소·원문 같은 다른 칸은 AI에 가지 않는다. 모양이 틀리면 null
+// 호출 ⑨ 입력 정리(코드): 필요한 칸만 새 객체로 옮겨 담는다 → 좌표·주소·원문 같은 다른 칸은 AI에 가지 않는다. 모양이 틀리면 null.
+// 거리·경과 시간은 코드가 문구(dist_text "1.2km", elapsed_text "1시간 15분")로 만들어 함께 보낸다. AI는 그 문구를 그대로 인용하고, 화면도 같은 문구를 verify.js fmtDist·fmtElapsed로 만든다.
 const fin = (x) => typeof x === "number" && Number.isFinite(x);
 const SOURCES = ["memory", "frequent", "rising", "new", "guardian", "basic"];
 function cleanMotion(m) {
@@ -51,16 +52,16 @@ function cleanMotion(m) {
   const dir = m.direction_8 == null ? null : DIRECTIONS_8.includes(m.direction_8) ? m.direction_8 : undefined;
   if (minutes === undefined || speed === undefined || dir === undefined) return null;
   const moving = m.state === "moving_lost"; // 움직임이 아니면 속도·방향은 의미가 없다
-  return { state: m.state, minutes_since: minutes, speed_kmh: moving ? speed : null, direction_8: moving ? dir : null };
+  return { state: m.state, minutes_since: minutes, elapsed_text: fmtElapsed(minutes), speed_kmh: moving ? speed : null, direction_8: moving ? dir : null };
 }
 function cleanCandidate(c) {
   if (!c || typeof c !== "object" || typeof c.id !== "string" || typeof c.name !== "string") return null;
-  const id = c.id.trim().slice(0, 40), name = c.name.trim().replace(/\s+/g, " ").slice(0, 40);
+  const id = c.id, name = c.name.trim().replace(/\s+/g, " ").slice(0, 40); // id는 있는 그대로만 받는다 — 다듬거나 자르면 화면의 id와 어긋난다
   const opt = (v, max) => (v == null ? null : fin(v) && v >= 0 && v <= max ? Math.round(v) : undefined);
   const dist = fin(c.dist_m) && c.dist_m >= 0 ? Math.round(c.dist_m) : undefined, diff = opt(c.bearing_diff_deg, 180), path = opt(c.path_dist_m, Infinity);
-  if (!id || !name || dist === undefined || diff === undefined || path === undefined || typeof c.reachable !== "boolean") return null;
+  if (!id || id.length > 40 || id !== id.trim() || !name || dist === undefined || diff === undefined || path === undefined || typeof c.reachable !== "boolean") return null;
   const evidence = typeof c.evidence === "string" && c.evidence.trim() ? c.evidence.trim().slice(0, 80) : null;
-  return { id, name, source: SOURCES.includes(c.source) ? c.source : "guardian", evidence, dist_m: dist, bearing_diff_deg: diff, reachable: c.reachable, path_dist_m: path };
+  return { id, name, source: SOURCES.includes(c.source) ? c.source : "guardian", evidence, dist_m: dist, dist_text: fmtDist(dist), bearing_diff_deg: diff, reachable: c.reachable, path_dist_m: path, path_dist_text: path === null ? null : fmtDist(path) };
 }
 
 // 호출 ⑨ 검증(코드): 목록 밖 id·중복은 버리고 최대 3개, 이유는 200자 이하·금지어 없음, 이유의 숫자가 입력에 없으면 warn:true (public/lib/verify.js verifyCandidates).

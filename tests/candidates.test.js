@@ -1,7 +1,7 @@
 // Task 11 (서버 부분) — 예상 후보지: AI는 코드가 만든 후보 목록 안에서만 순서·이유. verifyCandidates, motionSummary/direction8, 프롬프트 규칙, 모의 응답, /api/diary mode "candidates"
 import test from "node:test";
 import assert from "node:assert/strict";
-import { verifyCandidates } from "../public/lib/verify.js";
+import { verifyCandidates, fmtDist, fmtElapsed } from "../public/lib/verify.js";
 import { motionSummary, direction8 } from "../public/lib/predict.js";
 import { SYSTEM_CANDIDATES, userCandidates, SYSTEM_EXTRACT, SYSTEM_FOLLOWUP, SYSTEM_DIARY, SYSTEM_WEEKLY, SYSTEM_RECORD, SYSTEM_GPS, SYSTEM_MEMORY } from "../lib/prompts.js";
 import { askJSON } from "../lib/claude.js";
@@ -65,7 +65,64 @@ test("numbers from motion count as input numbers (minutes, speed, bearing diff, 
   assert.equal(ok("41분 전에 끊겼어요"), true);
 });
 test("candidate id digits are not input numbers (ids are handles, not computed values)", () => {
-  assert.equal(verifyCandidates({ ranked: [{ id: "c1", reason: "1km 떨어져 있어요" }] }, [{ id: "c1", dist_m: 1200 }], {})[0].warn, true);
+  assert.equal(verifyCandidates({ ranked: [{ id: "c1", reason: "1km 떨어져 있어요" }] }, [{ id: "c1", dist_m: 3000 }], {})[0].warn, true);
+  assert.equal(verifyCandidates({ ranked: [{ id: "c1", reason: "3km 떨어져 있어요" }] }, [{ id: "c1", dist_m: 3000 }], {})[0].warn, false);
+});
+test("coordinates left in a candidate or motion are not input numbers either", () => {
+  const cands = [{ id: "a", dist_m: 3000, lat: 36.6123, lng: 127.4123 }];
+  assert.equal(verifyCandidates({ ranked: [{ id: "a", reason: "36.6123 에 있어요" }] }, cands, { lat: 36.6, lng: 127.4 })[0].warn, true);
+});
+
+// ---------------------------------------------------------------- 같은 값의 다른 꼴(km·시간·반올림)은 새 숫자가 아니다
+const warnOf = (reason, cand, motion = {}) => verifyCandidates({ ranked: [{ id: "a", reason }] }, [{ id: "a", ...cand }], motion)[0].warn;
+test("derived forms of the same value do not warn: km (1 decimal and rounded), hours + minutes, rounded speed", () => {
+  assert.equal(warnOf("마지막 위치에서 1.2km 거리예요", { dist_m: 1200 }), false);
+  assert.equal(warnOf("마지막 위치에서 2.4km 거리예요", { dist_m: 2400 }), false);
+  assert.equal(warnOf("마지막 위치에서 약 1km 거리예요", { dist_m: 1200 }), false);
+  assert.equal(warnOf("예상 경로에서 0.8km 떨어져 있어요", { dist_m: 100, path_dist_m: 800 }), false);
+  assert.equal(warnOf("예상 경로에서 약 1km 떨어져 있어요", { dist_m: 100, path_dist_m: 800 }), false);
+  assert.equal(warnOf("시속 약 4km로 가시던 방향이에요", { dist_m: 100 }, { speed_kmh: 3.6 }), false);
+  assert.equal(warnOf("시속 3.6km로 가시다 끊겼어요", { dist_m: 100 }, { speed_kmh: 3.6 }), false);
+  assert.equal(warnOf("1시간 15분 전에 끊겼어요", { dist_m: 100 }, { minutes_since: 75 }), false);
+  assert.equal(warnOf("약 1.3시간 전에 끊겼어요", { dist_m: 100 }, { minutes_since: 75 }), false);
+  assert.equal(warnOf("40분 전에 끊겼어요", { dist_m: 100 }, { minutes_since: 40 }), false);
+});
+test("numbers that are not the same value in another form still warn", () => {
+  assert.equal(warnOf("5km 떨어져 있어요", { dist_m: 1200 }), true);
+  assert.equal(warnOf("12km 떨어져 있어요", { dist_m: 1200 }), true);
+  assert.equal(warnOf("시속 6.3km로 가셨어요", { dist_m: 100 }, { speed_kmh: 3.6 }), true);
+  assert.equal(warnOf("40분 전에 끊겼어요", { dist_m: 100 }, { minutes_since: 75 }), true);
+  assert.equal(warnOf("1.5km 거리예요", { dist_m: 1200 }), true);
+  assert.equal(warnOf("1시간 20분 전이에요", { dist_m: 100 }, { minutes_since: 75 }), true);
+});
+test("decimals are one number: 1.2 is not 1 and 2, and 3.60 equals 3.6", () => {
+  assert.equal(warnOf("2km 거리예요", { dist_m: 3000, name: "1.2번 출구" }), true);   // 2 는 입력에 없다 (1.2 한 덩어리)
+  assert.equal(warnOf("1.2번 출구 쪽이에요", { dist_m: 3000, name: "1.2번 출구" }), false);
+  assert.equal(warnOf("시속 3.60km예요", { dist_m: 100 }, { speed_kmh: 3.6 }), false);
+});
+test("a reason may only use the numbers of its own candidate plus motion (not another candidate's)", () => {
+  const cands = [{ id: "c1", dist_m: 1200 }, { id: "c2", dist_m: 800 }];
+  const motion = { minutes_since: 40 };
+  const out = verifyCandidates({ ranked: [{ id: "c1", reason: "800m 거리예요" }, { id: "c2", reason: "800m 거리예요" }, { id: "c1x", reason: "x" }] }, cands, motion);
+  assert.deepEqual(out.map((r) => [r.id, r.warn]), [["c1", true], ["c2", false]]);
+  const own = verifyCandidates({ ranked: [{ id: "c1", reason: "40분 전에 끊겼고 1.2km 거리예요" }, { id: "c2", reason: "40분 전에 끊겼고 800m 거리예요" }] }, cands, motion);
+  assert.deepEqual(own.map((r) => r.warn), [false, false]);
+});
+
+// ---------------------------------------------------------------- 화면·AI가 같이 쓰는 문구 (fmtDist, fmtElapsed)
+test("fmtDist: under 1000m in metres, otherwise km with one decimal (trailing .0 dropped)", () => {
+  const cases = [[0, "0m"], [80, "80m"], [800, "800m"], [999, "999m"], [999.6, "1km"], [1000, "1km"], [1049, "1km"], [1050, "1.1km"], [1200, "1.2km"], [2400, "2.4km"], [12000, "12km"]];
+  for (const [m, text] of cases) assert.equal(fmtDist(m), text, String(m));
+  for (const v of [-1, NaN, Infinity, null, undefined, "5", {}]) assert.equal(fmtDist(v), null, String(v));
+});
+test("fmtElapsed: minutes under an hour, otherwise hours + minutes", () => {
+  const cases = [[0, "0분"], [40, "40분"], [59, "59분"], [60, "1시간"], [75, "1시간 15분"], [120, "2시간"], [135, "2시간 15분"], [59.6, "1시간"]];
+  for (const [m, text] of cases) assert.equal(fmtElapsed(m), text, String(m));
+  for (const v of [-1, NaN, Infinity, null, undefined, "5"]) assert.equal(fmtElapsed(v), null, String(v));
+});
+test("the formatted texts never warn for their own candidate/motion (what the AI is told to quote)", () => {
+  for (const dist_m of [0, 80, 800, 999, 1000, 1049, 1050, 1200, 2400, 12000, 45678]) assert.equal(warnOf(`${fmtDist(dist_m)} 거리예요`, { dist_m }), false, String(dist_m));
+  for (const minutes_since of [0, 5, 59, 60, 75, 120, 135, 1439, 10080]) assert.equal(warnOf(`${fmtElapsed(minutes_since)} 전에 끊겼어요`, { dist_m: 100 }, { minutes_since }), false, String(minutes_since));
 });
 test("numbers are compared as whole digit runs, not substrings", () => {
   assert.equal(verifyCandidates({ ranked: [{ id: "a", reason: "120m 거리예요" }] }, [{ id: "a", dist_m: 1200 }], {})[0].warn, true);
@@ -119,7 +176,7 @@ test("motionSummary: moving_lost with unusable speed/bearing still returns finit
 
 // ---------------------------------------------------------------- 프롬프트 규칙 (고치면 안 되는 문구)
 test("SYSTEM_CANDIDATES keeps the required rules", () => {
-  for (const s of ["최대 3개", "목록 안", "존댓말", "입력에 없는 숫자", "입력에 없는 장소", "evidence", "추억의 장소", "JSON", `{"ranked":[{"id":"","reason":""}]}`, "확률", "%", "AI가 추천"]) assert.ok(SYSTEM_CANDIDATES.includes(s), s);
+  for (const s of ["최대 3개", "목록 안", "존댓말", "입력에 없는 숫자", "입력에 없는 장소", "evidence", "추억의 장소", "JSON", `{"ranked":[{"id":"","reason":""}]}`, "확률", "%", "AI가 추천", "dist_text", "path_dist_text", "elapsed_text", "그대로 인용", "다른 후보의 숫자", "none"]) assert.ok(SYSTEM_CANDIDATES.includes(s), s);
 });
 test("mock routing phrases do not collide between SYSTEM_CANDIDATES and the other prompts", () => {
   const routing = ["되물을 질문", "하루 기록을 정리", "자주 머문 곳", "기억 꺼내기", "지난주 기록을 짧게", "찾은 뒤 보호자가 남기는 기록"];
@@ -203,6 +260,7 @@ test("/api/diary mode candidates: bad motion or bad candidate fields are BAD_INP
     body({ motion: motion({ direction_8: "북북동" }) }), body({ motion: motion({ minutes_since: -1 }) }), body({ motion: motion({ minutes_since: "40" }) }),
     body({ motion: motion({ speed_kmh: NaN }) }), body({ motion: motion({ speed_kmh: 500 }) }),
     body({ candidates: [cand("c1", { id: "" })] }), body({ candidates: [cand("c1", { id: 7 })] }), body({ candidates: [cand("c1"), cand("c1")] }),
+    body({ candidates: [cand(" c1")] }), body({ candidates: [cand("c1 ")] }), body({ candidates: [cand("c1\n")] }), body({ candidates: [cand("c".repeat(41))] }), body({ candidates: [cand("   ")] }),
     body({ candidates: [cand("c1", { name: "" })] }), body({ candidates: [cand("c1", { name: 3 })] }),
     body({ candidates: [cand("c1", { dist_m: "12" })] }), body({ candidates: [cand("c1", { dist_m: -5 })] }), body({ candidates: [cand("c1", { dist_m: null })] }),
     body({ candidates: [cand("c1", { bearing_diff_deg: 181 })] }), body({ candidates: [cand("c1", { reachable: "yes" })] }), body({ candidates: [cand("c1", { path_dist_m: -1 })] }),
@@ -212,6 +270,12 @@ test("/api/diary mode candidates: bad motion or bad candidate fields are BAD_INP
     const out = await post(b);
     assert.deepEqual([out.ok, out.reason], [false, "BAD_INPUT"], JSON.stringify(b).slice(0, 160));
   }
+}));
+test("/api/diary mode candidates: an id is taken exactly as sent (40 chars ok, not trimmed or cut)", () => withFakeAI((r) => ({ ranked: JSON.parse(r.body.messages[0].content.match(/후보 목록[^\n]*\n(\[[\s\S]*\])/)[1]).map((c) => ({ id: c.id, reason: "가던 방향이에요" })) }), async () => {
+  const id = "c".repeat(40);
+  const out = await post(body({ candidates: [cand(id), cand("ok-2")] }));
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.ranked.map((r) => r.id), [id, "ok-2"]);
 }));
 test("/api/diary mode candidates: stayed motion and null optional fields are accepted", () => withMock(async () => {
   const out = await post(body({ motion: { state: "stayed", minutes_since: 25, speed_kmh: null, direction_8: null }, candidates: [cand("c1", { source: "frequent", evidence: null, bearing_diff_deg: null, path_dist_m: null })] }));
@@ -228,6 +292,19 @@ test("/api/diary mode candidates: coordinates and other extra fields never reach
   for (const leak of ["36.6", "127.4", "36.5", "127.3", "충북 청주시 어딘가", "010-1234", "나가셨어요", "1731819600000", "speedMps", "bearingDeg"]) assert.ok(!prompt.includes(leak), `leaked: ${leak}`);
   assert.ok(!/\b(lat|lng|latitude|longitude|address|phone|utterance|home)\b/i.test(prompt), prompt);
   assert.ok(sent[0].body.system.includes("예상 후보지"));
+}));
+test("/api/diary mode candidates: the AI gets code-made texts (dist_text, path_dist_text, elapsed_text) and the same ones verify the reply", () => withFakeAI({ ranked: [{ id: "c1", reason: "40분 전에 끊겼고 마지막 위치에서 1.2km, 예상 경로에서 80m 거리예요" }, { id: "c2", reason: "1시간 15분 전이라고 해요" }] }, async (sent) => {
+  const out = await post(body({ motion: motion({ minutes_since: 40 }), candidates: [cand("c1", { dist_m: 1200, path_dist_m: 80 }), cand("c2", { dist_m: 2400, path_dist_m: null })] }));
+  assert.equal(out.ok, true);
+  const prompt = sent[0].body.messages[0].content;
+  assert.ok(prompt.includes('"elapsed_text":"40분"'), prompt);
+  assert.ok(prompt.includes('"dist_text":"1.2km"') && prompt.includes('"dist_text":"2.4km"') && prompt.includes('"path_dist_text":"80m"') && prompt.includes('"path_dist_text":null'), prompt);
+  assert.deepEqual(out.ranked.map((r) => [r.id, r.warn]), [["c1", false], ["c2", true]]); // c2 의 "1시간 15분"은 입력에 없다
+}));
+test("/api/diary mode candidates: an hour-plus elapsed time is told to the AI as hours and minutes", () => withFakeAI({ ranked: [{ id: "c1", reason: "1시간 15분 전에 끊겼어요" }] }, async (sent) => {
+  const out = await post(body({ motion: motion({ minutes_since: 75 }) }));
+  assert.ok(sent[0].body.messages[0].content.includes('"elapsed_text":"1시간 15분"'));
+  assert.equal(out.ranked[0].warn, false);
 }));
 
 test("/api/diary mode candidates: AI picks outside the list are dropped, duplicates dropped, max 3", () => withFakeAI({ ranked: [{ id: "zz", reason: "목록 밖이에요" }, { id: "c3", reason: "가장 가까워요" }, { id: "c3", reason: "또 나왔어요" }, { id: "c1", reason: "다음이에요" }, { id: "c2", reason: "그다음이에요" }, { id: "c4", reason: "넷째예요" }] }, async () => {

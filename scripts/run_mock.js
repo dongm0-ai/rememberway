@@ -1,10 +1,12 @@
-// 모의 사례 실행 스크립트: node scripts/run_mock.js
-// .env.local 에 키가 있어야 함 (MOCK_AI=1 이면 키 없이 모의 응답으로 흐름만 점검).
+// 모의 사례 실행 스크립트: node scripts/run_mock.js [--fake]
+// .env.local 에 키가 있어야 함 (--fake 또는 MOCK_AI=1 이면 키 없이 모의 응답으로 흐름만 점검).
 // 결과를 data/results_<날짜>.json 에 저장 → docs/실험기록.md 에 수치를 옮겨 적는다 (탐구기록물).
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."); // URL.pathname 은 Windows 에서 "/C:/..." 라 경로가 깨짐
+if (process.argv.includes("--fake")) process.env.MOCK_AI = "1"; // cmd.exe 는 `MOCK_AI=1 node ...` 를 못 읽으므로 플래그로 받는다 (loadEnv·lib import 보다 먼저)
 loadEnv(path.join(root, ".env.local"));
 
 const { askJSON, MODEL, PROVIDER, isMock, currentModel } = await import("../lib/claude.js");

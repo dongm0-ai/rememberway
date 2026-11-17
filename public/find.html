@@ -14,7 +14,7 @@
 </head>
 <body>
 <main>
-  <div class="topbar"><a class="back" href="/">← 처음</a><span class="step">목걸이 찾기 (근처에서 소리로)</span></div>
+  <div class="topbar"><span class="step">목걸이 찾기 (근처에서 소리로)</span></div>
   <h1>목걸이 찾기</h1>
   <div class="alert" style="margin-top:6px">실종이면 먼저 112에 전화하세요.<a class="btn btn-danger btn-xl call112" href="tel:112">📞 112 전화하기</a></div>
   <p class="muted">어르신이 목걸이를 차고 계시면, <b>근처</b>에 왔을 때 휴대폰이 목걸이 신호를 잡습니다. 버튼을 누르면 목걸이에서 소리가 나서 정확한 곳을 찾을 수 있어요.</p>
@@ -39,6 +39,8 @@
 </main>
 <script type="module">
   import { $, el } from "/js/common.js";
+  import { mountShell } from "/js/shell.js";
+  await mountShell({ tab: "live" });
   // hardware/necklace 와 같은 값
   const SERVICE = "7a1e0001-5c3b-4f7e-9a2d-525741590001";
   const BUZZ = "7a1e0002-5c3b-4f7e-9a2d-525741590001"; // 쓰기: 1=울림(멈출 때까지), 0=멈춤

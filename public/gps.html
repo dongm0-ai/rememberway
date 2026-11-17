@@ -9,7 +9,7 @@
 </head>
 <body>
 <main>
-  <div class="topbar"><a class="back" href="/diary">← 일지</a><span class="step">화면 0 · GPS로 자주 머문 곳</span></div>
+  <div class="topbar"><a class="back" href="/track">← 목걸이 위치</a><span class="step">화면 0 · GPS로 자주 머문 곳</span></div>
   <h1>GPS로 자주 머문 곳 찾기</h1>
   <p class="muted">최근 30일 목걸이 GPS 기록에서 <b>코드가</b> 자주 머문 곳을 세고, <b>AI가</b> "어떤 곳인지" 보호자께 되묻습니다. 보호자가 확인한 곳만 일지와 추억의 장소에 들어가, 어르신이 GPS를 끄거나 두고 나가셨을 때 확인할 곳이 됩니다.</p>
 
@@ -57,18 +57,20 @@
 <script type="module">
   import { store, KEYS, api, $, el, mockBanner, getHome } from "/js/common.js";
   import { parseTrack, findStays, groupPlaces, trackSummary, templateQuestion, mockTrack, distM, GPS_WINDOW_DAYS } from "/lib/gps.js";
+  import { mountShell, errText } from "/js/shell.js";
+  import { authFetch } from "/js/auth.js";
+  const { elder, offline } = await mountShell({ tab: "live" });
 
   const profile = store.get(KEYS.profile);
   if (!profile) location.replace("/profile");
   const home = getHome();
-  const pair = (() => { try { return JSON.parse(localStorage.getItem("rw_track") || "null"); } catch { return null; } })();
   let places = [], track = null, isMock = false;
 
-  if (!pair) { $("#server").disabled = true; $("#server-note").innerHTML = '먼저 <a href="/track">목걸이 위치 보기</a>에서 연결 코드를 만들어 주세요.'; }
+  if (!elder) { $("#server").disabled = true; $("#server-note").textContent = offline ? "오프라인 — 이 폰에 고른 어르신이 없어 서버 기록을 볼 수 없어요. 아래 다른 방법은 쓸 수 있어요." : "어르신을 먼저 선택해 주세요"; }
   $("#server").onclick = async () => {
     $("#msg").innerHTML = '<span class="spinner"></span> 서버 기록에서 머문 곳을 계산하는 중…';
-    let r; try { r = await (await fetch("/api/loc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "places", key: pair.key }) })).json(); } catch { r = { ok: false, reason: "NETWORK" }; }
-    if (!r.ok) { $("#msg").textContent = `불러오지 못했어요 (${r.reason})`; return; }
+    const r = await authFetch({ action: "places", elderId: elder.id }).catch(() => ({ ok: false, reason: "NETWORK" }));
+    if (!r?.ok) { $("#msg").textContent = `불러오지 못했어요. ${errText(r?.reason)}`; return; }
     isMock = false; show(r.track, r.places, r.rules, "서버에 모인 목걸이 위치");
   };
   $("#file").onchange = async (e) => { const f = e.target.files[0]; if (f) { isMock = false; local(parseTrack(await f.text()), f.name); } };

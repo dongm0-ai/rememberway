@@ -9,9 +9,9 @@
 </head>
 <body>
 <main>
-  <div class="topbar"><a class="back" href="/">← 처음</a><span class="step">화면 0 · 평소 등록 (선택)</span></div>
+  <div class="topbar"><span class="step">화면 0 · 평소 등록 (선택)</span></div>
   <h1>한 번만 등록해 두세요</h1>
-  <p class="muted">실종 때 되묻는 질문이 줄고, 확인할 곳이 바로 지도에 뜹니다. 이름은 묻지 않고, 이 기기에만 저장됩니다.</p>
+  <p class="muted">실종 때 되묻는 질문이 줄고, 확인할 곳이 바로 지도에 뜹니다. 이름은 묻지 않고, 초대한 가족끼리만 함께 봅니다.</p>
 
   <div class="card">
     <label>어르신을 뭐라고 부르세요?</label>
@@ -44,6 +44,8 @@
 </main>
 <script type="module">
   import { store, KEYS, api, createSpeech, $, $$, el, mockBanner, getHome } from "/js/common.js";
+  import { mountShell } from "/js/shell.js";
+  await mountShell({ tab: "memory" });
   const existing = store.get(KEYS.profile);
   let places = existing?.places?.map((p) => ({ ...p })) ?? [];
   if (existing) {

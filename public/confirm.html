@@ -48,6 +48,8 @@
   import { FIELD_LABELS, SOURCE_LABELS } from "/lib/schema.js";
   import { computeMissing, getPath, setPath } from "/lib/verify.js";
   import { buildAnswerInput } from "/js/answer-ui.js";
+  import { mountShell } from "/js/shell.js";
+  await mountShell({ tab: "find" });
 
   const clue = store.sget(KEYS.clue);
   if (!clue) location.replace("/report");

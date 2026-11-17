@@ -9,7 +9,7 @@
 </head>
 <body>
 <main>
-  <div class="topbar"><a class="back" href="/">← 처음</a><span class="step">화면 4 · 찾은 뒤 기록</span></div>
+  <div class="topbar"><span class="step">화면 4 · 찾은 뒤 기록</span></div>
   <div class="notice">다행입니다. 지금 적어 두면 다음 실종을 막는 계획이 됩니다. 2~3분이면 됩니다.</div>
   <h1>어떻게 찾으셨어요?</h1>
   <p class="muted" id="inc-note"></p>
@@ -37,6 +37,8 @@
 </main>
 <script type="module">
   import { store, KEYS, api, createSpeech, $, $$, el, mockBanner } from "/js/common.js";
+  import { mountShell } from "/js/shell.js";
+  await mountShell({ tab: "find" });
   const profile = store.get(KEYS.profile);
   let incidents = store.get(KEYS.incidents, []);
   let current = incidents.length && !incidents[incidents.length - 1].record ? incidents[incidents.length - 1] : null;

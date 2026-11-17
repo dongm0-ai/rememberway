@@ -24,6 +24,7 @@
   <div class="sumcard" id="summary"></div>
   <div class="row"><button class="btn-primary" id="copy">복사</button><button class="btn-secondary" id="share">공유</button></div>
 
+  <!-- 예상 후보지 (Task 11) -->
   <h2 class="after-map">돌아볼 곳 <span class="h-sub" id="list-count"></span></h2>
   <div class="card after-map">
     <p class="small" style="margin:0 0 4px"><b>어르신은 목적지에 도착하지 못하고 가는 길에서 발견되는 경우가 많습니다. 이 지도는 보호자가 말한 것을 정리한 것입니다.</b></p>
@@ -65,6 +66,8 @@
   import { WEIGHTS, WALK_SPEED, SOURCE_LABELS, RIDE_SPEED_KMH, ARRIVE_M, BASIC_KINDS } from "/lib/schema.js";
   import { maxRadiusM, rankCandidates, actionSteps, haversineM, buildSummary, summaryGroups, SUMMARY_NOTE } from "/lib/priority.js";
   import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, EXACT_LIMIT, setHomeLabel } from "/js/map.js";
+  import { mountShell } from "/js/shell.js";
+  await mountShell({ tab: "find" });
 
   const clue = store.sget(KEYS.clue);
   if (!clue) location.replace("/report");

@@ -59,6 +59,8 @@
   import { store, KEYS, api, createSpeech, $, el, mockBanner } from "/js/common.js";
   import { MEMORY_TOPICS, memoryQuestion } from "/lib/schema.js";
   import { appearsExactly } from "/lib/verify.js";
+  import { mountShell } from "/js/shell.js";
+  await mountShell({ tab: "memory" });
 
   // 질문 순서는 코드가 정한다 (MEMORY_TOPICS 순서). AI는 보호자의 답에서 장소 이름만 뽑고 후속 질문 하나만 만든다. 뽑힌 이름은 서버가 원문과 대조하고(verifyMemory), 보호자가 카드에서 [저장]한 것만 남는다.
   const DONE_KEY = "rw_memory_done"; // 이 탭에서 이미 지나간 주제 (새로 고침해도 이어서)

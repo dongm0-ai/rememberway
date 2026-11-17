@@ -9,7 +9,7 @@
 </head>
 <body>
 <main>
-  <div class="topbar"><a class="back" href="/">← 처음</a><span class="step">화면 0 · 매일 일지 (10초)</span></div>
+  <div class="topbar"><span class="step">화면 0 · 매일 일지 (10초)</span></div>
   <h1 id="title">오늘 어디 다녀오셨어요?</h1>
   <p class="muted">아는 곳은 눌러서 표시하세요. AI 호출 없이 저장됩니다. 새로운 곳만 말로 추가하세요.</p>
 
@@ -45,6 +45,8 @@
   import { store, KEYS, api, $, $$, el, today, mockBanner, markDiaryDone, mountPushCard } from "/js/common.js";
   import { DIARY_RULES, SOURCE_LABELS } from "/lib/schema.js";
   import { classifyPlaces, recordedDays, weeklyAggregate } from "/lib/diary.js";
+  import { mountShell } from "/js/shell.js";
+  await mountShell({ tab: "memory" });
 
   const profile = store.get(KEYS.profile);
   if (!profile) location.replace("/profile");

@@ -9,7 +9,7 @@
 </head>
 <body>
 <main>
-  <div class="topbar"><a class="back" href="/">← 처음</a><span class="step">화면 1 / 3 · 상황 입력</span></div>
+  <div class="topbar"><span class="step">화면 1 / 3 · 상황 입력</span></div>
   <div class="alert">치매 어르신은 즉시 신고 대상입니다.<br>먼저 112에 전화하세요.<a class="btn btn-danger btn-xl call112" href="tel:112">📞 112 전화하기</a></div>
 
   <section id="talk">
@@ -58,6 +58,10 @@
   import { classifyPlaces } from "/lib/diary.js";
   import { computeMissing } from "/lib/verify.js";
   import { buildAnswerInput } from "/js/answer-ui.js";
+  import { mountShell } from "/js/shell.js";
+  import { authFetch } from "/js/auth.js";
+  // 로그인·현재 어르신 사본 받기. 서버 장애면 이 폰의 마지막 사본으로 (elder 가 없어도 아래 찾기 흐름은 이 폰 데이터로 돈다)
+  const { elder } = await mountShell({ tab: "find" });
 
   const profile = store.get(KEYS.profile), diary = store.get(KEYS.diary, []);
   const known = classifyPlaces(profile, diary);
@@ -87,11 +91,10 @@
   else $("#mic").onclick = () => (speech.listening ? speech.stop() : speech.start(ta.value));
 
   // 집 수신기(문 센서 + 목걸이 신호)의 텔레그램 알림 링크: /report?out=14:03 → 외출 시각·지난 시간을 미리 채운다 (보호자가 고칠 수 있음)
-  // 목걸이 GPS 마지막 위치 (보호자가 /track 에서 연결 코드를 만든 경우): GPS가 꺼졌거나 두고 나가셨을 때 "마지막 본 곳" 단서로 쓴다
+  // 목걸이 GPS 마지막 위치 (현재 어르신 폰이 위치를 보낸 경우): GPS가 꺼졌거나 두고 나가셨을 때 "마지막 본 곳" 단서로 쓴다
   (async () => {
-    let pair = null; try { pair = JSON.parse(localStorage.getItem("rw_track") || "null"); } catch {}
-    if (!pair?.key) return;
-    let r; try { r = await (await fetch("/api/loc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "latest", key: pair.key, limit: 1 }) })).json(); } catch { return; }
+    if (!elder?.id) return;
+    const r = await authFetch({ action: "latest", elderId: elder.id, limit: 1 }).catch(() => null);
     const p = r?.ok && r.points?.[0]; if (!p) return;
     const t = new Date(p.gps_time || p.received_at), mins = Math.round((Date.now() - t) / 60000);
     let label = `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`;

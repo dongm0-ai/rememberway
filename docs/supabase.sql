@@ -33,3 +33,47 @@ create table if not exists loc_events (
 );
 create index if not exists loc_events_dev_time on loc_events (dev, received_at desc);
 alter table loc_events enable row level security;
+
+-- ---------------------------------------------------------------- 보호자 계정 (2026-11-17, 한 번만 Run)
+-- 먼저: Supabase → Authentication → Providers → Email 에서 "Confirm email" 을 끈다 (이메일 인증 메일 없이 바로 가입·로그인).
+-- 서버에 남는 사람 정보는 로그인 이메일(Supabase Auth)뿐. 이름·전화번호는 받지 않고, 어르신은 호칭(label)만 저장한다.
+-- 집 주소·집 좌표, 보호자가 말한 원문 전체는 서버로 보내지 않는다.
+-- 어르신 데이터는 owner가 지우거나 마지막 member가 나갈 때만 삭제한다 (자동 삭제는 loc_events 30일뿐).
+create table if not exists elders (
+  id          uuid primary key default gen_random_uuid(),
+  label       text not null,                   -- 호칭 (예: "어머니") — 실명 아님
+  device_hash text unique,                     -- 목걸이 연결 코드의 해시 (코드 자체는 저장 안 함)
+  created_at  timestamptz default now(),
+  last_seen   timestamptz default now()
+);
+create table if not exists elder_members (
+  elder_id  uuid not null references elders on delete cascade,
+  user_id   uuid not null,                     -- Supabase Auth 사용자 id
+  role      text check (role in ('owner','member')),  -- owner: 내보내기·어르신 삭제·연결 코드 재발급 / member: 초대까지
+  joined_at timestamptz default now(),
+  primary key (elder_id, user_id)
+);
+create table if not exists elder_data (
+  elder_id   uuid primary key references elders on delete cascade,
+  profile    jsonb,                            -- 어르신 정보 (집 주소·좌표는 이 폰에만 저장, 여기에 넣지 않음)
+  diary      jsonb default '[]',               -- 일지
+  incidents  jsonb default '[]',               -- 실종 대응 기록
+  updated_at timestamptz default now()
+);
+create table if not exists invites (
+  token_hash text primary key,                 -- 초대 토큰의 해시 (24시간, 1회)
+  elder_id   uuid references elders on delete cascade,
+  created_by uuid,
+  expires_at timestamptz,
+  used_at    timestamptz
+);
+create table if not exists revoked_devices (
+  device_hash text primary key,                -- 재발급·삭제로 막힌 목걸이 연결 코드의 해시
+  revoked_at  timestamptz default now()
+);
+-- 브라우저용 공개 키(anon)로는 읽기·쓰기 불가. 서버 함수는 service_role 키로만 접근 (정책 없음).
+alter table elders          enable row level security;
+alter table elder_members   enable row level security;
+alter table elder_data      enable row level security;
+alter table invites         enable row level security;
+alter table revoked_devices enable row level security;

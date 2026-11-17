@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>로그인 — REMEMBER WAY AI</title>
+  <meta name="robots" content="noindex">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#f2f4f6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    /* app.css 는 type=text 입력만 꾸며 둬서, 이메일·비밀번호 칸도 같은 모양으로 맞춘다 */
+    input[type=email], input[type=password] { width: 100%; font: inherit; font-size: 18px; padding: 14px; border: 1.5px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); }
+    input[type=email]:focus, input[type=password]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    label.check { display: flex; align-items: center; gap: 10px; min-height: 48px; margin: 4px 0 0; font-size: 18px; color: var(--ink); }
+    label.check input { width: 24px; height: 24px; margin: 0; flex: 0 0 auto; }
+    .msg { min-height: 1.65em; margin: 10px 0 0; font-weight: 600; }
+    .msg.err { color: var(--alert); }
+    .msg.ok { color: var(--ok); }
+    form .btn-ghost { min-height: 48px; }
+    .login-actions { margin-top: 14px; }
+  </style>
+</head>
+<body>
+<main>
+  <!-- 112 안내는 스크립트와 상관없이 항상 맨 위에 보인다 -->
+  <div class="alert">치매 어르신은 즉시 신고 대상입니다.<br>먼저 112에 전화하세요.
+    <a class="btn btn-danger btn-xl call112" href="tel:112">📞 112 전화하기</a>
+    <div class="sub">신고하면서 이 앱을 같이 쓰면 됩니다. 신고를 늦추지 마세요.</div></div>
+
+  <div class="topbar" style="border:0;margin:14px 0 0"><span class="brand">REMEMBER WAY AI</span><a class="btn-ghost" href="/about">이 앱은?</a></div>
+  <h1 id="title">로그인</h1>
+  <p class="muted" id="lead">가족이 어르신 정보를 함께 보려면 로그인이 필요해요. 한 번 로그인하면 이 휴대폰에서는 다음부터 자동으로 들어와요.</p>
+
+  <section class="card" id="state-loading" aria-live="polite">
+    <p class="muted" style="margin:0"><span class="spinner" aria-hidden="true"></span> 로그인 정보를 확인하는 중이에요…</p>
+  </section>
+
+  <section class="card hidden" id="state-notice">
+    <p id="notice-text" role="alert" style="margin:0 0 12px"></p>
+    <button class="btn-secondary hidden" id="btn-retry" type="button">다시 시도</button>
+  </section>
+
+  <form class="card hidden" id="form-login" novalidate>
+    <label for="email">이메일</label>
+    <input id="email" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="예) family@example.com">
+    <label for="pw">비밀번호 (6자 이상)</label>
+    <input id="pw" name="password" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <label class="check"><input type="checkbox" id="showpw"> 비밀번호 보기</label>
+    <p class="msg" id="msg" role="alert" aria-live="polite"></p>
+    <div class="stack login-actions">
+      <button class="btn-primary btn-xl" type="submit" id="btn-login">로그인</button>
+      <button class="btn-secondary" type="button" id="btn-signup">가입</button>
+      <button class="btn-ghost" type="button" id="btn-reset">비밀번호 찾기</button>
+    </div>
+    <p class="small muted" style="margin:14px 0 0">처음이시면 이메일과 비밀번호를 넣고 [가입]을 눌러 주세요. 이름과 전화번호는 묻지 않아요.</p>
+  </form>
+
+  <form class="card hidden" id="form-newpw" novalidate>
+    <h2 style="margin-top:0">새 비밀번호를 정해 주세요</h2>
+    <label for="newpw">새 비밀번호 (6자 이상)</label>
+    <input id="newpw" name="new-password" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <label for="newpw2">새 비밀번호 한 번 더</label>
+    <input id="newpw2" name="new-password-again" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <label class="check"><input type="checkbox" id="showpw2"> 비밀번호 보기</label>
+    <p class="msg" id="msg2" role="alert" aria-live="polite"></p>
+    <div class="stack login-actions">
+      <button class="btn-primary btn-xl" type="submit" id="btn-newpw">비밀번호 바꾸기</button>
+    </div>
+  </form>
+
+  <p class="small muted" id="invite-hint" style="margin:14px 4px 0">초대 링크를 받으셨나요? 링크를 눌러 들어오시면 됩니다.</p>
+  <p class="footer-note">이메일 말고 서버에 남는 사람 정보는 없어요. 어르신은 호칭만 적습니다.</p>
+</main>
+<script type="module">
+  import { $ } from "/js/common.js"; // 서비스워커 등록도 같이 된다
+  import { session, signIn, signUp, resetPassword, updatePassword, acceptRecoveryLink, savedEmail, rememberEmail, nextUrl, authReady, reasonText, recentlyRejected } from "/js/auth.js";
+
+  const STATES = ["state-loading", "state-notice", "form-login", "form-newpw"];
+  const show = (id) => STATES.forEach((s) => $("#" + s).classList.toggle("hidden", s !== id));
+  const say = (el, text, kind = "") => { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); };
+  const setBusy = (form, busy) => form.querySelectorAll("button").forEach((b) => { b.disabled = busy; });
+  const goNext = () => location.replace(nextUrl(location.search));
+  const validEmail = (v) => /^\S+@\S+\.\S+$/.test(v);
+
+  function notice(text, { retry = false } = {}) {
+    $("#notice-text").textContent = text;
+    $("#btn-retry").classList.toggle("hidden", !retry);
+    show("state-notice");
+  }
+  $("#btn-retry").onclick = () => location.reload();
+
+  // 비밀번호 보기
+  $("#showpw").onchange = (e) => { $("#pw").type = e.target.checked ? "text" : "password"; };
+  $("#showpw2").onchange = (e) => { for (const id of ["#newpw", "#newpw2"]) $(id).type = e.target.checked ? "text" : "password"; };
+
+  // ---- 로그인 / 가입 / 비밀번호 찾기
+  const form = $("#form-login"), msg = $("#msg");
+  function readLogin({ needPassword = true } = {}) {
+    const email = $("#email").value.trim(), password = $("#pw").value;
+    if (!email) { say(msg, "이메일을 입력해 주세요.", "err"); $("#email").focus(); return null; }
+    if (!validEmail(email)) { say(msg, reasonText("INVALID_EMAIL"), "err"); $("#email").focus(); return null; }
+    if (needPassword && !password) { say(msg, "비밀번호를 입력해 주세요.", "err"); $("#pw").focus(); return null; }
+    return { email, password };
+  }
+  async function run(button, working, job) {
+    setBusy(form, true); say(msg, working);
+    const label = button.textContent; button.textContent = "잠시만요…";
+    try { await job(); } finally { button.textContent = label; setBusy(form, false); }
+  }
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = readLogin(); if (!v) return;
+    run($("#btn-login"), "로그인하는 중이에요…", async () => {
+      const r = await signIn(v.email, v.password);
+      if (r.ok) { rememberEmail(v.email); goNext(); } else say(msg, reasonText(r.reason), "err");
+    });
+  });
+  $("#btn-signup").onclick = () => {
+    const v = readLogin(); if (!v) return;
+    if (v.password.length < 6) { say(msg, reasonText("WEAK_PASSWORD"), "err"); $("#pw").focus(); return; }
+    run($("#btn-signup"), "가입하는 중이에요…", async () => {
+      const r = await signUp(v.email, v.password);
+      if (!r.ok) { say(msg, reasonText(r.reason), "err"); return; }
+      rememberEmail(v.email);
+      if (r.confirm) say(msg, "확인 메일을 보냈어요. 메일의 링크를 누른 뒤 [로그인]을 눌러 주세요.", "ok");
+      else goNext();
+    });
+  };
+  $("#btn-reset").onclick = () => {
+    const v = readLogin({ needPassword: false }); if (!v) return;
+    run($("#btn-reset"), "메일을 보내는 중이에요…", async () => {
+      const r = await resetPassword(v.email);
+      if (!r.ok) { say(msg, reasonText(r.reason), "err"); return; }
+      rememberEmail(v.email);
+      say(msg, "가입하신 이메일이면 비밀번호를 바꾸는 링크를 보내 드렸어요. 메일함(스팸함도)을 확인하고 링크를 눌러 주세요.", "ok");
+    });
+  };
+
+  // ---- 새 비밀번호 (메일 링크로 들어왔을 때)
+  const formPw = $("#form-newpw"), msg2 = $("#msg2");
+  formPw.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const a = $("#newpw").value, b = $("#newpw2").value;
+    if (a.length < 6) { say(msg2, reasonText("WEAK_PASSWORD"), "err"); $("#newpw").focus(); return; }
+    if (a !== b) { say(msg2, "비밀번호가 서로 달라요. 다시 확인해 주세요.", "err"); $("#newpw2").focus(); return; }
+    setBusy(formPw, true); say(msg2, "바꾸는 중이에요…");
+    const r = await updatePassword(a);
+    if (!r.ok) { setBusy(formPw, false); say(msg2, reasonText(r.reason), "err"); return; }
+    const s = await session(); if (s?.user?.email) rememberEmail(s.user.email);
+    say(msg2, "비밀번호를 바꿨어요. 잠시 뒤 처음 화면으로 가요.", "ok");
+    setTimeout(goNext, 1200);
+  });
+
+  function showLogin(note, kind = "err") {
+    show("form-login");
+    const saved = savedEmail();
+    if (saved && !$("#email").value) $("#email").value = saved;
+    say(msg, note || "", kind);
+    $(saved ? "#pw" : "#email").focus();
+  }
+
+  async function init() {
+    const isReset = new URLSearchParams(location.search).get("reset") === "1";
+    let note = "";
+
+    if (isReset) {
+      $("#title").textContent = "비밀번호 바꾸기";
+      $("#lead").textContent = "메일로 받은 링크로 들어오셨다면 새 비밀번호를 정할 수 있어요.";
+      const ready = await authReady();
+      if (!ready.ok) return notice(reasonText(ready.reason), { retry: ready.reason !== "NOT_CONFIGURED" });
+      if (location.hash.length > 1) {
+        const r = await acceptRecoveryLink(location.hash);
+        history.replaceState(null, "", location.pathname + location.search); // 주소창에 토큰이 남지 않게
+        if (r.ok) { show("form-newpw"); $("#newpw").focus(); return; }
+        note = reasonText(r.reason);
+      } else if (await session()) { show("form-newpw"); $("#newpw").focus(); return; }
+      else note = reasonText("NO_LINK");
+      $("#title").textContent = "로그인";
+      $("#lead").textContent = "가족이 어르신 정보를 함께 보려면 로그인이 필요해요.";
+      return showLogin(note);
+    }
+
+    // 자동 로그인: 저장된 로그인이 아직 유효하면(필요하면 갱신해서) 바로 원래 가려던 화면으로
+    if (!recentlyRejected() && (await session())) return goNext();
+    const ready = await authReady();
+    if (!ready.ok) return notice(reasonText(ready.reason), { retry: ready.reason !== "NOT_CONFIGURED" });
+    showLogin(recentlyRejected() ? reasonText("UNAUTHORIZED") : "");
+  }
+  init().catch(() => notice(reasonText("UNKNOWN"), { retry: true }));
+</script>
+</body>
+</html>

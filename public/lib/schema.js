@@ -113,6 +113,10 @@ export const RIDE_SPEED_KMH = { bus: 15, taxi: 20 };
 /** 보호자가 후보 장소에 이만큼(m) 가까워지면 "확인하셨나요?"를 묻는다 */
 export const ARRIVE_M = 50;
 
+/** 이름이 도로명·지번 주소나 좌표처럼 보이는지 ("대종로 12번길 3", "석교동 123-4", "36.3121"). 이런 이름은 AI·서버로 보내지 않는다
+ *  (public/js/candidates.js 가 AI 후보 이름에, public/js/family.js 가 서버 올리기 정리에 같이 쓴다) */
+export const addressLike = (s) => /\d+\s*(번길|길|로)\s*\d|\d+-\d+|번지|\d+\.\d{3,}/.test(String(s ?? ""));
+
 /** 기억 꺼내기 대화(화면 memory.html)의 주제. 순서 고정 — 다음 주제는 AI가 아니라 코드가 이 순서대로 고른다.
  *  근거: 실종 어르신이 발견되는 곳의 유형(옛 집·고향·옛 직장·단골 가게·목욕탕·종교 시설·병원·친구/친척 집) */
 export const MEMORY_TOPICS = [

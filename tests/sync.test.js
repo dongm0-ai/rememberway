@@ -31,7 +31,7 @@ function fakeServer(handler) {
   _setTransport(async (body) => { calls.push(JSON.parse(JSON.stringify(body))); return handler(body, calls.length); });
   return calls;
 }
-function reset() { mem.clear(); _setTransport(async () => ({ ok: false, reason: "NETWORK" })); }
+function reset() { mem.clear(); fam.pinElder(undefined); _setTransport(async () => ({ ok: false, reason: "NETWORK" })); }
 
 // ---- 브리프의 테스트 ------------------------------------------------------------------
 test("mergeDiary keeps days from both sides", () => assert.deepEqual(mergeDiary([{ date: "2026-11-16", visited: ["a"] }], [{ date: "2026-11-17", visited: ["b"] }]).map((d) => d.date), ["2026-11-16", "2026-11-17"]));
@@ -579,4 +579,78 @@ test("a home saved before any elder is picked goes into the phone backup, not to
   assert.equal((await importLocalData({ elders: [], userId: "u1", ask: () => true })).ok, true);
   assert.equal(lsGet("rw_home:" + E1.id).label, "석교동"); assert.equal(mem.has("rw_home"), false);
   assert.equal(fam.phoneBackups().length, 0);
+});
+
+// ---- 최종 리뷰 수정 ------------------------------------------------------------------
+test("sanitize drops address-like place names from profile places and diary visited/coords (home may be unsaved)", () => {
+  const prof = { honorific: "아버지", places: [{ name: "대종로 12번길 3", source: "memory", lat: 1, lng: 2 }, { name: "석교동 123-4", source: "memory" }, { name: "경로당", source: "memory" }] };
+  const p = sanitizeForUpload(KEYS.profile, prof, null);
+  assert.deepEqual(p.places.map((x) => x.name), ["경로당"]);
+  assert.equal(prof.places.length, 3, "input not mutated");
+  const d = sanitizeForUpload(KEYS.diary, [{ date: "d", visited: ["대종로 12번길 3", "시장"], coords: { "대종로 12번길 3": FAR, 시장: FAR } }], null);
+  assert.deepEqual(d[0].visited, ["시장"]);
+  assert.deepEqual(Object.keys(d[0].coords), ["시장"]);
+});
+
+test("store hook: another tab switched rw_elder → this tab's write is not saved, working copy restored, elder-changed emitted", async () => {
+  reset();
+  const calls = fakeServer(() => ({ ok: true, updated_at: "t" }));
+  lsSet(`rw_cache:${E1.id}`, { profile: { honorific: "아버지" } });
+  lsSet(`rw_cache:${E2.id}`, { profile: { honorific: "어머니" } });
+  setCurrentElder(E1);   // 이 탭은 E1
+  const seen = []; const off = onSync((e) => seen.push(e));
+  // 다른 탭이 E2 로 바꿈 (rw_elder 와 작업 사본을 바꿔 둔다)
+  lsSet("rw_elder", E2); lsSet(KEYS.profile, { honorific: "어머니" });
+  store.set(KEYS.profile, { honorific: "아버지", gait: "slow" });   // 이 탭의 화면이 옛 값으로 저장
+  off();
+  assert.deepEqual(lsGet(KEYS.profile), { honorific: "어머니" }, "E2 working copy restored");
+  assert.deepEqual(lsGet(`rw_cache:${E2.id}`).profile, { honorific: "어머니" }, "E2 cache untouched");
+  assert.equal(lsGet("rw_dirty"), null, "nothing queued");
+  assert.equal(seen.filter((e) => e.type === "elder-changed").length, 1);
+  assert.deepEqual([seen[0].elderId, seen[0].pinned], [E2.id, E1.id]);
+  await flush(E2.id);
+  assert.equal(calls.length, 0, "no data.save");
+  // 같은 탭에서 고른 어르신이면 평소처럼 올린다
+  setCurrentElder(E2);
+  store.set(KEYS.profile, { honorific: "어머니", gait: "fast" });
+  assert.deepEqual(lsGet("rw_dirty"), { [E2.id]: ["profile"] });
+  await flush(E2.id);
+  assert.equal(calls.length, 1);
+});
+
+test("find-flow session state (rw_clue/rw_mode/rw_utterance/rw_memory_done) is cleared when this tab's elder changes", () => {
+  reset();
+  const smem = new Map();
+  const prevSS = globalThis.sessionStorage;
+  globalThis.sessionStorage = { getItem: (k) => (smem.has(k) ? smem.get(k) : null), setItem: (k, v) => smem.set(k, String(v)), removeItem: (k) => smem.delete(k) };
+  try {
+    store.sset(KEYS.clue, { honorific: "아버지" }); store.sset(KEYS.mode, { elapsedMin: 30 }); store.sset("rw_memory_done", ["a"]);
+    setCurrentElder(E1);   // 처음 (어르신 없이 시작한 단서는 이어 쓴다)
+    assert.deepEqual(store.sget(KEYS.clue), { honorific: "아버지" });
+    setCurrentElder(null);   // 어르신 없음으로는 지우지 않는다
+    assert.deepEqual(store.sget(KEYS.clue), { honorific: "아버지" });
+    setCurrentElder(E1);
+    assert.deepEqual(store.sget(KEYS.clue), { honorific: "아버지" });
+    setCurrentElder(E2);   // 다른 어르신 → 지움
+    assert.equal(store.sget(KEYS.clue), null);
+    assert.equal(store.sget(KEYS.mode), null);
+    assert.equal(store.sget("rw_memory_done"), null);
+    // 다른 탭이 어르신을 바꿔 이 탭이 새로 열릴 때 (셸이 scopeSession 을 부름)
+    store.sset(KEYS.clue, { honorific: "어머니" });
+    fam.scopeSession(E1.id);
+    assert.equal(store.sget(KEYS.clue), null);
+  } finally { if (prevSS === undefined) delete globalThis.sessionStorage; else globalThis.sessionStorage = prevSS; }
+});
+
+test("first elder pick that backs up old phone data leaves a one-time notice (shown once by the shell)", () => {
+  reset();
+  lsSet(KEYS.profile, { honorific: "옛 등록" });
+  setCurrentElder(E1);
+  assert.equal(fam.phoneBackups().length, 1, "notice key is not listed as a backup");
+  const k = fam.takeBackupNotice();
+  assert.equal(k, fam.phoneBackups()[0]);
+  assert.equal(fam.takeBackupNotice(), null, "only once");
+  reset();
+  setCurrentElder(E1);   // 보관할 게 없으면 알림도 없다
+  assert.equal(fam.takeBackupNotice(), null);
 });

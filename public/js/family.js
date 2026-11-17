@@ -13,7 +13,7 @@
 // - import 할 때는 window/localStorage 를 건드리지 않는다 (Node 테스트). store 훅만 등록한다 — 호출될 때 읽는다.
 import { KEYS, setStoreHook, homeFor, homeKeyFor } from "./common.js";
 import { authFetch } from "./auth.js";
-import { ARRIVE_M } from "../lib/schema.js";
+import { ARRIVE_M, addressLike } from "../lib/schema.js";
 import { haversineM } from "../lib/priority.js";
 
 export const SYNCED = [KEYS.profile, KEYS.diary, KEYS.incidents];
@@ -52,7 +52,8 @@ function same(a, b) {
 
 // ---------------------------------------------------------------- 알림 (화면이 한 줄 안내를 띄울 수 있게)
 const listeners = new Set();
-/** 동기화 소식 받기. e = {type:"conflict", key, elderId, text} | {type:"gone", elderId} | {type:"saved"|"offline"|"error", elderId, reason?}. 해제 함수를 돌려준다.
+/** 동기화 소식 받기. e = {type:"conflict", key, elderId, text} | {type:"gone", elderId} | {type:"saved"|"offline"|"error", elderId, reason?}
+ *  | {type:"elder-changed", elderId, pinned, key} (다른 탭에서 어르신을 바꿔 이 탭의 변경을 올리지 않음). 해제 함수를 돌려준다.
  *  브라우저에서는 window 의 "rw-sync" CustomEvent(detail = e)로도 나간다 */
 export function onSync(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function emit(e) {
@@ -100,7 +101,8 @@ export function mergeDiary(local, server) {
 
 const RAW_SPEECH = new Set(["utterance", "narrative", "spoken", "raw"]);   // 보호자가 말하거나 쓴 원문 전체
 const POINT_ONLY = new Set(["lat", "lng", "lon", "acc", "accuracy", "time", "t", "gps_time", "received_at", "speed_kmh"]);
-/** 서버로 올리기 전 정리 (입력은 바꾸지 않는다): 원문 칸 삭제, 집(home)에서 ARRIVE_M 안의 점 삭제.
+/** 서버로 올리기 전 정리 (입력은 바꾸지 않는다): 원문 칸 삭제, 집(home)에서 ARRIVE_M 안의 점 삭제,
+ *  주소처럼 보이는 장소 이름(addressLike)은 등록 장소(profile.places)·일지 다녀온 곳(visited·coords)에서 뺀다.
  *  점만 있는 객체({lat,lng})는 통째로, 장소처럼 이름이 있는 객체는 좌표(lat/lng/distance_m)만 지운다 — 이름은 남는다 */
 export function sanitizeForUpload(key, value, home) {
   if (value === null || value === undefined) return value ?? null;
@@ -125,7 +127,18 @@ export function sanitizeForUpload(key, value, home) {
     for (const k of Object.keys(node)) if (!walk(node[k])) delete node[k];
     return true;
   };
-  if (key === KEYS.profile && v && typeof v === "object") { delete v.home; delete v.rw_home; }   // 집 주소 자체는 절대 올리지 않는다
+  if (key === KEYS.profile && v && typeof v === "object") {
+    delete v.home; delete v.rw_home;   // 집 주소 자체는 절대 올리지 않는다
+    // 주소처럼 적은 장소 이름("대종로 12번길 3")은 집 주소일 수 있다 — 서버로 보내지 않는다 (이 폰 사본에는 남는다)
+    if (Array.isArray(v.places)) v.places = v.places.filter((p) => !addressLike(p?.name));
+  }
+  if (key === KEYS.diary && Array.isArray(v)) {
+    for (const e of v) {
+      if (!e || typeof e !== "object") continue;
+      if (Array.isArray(e.visited)) e.visited = e.visited.filter((n) => !addressLike(n));
+      if (e.coords && typeof e.coords === "object") for (const n of Object.keys(e.coords)) if (addressLike(n)) delete e.coords[n];
+    }
+  }
   walk(v);
   return v;
 }
@@ -145,6 +158,30 @@ function setDirty(id, fields) {
 
 /** 현재 어르신 {id,label,role} | null */
 export function currentElder() { const e = jget(ELDER_KEY, null); return e && typeof e.id === "string" && e.id ? e : null; }
+
+// ---------------------------------------------------------------- 이 화면(탭)의 어르신
+// rw_elder 는 탭끼리 같이 쓴다. 다른 탭에서 어르신을 바꾼 뒤 이 탭의 화면이 store.set 하면, 이 탭이 들고 있던 옛 어르신 값이
+// 새 어르신 사본으로 올라가 버린다. 그래서 이 탭이 고른 어르신(pinned)을 기억하고, 훅이 불릴 때 rw_elder 가 다르면 올리지 않는다.
+let pinned;   // undefined = 아직 모름(검사 안 함) · null = 이 탭은 어르신 없음 · "<id>"
+/** 이 탭이 보고 있는 어르신 id 를 기억 (셸이 화면을 붙일 때·setCurrentElder 가 부른다) */
+export function pinElder(id) { pinned = typeof id === "string" && id ? id : id === undefined ? undefined : null; }
+/** 이 탭이 기억한 어르신 id (undefined = 아직 모름) */
+export const pinnedElder = () => pinned;
+
+// 찾기 흐름의 단서·되묻기 상태(sessionStorage)는 그 어르신 것이다 — 어르신이 바뀌면 지운다 (다른 어르신의 단서를 쓰지 않게)
+const SESSION_SCOPED = [KEYS.clue, KEYS.mode, KEYS.utterance, "rw_memory_done"];
+const SESSION_ELDER = "rw_session_elder";
+/** 이 탭의 찾기 흐름 상태가 어느 어르신 것인지 적고, 다른 어르신이면 지운다. 어르신 없음(null)으로는 지우지 않는다
+ *  (어르신 없이 찾기를 시작한 뒤 등록하는 경우 단서를 이어 쓴다) */
+export function scopeSession(elderId) {
+  const ss = globalThis.sessionStorage;
+  if (!ss || typeof elderId !== "string" || !elderId) return;
+  try {
+    const prev = ss.getItem(SESSION_ELDER);
+    if (prev && prev !== elderId) for (const k of SESSION_SCOPED) ss.removeItem(k);
+    ss.setItem(SESSION_ELDER, elderId);
+  } catch {}
+}
 
 const BACKUP_PREFIX = "rw_backup_";
 const LEGACY_HOME = homeKeyFor(null);   // "rw_home"
@@ -167,6 +204,9 @@ function backupPhoneData() {
   del(TRACK_KEY); del(LEGACY_HOME);
   return k;
 }
+const BACKUP_NOTICE_KEY = "rw_notice_backup";   // "rw_backup_" 로 시작하면 보관본으로 보이니 다른 이름
+/** 방금 옛 데이터를 보관했다는 표시를 꺼내고 지운다 (한 번만 알리게). → 보관 키 | null */
+export function takeBackupNotice() { const k = jget(BACKUP_NOTICE_KEY, null); if (k !== null) del(BACKUP_NOTICE_KEY); return typeof k === "string" && rawGet(k) !== null ? k : null; }
 /** 이 폰에 따로 보관된 옛 데이터 키 목록 (설정 화면에서 안내·삭제용) */
 export function phoneBackups() { return allKeys().filter((k) => k.startsWith(BACKUP_PREFIX)).sort(); }
 
@@ -181,6 +221,8 @@ function loadWorking(id) {
  *  이전 어르신이 없을 때 이 폰에 남아 있던 데이터(계정 전 데이터, 다른 계정의 연결 코드 등)는 고른 어르신에 넘기지 않고 rw_backup_* 으로 옮긴다
  *  (그 데이터를 어르신으로 올리는 건 importLocalData 만). null → 고른 어르신 없음 */
 export function setCurrentElder(e) {
+  pinElder(e?.id ?? null);
+  scopeSession(e?.id);
   const prev = currentElder();
   if (prev) {
     const c = readCache(prev.id);
@@ -195,7 +237,7 @@ export function setCurrentElder(e) {
     return;
   }
   if (prev?.id === e.id) { jset(ELDER_KEY, { id: e.id, label: e.label ?? "", role: e.role ?? "member" }); return; }
-  if (!prev) backupPhoneData();
+  if (!prev) { const k = backupPhoneData(); if (k) jset(BACKUP_NOTICE_KEY, k); }   // 셸이 다음 화면에서 "옛 정보는 따로 보관했어요" 한 번 알림
   jset(ELDER_KEY, { id: e.id, label: e.label ?? "", role: e.role ?? "member" });
   loadWorking(e.id);
 }
@@ -235,10 +277,17 @@ export function applyLoadResult(res, elderId) {
 }
 
 // ---------------------------------------------------------------- 올리기
-/** store.set 훅: SYNCED 키가 바뀌면 현재 어르신 사본에 적고 올리기 예약 */
+/** store.set 훅: SYNCED 키가 바뀌면 현재 어르신 사본에 적고 올리기 예약.
+ *  다른 탭에서 어르신을 바꿨으면(rw_elder ≠ 이 탭의 어르신) 올리지 않고, 방금 덮인 이 폰 사본을 지금 어르신 값으로 되돌린 뒤 "elder-changed" 를 알린다 */
 function onStoreSet(key, value) {
   const f = FIELD[key]; const e = currentElder();
   if (!f || !e) return;
+  if (pinned !== undefined && e.id !== pinned) {
+    const c = readCache(e.id);
+    writeWorking(f, f in c ? c[f] : null);
+    emit({ type: "elder-changed", elderId: e.id, pinned, key });
+    return;
+  }
   const c = readCache(e.id); c[f] = clone(value) ?? EMPTY[f]; writeCache(e.id, c);
   push(key);
 }
@@ -430,7 +479,7 @@ export async function importLocalData({ elders, userId, ask }) {
 
   const local = { profile, diary: jget(KEYS.diary, []) ?? [], incidents: jget(KEYS.incidents, []) ?? [] };
   const legacyTrack = jget(TRACK_KEY, null), legacyHome = jget(LEGACY_HOME, null);
-  const label = String(profile.honorific ?? "").trim().slice(0, 20) || "어르신";
+  const label = [...String(profile.honorific ?? "").trim()].slice(0, 20).join("") || "어르신";   // 글자(코드 포인트) 20자 — 서버와 같은 기준
   const made = await makeElder(label, true);   // 올리는 동안은 "만드는 중" 표시를 붙여 둔다 (listElders 가 이 어르신을 잊지 않게)
   if (!made.ok) { if (jget(ASKED_KEY, null) === userId) del(ASKED_KEY); return { ok: false, reason: made.reason }; }   // 다음에 다시 물을 수 있게
   const id = made.elder.id;
@@ -453,6 +502,7 @@ export async function importLocalData({ elders, userId, ask }) {
     // 이 폰 데이터를 넘겨받는 건 방금 만든 이 어르신뿐: 사본(=이 폰 데이터)·연결 코드를 꺼내고 옛 집 주소를 이 어르신 키로 옮긴다
     // (setCurrentElder 를 쓰지 않는다 — 그건 이 폰 데이터를 rw_backup_* 으로 치운다)
     jset(ELDER_KEY, { id, label: made.elder.label ?? label, role: made.elder.role ?? "owner" });
+    pinElder(id); scopeSession(id);
     loadWorking(id);
     if (legacyHome !== null) { if (rawGet(homeKeyFor(id)) === null) jset(homeKeyFor(id), legacyHome); del(LEGACY_HOME); }
     if (!saved?.ok) setDirty(id, Object.keys(EMPTY));   // 못 올렸으면 다음 pull 때 다시

@@ -5,7 +5,7 @@
 // 이 파일은 상대 경로만 import 한다(Node 테스트용). 네트워크·지도 검색 함수는 페이지가 deps 로 넘긴다.
 import { lastMotion, projectPath, reachM, candidateFeatures, fallbackOrder, motionSummary, direction8, DIRECTIONS_8 } from "../lib/predict.js";
 import { fmtDist, fmtElapsed } from "../lib/verify.js";
-import { WALK_SPEED, BASIC_KINDS } from "../lib/schema.js";
+import { WALK_SPEED, BASIC_KINDS, addressLike } from "../lib/schema.js";
 import { distM } from "../lib/gps.js";
 
 const num = (v) => typeof v === "number" && Number.isFinite(v);
@@ -101,8 +101,8 @@ export function buildPlaces({ memory = [], frequent = [], basic = [], home = nul
   return out;
 }
 
-/** 이름이 주소·좌표처럼 보이는지 (보호자가 "대종로 12번길 3"처럼 적은 경우) */
-export const addressLike = (s) => /\d+\s*(번길|길|로)\s*\d|\d+-\d+|번지|\d+\.\d{3,}/.test(String(s ?? ""));
+/** 이름이 주소·좌표처럼 보이는지 (보호자가 "대종로 12번길 3"처럼 적은 경우) — 규칙은 lib/schema.js 하나 (family.js 업로드 정리와 같이 씀) */
+export { addressLike };
 /** AI에 보낼 모양 — 좌표·주소 없음. 주소처럼 보이는 이름은 "추억의 장소 N" 같은 이름으로 바꿔 보낸다(화면에는 원래 이름) */
 export function toAICandidate(f) {
   const n = String(f.id ?? "").replace(/\D/g, "") || "1";

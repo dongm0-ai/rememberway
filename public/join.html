@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>가족 초대 — REMEMBER WAY AI</title>
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#f2f4f6">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main>
+  <div class="alert">치매 어르신은 즉시 신고 대상입니다.<br>먼저 112에 전화하세요.
+    <a class="btn btn-danger btn-xl call112" href="tel:112">📞 112 전화하기</a></div>
+  <div class="topbar" style="border:0;margin:14px 0 0"><span class="brand">REMEMBER WAY AI</span></div>
+  <h1>가족 초대</h1>
+  <section class="card" aria-live="polite">
+    <p id="state" style="margin:0"><span class="spinner" aria-hidden="true"></span> 초대를 확인하는 중이에요…</p>
+    <div class="stack hidden" id="actions" style="margin-top:14px">
+      <button class="btn-primary hidden" id="btn-retry">다시 시도</button>
+      <a class="btn btn-secondary" href="/">처음 화면으로</a>
+    </div>
+  </section>
+</main>
+<script type="module">
+  import { $ } from "/js/common.js";
+  import { session, storedSession, requireLogin, authFetch } from "/js/auth.js";
+  import { checkAccount, listElders, setCurrentElder } from "/js/family.js";
+  import { errText } from "/js/shell.js";
+
+  const FAIL = {
+    INVITE_USED: "이미 사용된 초대예요. 초대한 가족에게 새 초대를 부탁해 주세요.",
+    INVITE_EXPIRED: "초대 기한(24시간)이 지났어요. 초대한 가족에게 새 초대를 부탁해 주세요.",
+    INVITE_NOT_FOUND: "없는 초대예요. 링크를 끝까지 다 복사했는지 확인하거나, 새 초대를 부탁해 주세요.",
+  };
+  const RETRY = new Set(["NETWORK", "TIMEOUT", "AUTH_UNAVAILABLE", "NO_STORE", "STORE_ERROR", "RATE_LIMIT"]);
+  const token = new URLSearchParams(location.search).get("t") || "";
+
+  const show = (text, { retry = false } = {}) => {
+    $("#state").textContent = text;
+    $("#actions").classList.remove("hidden");
+    $("#btn-retry").classList.toggle("hidden", !retry);
+  };
+
+  async function run() {
+    $("#actions").classList.add("hidden");
+    if (!token) return show(FAIL.INVITE_NOT_FOUND);
+    const s = await session().catch(() => null);
+    if (!s) {
+      if (storedSession()) return show("인터넷 연결을 확인해 주세요.", { retry: true });   // 로그인은 돼 있는데 서버에 닿지 않음
+      return requireLogin();   // 로그인 뒤 이 주소(토큰 포함)로 돌아온다
+    }
+    checkAccount(s.user.id);   // 이 폰에 다른 계정의 사본이 있으면 먼저 지운다
+    const r = await authFetch({ action: "invite.accept", token });
+    if (!r?.ok || !r.elderId) {
+      if (r?.reason === "NEED_LOGIN" || r?.reason === "UNAUTHORIZED") return;   // 로그인 화면으로 가는 중
+      return show(FAIL[r?.reason] ?? errText(r?.reason), { retry: RETRY.has(r?.reason) || /^HTTP_5/.test(String(r?.reason)) });
+    }
+    const elders = await listElders().catch(() => []);
+    const e = elders.find((x) => x.id === r.elderId) ?? { id: r.elderId, label: "", role: "member" };
+    setCurrentElder(e);
+    $("#state").textContent = r.already ? `이미 함께 보고 있는 ${e.label || "어르신"}이에요. 여는 중…` : `${e.label || "어르신"} 정보를 함께 보게 됐어요. 여는 중…`;
+    location.replace("/track");
+  }
+  $("#btn-retry").onclick = run;
+  run();
+</script>
+</body>
+</html>

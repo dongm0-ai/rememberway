@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>설정 — REMEMBER WAY AI</title>
+  <meta name="robots" content="noindex">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#f2f4f6">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main>
+  <h1>설정</h1>
+  <p class="muted" id="who"></p>
+
+  <section class="card" id="sec-invite">
+    <h2>가족 초대</h2>
+    <p class="muted" style="margin-top:0">초대받은 가족은 이 어르신의 추억의 장소·일지·기록을 함께 보고 고칠 수 있어요. 초대는 <b>24시간 안에 한 번만</b> 쓸 수 있어요.</p>
+    <button class="btn-primary" id="btn-invite">초대 QR 만들기</button>
+    <div id="invite-out" class="hidden">
+      <div class="qr-box" id="qr"></div>
+      <p class="small muted" style="text-align:center;margin:0 0 8px">가족 휴대폰 카메라로 찍으면 열려요</p>
+      <div class="link-text" id="invite-link"></div>
+      <p class="small" id="invite-exp" style="margin:8px 0"></p>
+      <button class="btn-secondary" id="btn-share">링크 보내기</button>
+    </div>
+    <p class="msg-err" id="invite-msg" role="alert"></p>
+  </section>
+
+  <section class="card" id="sec-members">
+    <h2>가족 목록</h2>
+    <div id="members"><p class="muted">불러오는 중…</p></div>
+    <p class="msg-err" id="members-msg" role="alert"></p>
+  </section>
+
+  <section class="card" id="sec-device">
+    <h2>어르신 폰 연결 코드</h2>
+    <p class="muted" style="margin-top:0">목걸이 위치는 어르신 휴대폰의 위치 앱을 거쳐 와요. 이 코드를 어르신 폰 앱에 넣어 주세요.</p>
+    <div id="device"></div>
+    <p class="msg-err" id="device-msg" role="alert"></p>
+  </section>
+
+  <section class="card">
+    <h2>로그인</h2>
+    <p class="muted" style="margin-top:0" id="email-line"></p>
+    <div class="stack">
+      <button class="btn-secondary" id="btn-logout">로그아웃</button>
+      <button class="btn-secondary" id="btn-logout-all">모든 기기에서 로그아웃</button>
+    </div>
+    <p class="small muted">로그아웃해도 가족 계정의 정보는 지워지지 않아요. 다시 로그인하면 그대로 보여요.</p>
+    <p class="msg-err" id="logout-msg" role="alert"></p>
+  </section>
+
+  <section class="card" id="sec-elder">
+    <h2>이 어르신</h2>
+    <div class="stack">
+      <button class="btn-secondary" id="btn-leave">이 어르신에서 빠지기</button>
+      <button class="btn-danger hidden" id="btn-delete">어르신 데이터 모두 지우기</button>
+    </div>
+    <p class="small muted" id="elder-note">빠지면 이 어르신 정보가 내 계정에서 사라져요. 다른 가족에게는 그대로 남아요.</p>
+    <p class="msg-err" id="elder-msg" role="alert"></p>
+  </section>
+
+  <section class="card hidden" id="sec-backups">
+    <h2>이 폰에 따로 보관된 옛 정보</h2>
+    <p class="muted" style="margin-top:0">계정을 쓰기 전에 이 폰에만 있던 등록·일지·기록이에요. 어느 어르신에도 넘기지 않고 이 폰에만 보관했어요. 되살리기는 아직 지원하지 않아요.</p>
+    <div id="backups"></div>
+  </section>
+
+  <section class="card">
+    <h2>탈퇴</h2>
+    <p class="muted" style="margin-top:0">모든 어르신에서 빠지고 계정(이메일)을 지워요. 내가 마지막 가족인 어르신의 정보는 모두 지워져요.</p>
+    <button class="btn-danger" id="btn-withdraw">탈퇴</button>
+    <p class="msg-err" id="withdraw-msg" role="alert"></p>
+  </section>
+</main>
+<script type="module">
+  import { $, el } from "/js/common.js";
+  import { mountShell, toast, confirmDialog, errText, expectGone, GONE_TEXT } from "/js/shell.js";
+  import { authFetch, signOut, storedSession } from "/js/auth.js";
+  import { listElders, setCurrentElder, flush, phoneBackups } from "/js/family.js";
+
+  const QR_SRC = "https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js";
+  const TRACK_KEY = "rw_track";   // 현재 어르신 폰 연결 코드 (family.js 가 어르신별 사본에서 꺼내 둔다)
+
+  const { elder, offline } = await mountShell({ tab: "settings" });
+  const email = storedSession()?.user?.email ?? "";
+  $("#email-line").textContent = email ? `${email} 로 로그인돼 있어요.` : "";
+
+  const jget = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
+  const busy = async (btn, text, fn) => { const t = btn.textContent; btn.disabled = true; btn.textContent = text; try { return await fn(); } finally { btn.disabled = false; btn.textContent = t; } };
+  const isOwner = elder?.role === "owner";
+  const fmtTime = (iso) => new Date(iso).toLocaleString("ko-KR", { month: "long", day: "numeric", weekday: "short", hour: "numeric", minute: "2-digit" });
+  const fmtDay = (iso) => (iso ? new Date(iso).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }) : "");
+
+
+  // ---------------------------------------------------------------- 가족 초대 (QR)
+  let qrLib = null;
+  function loadQr() {
+    return (qrLib ??= new Promise((resolve) => {
+      if (window.qrcode) return resolve(window.qrcode);
+      const s = el("script", { src: QR_SRC, crossorigin: "anonymous", referrerpolicy: "no-referrer" });
+      s.onload = () => resolve(window.qrcode ?? null);
+      s.onerror = () => { qrLib = null; resolve(null); };
+      document.head.append(s);
+    }));
+  }
+  let inviteUrl = "";
+  $("#btn-invite").onclick = () => busy($("#btn-invite"), "만드는 중…", async () => {
+    $("#invite-msg").textContent = "";
+    const [r, qrcode] = await Promise.all([authFetch({ action: "invite.create", elderId: elder.id }), loadQr()]);
+    if (!r?.ok || !r.token) { $("#invite-msg").textContent = errText(r?.reason); return; }
+    inviteUrl = `${location.origin}/join?t=${encodeURIComponent(r.token)}`;
+    const box = $("#qr"); box.innerHTML = "";
+    if (qrcode) {
+      const qr = qrcode(0, "M"); qr.addData(inviteUrl); qr.make();
+      box.append(el("img", { src: qr.createDataURL(8, 2), alt: "가족 초대 QR 코드" }));
+      box.classList.remove("hidden");
+    } else {
+      box.classList.add("hidden");
+      $("#invite-msg").textContent = "QR 그림을 불러오지 못했어요. 아래 [링크 보내기]로 보내 주세요.";
+    }
+    $("#invite-link").textContent = inviteUrl;
+    $("#invite-exp").textContent = `${fmtTime(r.expires_at)}까지 · 한 번만 쓸 수 있어요`;
+    $("#invite-out").classList.remove("hidden");
+    $("#btn-invite").dataset.made = "1";
+  }).then(() => { if ($("#btn-invite").dataset.made) $("#btn-invite").textContent = "새 초대 QR 만들기"; });
+
+  $("#btn-share").onclick = async () => {
+    if (!inviteUrl) return;
+    const text = `${elder.label || "어르신"} 정보를 함께 보려면 이 링크를 열어 주세요 (24시간 안에 한 번만).`;
+    if (navigator.share) {
+      try { await navigator.share({ title: "REMEMBER WAY 가족 초대", text, url: inviteUrl }); return; }
+      catch (e) { if (e?.name === "AbortError") return; }
+    }
+    try { await navigator.clipboard.writeText(inviteUrl); toast("링크를 복사했어요. 문자나 카카오톡에 붙여 넣어 보내 주세요."); }
+    catch {
+      const r = document.createRange(); r.selectNodeContents($("#invite-link"));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      toast("링크를 길게 눌러 복사해 주세요.");
+    }
+  };
+
+  // ---------------------------------------------------------------- 가족 목록
+  let members = null;
+  async function renderMembers() {
+    const box = $("#members");
+    const r = await authFetch({ action: "members.list", elderId: elder.id });
+    if (!r?.ok || !Array.isArray(r.members)) { box.innerHTML = ""; $("#members-msg").textContent = errText(r?.reason); return; }
+    members = r.members;
+    $("#members-msg").textContent = "";
+    box.innerHTML = "";
+    // 서버에는 이메일만 있고 가족끼리도 보여 주지 않는다 → 들어온 순서로 "가족 1, 2…"
+    members.forEach((m, i) => {
+      const kick = isOwner && !m.me ? el("button", { class: "btn-ghost", onclick: (ev) => removeMember(m, i + 1, ev.currentTarget) }, "내보내기") : "";
+      box.append(el("div", { class: "set-row" },
+        el("div", {},
+          el("b", {}, `가족 ${i + 1}`), m.me ? " (나)" : "",
+          m.role === "owner" ? el("span", { class: "badge ok" }, "관리자") : "",
+          el("div", { class: "small muted" }, m.joined_at ? `${fmtDay(m.joined_at)}부터` : "")),
+        kick));
+    });
+    if (members.length === 1) box.append(el("p", { class: "small muted" }, "아직 함께 보는 가족이 없어요. 위에서 초대해 주세요."));
+  }
+  async function removeMember(m, n, btn) {
+    if (!(await confirmDialog(`가족 ${n}을(를) 내보낼까요?`, { ok: "내보내기", danger: true, detail: "그 가족은 이 어르신 정보를 더 이상 볼 수 없어요. 다시 함께하려면 새로 초대해야 해요." }))) return;
+    await busy(btn, "내보내는 중…", async () => {
+      const r = await authFetch({ action: "members.remove", elderId: elder.id, userId: m.user_id });
+      if (!r?.ok) { $("#members-msg").textContent = errText(r?.reason); return; }
+      toast(`가족 ${n}을(를) 내보냈어요.`);
+    });
+    renderMembers();
+  }
+
+  // ---------------------------------------------------------------- 어르신 폰 연결 코드
+  const pretty = (k) => String(k).match(/.{1,4}/g).join("-");
+  function renderDevice() {
+    const box = $("#device"); box.innerHTML = "";
+    const t = jget(TRACK_KEY);
+    const reset = isOwner ? el("button", { class: t?.key ? "btn-secondary" : "btn-primary", onclick: (ev) => resetDevice(ev.currentTarget) }, "다시 만들기") : "";
+    if (t?.key) {
+      box.append(el("div", { class: "dev-code" }, pretty(t.key)),
+        t.created ? el("p", { class: "small muted", style: "margin:0 0 8px" }, `${fmtDay(t.created)}에 만든 코드`) : "");
+      if (reset) box.append(reset, el("p", { class: "small muted" }, "새로 만들면 지금 코드는 더 이상 쓸 수 없어요. 어르신 폰 앱에 새 코드를 다시 넣어야 해요."));
+    } else {
+      box.append(el("p", { style: "margin:0 0 8px" }, "이 폰에는 연결 코드가 없어요."),
+        isOwner
+          ? el("p", { class: "small muted" }, "연결 코드는 만든 폰에만 보여요. 다른 폰에서 만들었다면 그 폰에서 확인해 주세요. 여기서 [다시 만들기]를 누르면 새 코드가 생기고, 어르신 폰 앱에 새 코드를 다시 넣어야 해요 (지금 코드는 더 이상 안 돼요).")
+          : el("p", { class: "small muted" }, "연결 코드는 만든 폰에만 보여요. 어르신을 처음 등록한 가족(관리자)의 폰에서 확인해 주세요."));
+      if (reset) box.append(reset);
+    }
+  }
+  async function resetDevice(btn) {
+    if (!(await confirmDialog("연결 코드를 새로 만들까요?", { ok: "새로 만들기", detail: "지금 어르신 폰에 넣어 둔 코드는 바로 끊겨요. 새 코드를 어르신 폰 앱에 다시 넣어 주세요." }))) return;
+    await busy(btn, "만드는 중…", async () => {
+      const r = await authFetch({ action: "device.reset", elderId: elder.id });
+      if (!r?.ok || !r.deviceCode) { $("#device-msg").textContent = errText(r?.reason); return; }
+      try { localStorage.setItem(TRACK_KEY, JSON.stringify({ key: r.deviceCode, created: new Date().toISOString() })); } catch {}
+      $("#device-msg").textContent = "";
+      toast("새 연결 코드를 만들었어요. 어르신 폰 앱에 넣어 주세요.", 6000);
+    });
+    renderDevice();
+  }
+
+  // ---------------------------------------------------------------- 로그아웃
+  async function logout(everywhere, btn) {
+    if (everywhere && !(await confirmDialog("모든 기기에서 로그아웃할까요?", { ok: "모두 로그아웃", detail: "이 계정으로 로그인한 다른 휴대폰·PC도 다시 로그인해야 해요." }))) return;
+    await busy(btn, "로그아웃하는 중…", async () => {
+      await Promise.race([flush().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]);   // 못 올린 변경부터
+      const r = await signOut({ everywhere });
+      if (everywhere && !r.revoked) { toast("이 폰은 로그아웃했지만, 다른 기기에는 알리지 못했어요. 인터넷이 될 때 다시 해 주세요.", 6000); await new Promise((x) => setTimeout(x, 2500)); }
+      location.replace("/login");
+    });
+  }
+  $("#btn-logout").onclick = (e) => logout(false, e.currentTarget);
+  $("#btn-logout-all").onclick = (e) => logout(true, e.currentTarget);
+
+  // ---------------------------------------------------------------- 빠지기 / 지우기
+  async function afterElderGone(text) {
+    toast(text, 4000);
+    await listElders().catch(() => []);   // 목록에서 빠진 어르신의 이 폰 사본·집 주소를 지운다
+    setCurrentElder(null);
+    setTimeout(() => location.assign("/"), 1500);
+  }
+  $("#btn-leave").onclick = async (ev) => {
+    const btn = ev.currentTarget;
+    const last = Array.isArray(members) && members.length === 1;
+    const name = elder.label || "어르신";
+    if (!(await confirmDialog(`${name}에서 빠질까요?`, { ok: "빠지기", danger: last,
+      detail: last ? "함께 보는 가족이 없어서, 빠지면 이 어르신의 정보(추억의 장소·일지·기록·위치 기록)가 모두 지워져요." : "내 계정에서만 사라지고, 다른 가족에게는 그대로 남아요." }))) return;
+    if (last && !(await confirmDialog("정말 지울까요? 되돌릴 수 없어요.", { ok: "빠지고 모두 지우기", danger: true }))) return;
+    await busy(btn, "빠지는 중…", async () => {
+      expectGone(elder.id);
+      const r = await authFetch({ action: "elder.leave", elderId: elder.id });
+      if (!r?.ok && r?.reason !== "GONE") { $("#elder-msg").textContent = errText(r?.reason); return; }
+      await afterElderGone(r?.deleted ? `${name}에서 빠졌어요. 남은 가족이 없어 정보를 모두 지웠어요.` : `${name}에서 빠졌어요.`);
+    });
+  };
+  $("#btn-delete").onclick = async (ev) => {
+    const btn = ev.currentTarget, name = elder.label || "어르신";
+    if (!(await confirmDialog(`${name}의 데이터를 모두 지울까요?`, { ok: "지우기", danger: true, detail: "추억의 장소·일지·찾은 뒤 기록·위치 기록·가족 목록·초대가 모두 지워져요. 함께 보던 가족도 더 이상 볼 수 없어요. 어르신 폰 연결 코드도 끊겨요." }))) return;
+    if (!(await confirmDialog("정말 지울까요? 되돌릴 수 없어요.", { ok: "모두 지우기", danger: true }))) return;
+    await busy(btn, "지우는 중…", async () => {
+      expectGone(elder.id);
+      const r = await authFetch({ action: "elder.delete", elderId: elder.id });
+      if (!r?.ok && r?.reason !== "GONE") { $("#elder-msg").textContent = errText(r?.reason); return; }
+      await afterElderGone(`${name}의 데이터를 모두 지웠어요.`);
+    });
+  };
+
+  // ---------------------------------------------------------------- 이 폰의 옛 데이터 보관본
+  function renderBackups() {
+    const keys = phoneBackups();
+    $("#sec-backups").classList.toggle("hidden", !keys.length);
+    const box = $("#backups"); box.innerHTML = "";
+    for (const k of keys) {
+      const b = jget(k) ?? {};
+      const parts = [b.profile?.honorific ? `${b.profile.honorific} 등록` : b.profile ? "등록 정보" : "",
+        Array.isArray(b.diary) && b.diary.length ? `일지 ${b.diary.length}일` : "",
+        Array.isArray(b.incidents) && b.incidents.length ? `기록 ${b.incidents.length}건` : "",
+        b.home ? "집 주소" : "", b.track ? "연결 코드" : ""].filter(Boolean);
+      box.append(el("div", { class: "set-row" },
+        el("div", {}, el("b", {}, b.saved_at ? `${fmtDay(b.saved_at)} 보관` : "보관본"), el("div", { class: "small muted" }, parts.join(" · ") || "내용 없음")),
+        el("button", { class: "btn-ghost", onclick: async () => {
+          if (!(await confirmDialog("이 보관본을 이 폰에서 지울까요?", { ok: "지우기", danger: true, detail: "서버에는 없는 정보라 지우면 되돌릴 수 없어요." }))) return;
+          try { localStorage.removeItem(k); } catch {}
+          renderBackups();
+        } }, "이 폰에서 지우기")));
+    }
+  }
+
+  // ---------------------------------------------------------------- 탈퇴
+  function wipeAccountCopies() {
+    // 이 계정의 어르신 사본·집 주소·현재 어르신·연결 코드를 이 폰에서 지운다 (계정이 없어졌으니 남길 이유가 없다). 옛 보관본(rw_backup_*)은 그대로
+    const keys = []; try { for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i)); } catch {}
+    const drop = new Set(["rw_elder", "rw_elders", "rw_dirty", "rw_owner_user", "rw_import_asked", "rw_profile", "rw_diary", "rw_incidents", "rw_track", "rw_email"]);
+    for (const k of keys) if (k && (drop.has(k) || k.startsWith("rw_cache:") || k.startsWith("rw_home:"))) { try { localStorage.removeItem(k); } catch {} }
+  }
+  $("#btn-withdraw").onclick = async (ev) => {
+    const btn = ev.currentTarget;
+    if (!(await confirmDialog("탈퇴할까요?", { ok: "탈퇴", danger: true, detail: "모든 어르신에서 빠지고 계정이 지워져요. 내가 마지막 가족인 어르신의 정보는 모두 지워져요." }))) return;
+    if (!(await confirmDialog("정말 탈퇴할까요? 되돌릴 수 없어요.", { ok: "탈퇴하기", danger: true }))) return;
+    await busy(btn, "탈퇴하는 중…", async () => {
+      const r = await authFetch({ action: "account.withdraw" });
+      if (!r?.ok) {
+        $("#withdraw-msg").textContent = r?.reason === "AUTH_DELETE_FAILED"
+          ? "가족 정보는 정리했지만 계정 삭제가 끝나지 않았어요. 잠시 뒤 [탈퇴]를 다시 눌러 주세요."
+          : errText(r?.reason);
+        return;
+      }
+      wipeAccountCopies();
+      await signOut().catch(() => {});
+      toast("탈퇴했어요. 그동안 고마웠어요.", 3000);
+      setTimeout(() => location.replace("/login"), 1500);
+    });
+  };
+
+  // ---------------------------------------------------------------- 처음 그리기 (위 함수·변수가 모두 정의된 뒤)
+  if (!elder) {
+    $("#who").textContent = offline ? "오프라인이라 어르신 정보를 불러오지 못했어요. 인터넷이 연결되면 다시 열어 주세요." : "아직 고른 어르신이 없어요.";
+    for (const id of ["#sec-invite", "#sec-members", "#sec-device", "#sec-elder"]) $(id).classList.add("hidden");
+  } else {
+    $("#who").textContent = `${elder.label || "어르신"} · 나는 ${isOwner ? "관리자(처음 등록한 가족)" : "가족"}`;
+    $("#btn-delete").classList.toggle("hidden", !isOwner);
+    renderMembers();
+    renderDevice();
+  }
+  renderBackups();
+</script>
+</body>
+</html>

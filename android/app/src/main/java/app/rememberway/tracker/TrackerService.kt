@@ -54,7 +54,7 @@ class TrackerService : Service() {
     private val io = Executors.newSingleThreadExecutor()
     private var gatt: BluetoothGatt? = null
     private var scanning = false
-    private var running = false
+    @Volatile private var running = false                  // 보내기 스레드(io)에서도 바꾸므로 스레드 사이에 바로 보이게
     private val queueFile by lazy { File(filesDir, "queue.jsonl") }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -81,6 +81,7 @@ class TrackerService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_mylocation).setOngoing(true).setContentIntent(open).build()
     }
     private fun status(s: String) {
+        if (!running) return                                   // 멈춘 뒤 늦게 온 블루투스 콜백이 멈춤 안내를 덮거나 알림을 되살리지 않게
         Store.status(this, s)
         getSystemService(NotificationManager::class.java).notify(1, note(s))
     }
@@ -168,6 +169,11 @@ class TrackerService : Service() {
             when {
                 code in 200..299 -> lines.removeAt(0)
                 code == 400 || code == 422 -> lines.removeAt(0)          // 잘못된 데이터는 다시 보내지 않음
+                code == 410 -> {                                          // 보호자가 연결 코드를 폐기함 → 더 보내지 않고 멈춤(새 코드를 넣고 [시작]하면 다시 동작)
+                    queueFile.writeText(""); Store.pending(this, 0)
+                    Store.status(this, "가족이 연결을 끊었어요. 보호자에게 새 연결 코드를 받아 넣어 주세요.")
+                    running = false; stopSelf(); return                    // 파일·상태를 먼저 정리한 뒤 멈춤 (running=false로 재전송 예약도 막음)
+                }
                 else -> { queueFile.writeText(lines.joinToString("\n") + "\n"); Store.pending(this, lines.size); if (running) flushLater(15000); return }
             }
         }

@@ -240,12 +240,12 @@ body.has-tabs .arrive { bottom: calc(var(--tabbar-h) + 14px + env(safe-area-inse
 .tabbar a.tab-find[aria-current="page"] { background: var(--alert-bg); color: var(--alert); }
 .shellbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0 10px; }
 .shellbar .elder-pick { width: auto; min-height: 48px; max-width: calc(100% - 64px); padding: 8px 16px; border-radius: var(--pill); background: var(--card); color: var(--ink); font-size: 18px; font-weight: 600; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shellbar .elder-pick .muted { font-size: 16px; }
+.shellbar .elder-pick .muted { font-size: 18px; }
 .shellbar .gear { display: grid; place-items: center; width: 52px; height: 52px; flex: 0 0 auto; border-radius: 50%; background: var(--card); color: var(--ink); font-size: 26px; text-decoration: none; }
 .shellbar .gear[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
 .shell-banner { margin: 0 0 10px; }
-.shell-dialog .elder-opt { justify-content: space-between; text-align: left; }
-.shell-dialog .elder-opt small { font-size: 15px; font-weight: 500; opacity: .85; }
+.shell-dialog .elder-opt { justify-content: space-between; text-align: left; flex-wrap: wrap; gap: 2px 10px; }
+.shell-dialog .elder-opt small { font-size: 18px; font-weight: 500; opacity: .85; }
 .shell-reg .chip { min-height: 48px; font-size: 18px; }
 .msg-err { min-height: 1.65em; margin: 8px 0 0; color: var(--alert); font-weight: 600; }
 .msg-ok { min-height: 1.65em; margin: 8px 0 0; color: var(--ok); font-weight: 600; }
@@ -259,5 +259,5 @@ body.has-tabs .arrive { bottom: calc(var(--tabbar-h) + 14px + env(safe-area-inse
 .set-row .btn-ghost { min-height: 48px; }
 .qr-box { display: grid; place-items: center; background: #fff; border-radius: 16px; padding: 14px; margin: 10px auto; width: fit-content; }
 .qr-box img { display: block; width: 240px; height: 240px; image-rendering: pixelated; }
-.link-text { font-size: 15px; word-break: break-all; background: var(--soft); border-radius: 12px; padding: 10px 12px; user-select: all; }
+.link-text { font-size: 16px; word-break: break-all; background: var(--soft); border-radius: 12px; padding: 10px 12px; user-select: all; }
 .dev-code { font-size: 21px; font-weight: 800; letter-spacing: 1px; white-space: nowrap; overflow-x: auto; text-align: center; padding: 14px; background: var(--soft); border-radius: 14px; margin: 8px 0; user-select: all; font-variant-numeric: tabular-nums; }

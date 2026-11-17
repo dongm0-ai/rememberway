@@ -28,7 +28,7 @@
 </main>
 <script type="module">
   import { $ } from "/js/common.js";
-  import { session, storedSession, requireLogin, authFetch } from "/js/auth.js";
+  import { session, storedSession, authFetch } from "/js/auth.js";
   import { checkAccount, listElders, setCurrentElder } from "/js/family.js";
   import { errText } from "/js/shell.js";
 
@@ -38,7 +38,10 @@
     INVITE_NOT_FOUND: "없는 초대예요. 링크를 끝까지 다 복사했는지 확인하거나, 새 초대를 부탁해 주세요.",
   };
   const RETRY = new Set(["NETWORK", "TIMEOUT", "AUTH_UNAVAILABLE", "NO_STORE", "STORE_ERROR", "RATE_LIMIT"]);
+  // 토큰은 메모리에만 두고 주소창·방문 기록에서는 바로 지운다 (다시 시도는 메모리의 토큰으로, 로그인이 필요하면 next 에 실어 보낸다)
   const token = new URLSearchParams(location.search).get("t") || "";
+  if (token) history.replaceState(null, "", location.pathname);
+  const loginWithToken = () => { location.href = "/login?next=" + encodeURIComponent("/join?t=" + encodeURIComponent(token)); };
 
   const show = (text, { retry = false } = {}) => {
     $("#state").textContent = text;
@@ -52,12 +55,12 @@
     const s = await session().catch(() => null);
     if (!s) {
       if (storedSession()) return show("인터넷 연결을 확인해 주세요.", { retry: true });   // 로그인은 돼 있는데 서버에 닿지 않음
-      return requireLogin();   // 로그인 뒤 이 주소(토큰 포함)로 돌아온다
+      return loginWithToken();   // 로그인 뒤 이 초대(토큰 포함)로 돌아온다
     }
     checkAccount(s.user.id);   // 이 폰에 다른 계정의 사본이 있으면 먼저 지운다
     const r = await authFetch({ action: "invite.accept", token });
     if (!r?.ok || !r.elderId) {
-      if (r?.reason === "NEED_LOGIN" || r?.reason === "UNAUTHORIZED") return;   // 로그인 화면으로 가는 중
+      if (r?.reason === "NEED_LOGIN" || r?.reason === "UNAUTHORIZED") return loginWithToken();   // authFetch 가 보낸 로그인 화면 대신 토큰을 실어 보낸다
       return show(FAIL[r?.reason] ?? errText(r?.reason), { retry: RETRY.has(r?.reason) || /^HTTP_5/.test(String(r?.reason)) });
     }
     const elders = await listElders().catch(() => []);

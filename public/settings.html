@@ -79,7 +79,7 @@
 </main>
 <script type="module">
   import { $, el } from "/js/common.js";
-  import { mountShell, toast, confirmDialog, errText, expectGone, GONE_TEXT } from "/js/shell.js";
+  import { mountShell, toast, confirmDialog, errText, expectGone, shellElders } from "/js/shell.js";
   import { authFetch, signOut, storedSession } from "/js/auth.js";
   import { listElders, setCurrentElder, flush, phoneBackups } from "/js/family.js";
 
@@ -149,7 +149,7 @@
   async function renderMembers() {
     const box = $("#members");
     const r = await authFetch({ action: "members.list", elderId: elder.id });
-    if (!r?.ok || !Array.isArray(r.members)) { box.innerHTML = ""; $("#members-msg").textContent = errText(r?.reason); return; }
+    if (!r?.ok || !Array.isArray(r.members)) { members = null; box.innerHTML = ""; $("#members-msg").textContent = errText(r?.reason); return null; }
     members = r.members;
     $("#members-msg").textContent = "";
     box.innerHTML = "";
@@ -164,6 +164,7 @@
         kick));
     });
     if (members.length === 1) box.append(el("p", { class: "small muted" }, "아직 함께 보는 가족이 없어요. 위에서 초대해 주세요."));
+    return members;
   }
   async function removeMember(m, n, btn) {
     if (!(await confirmDialog(`가족 ${n}을(를) 내보낼까요?`, { ok: "내보내기", danger: true, detail: "그 가족은 이 어르신 정보를 더 이상 볼 수 없어요. 다시 함께하려면 새로 초대해야 해요." }))) return;
@@ -227,10 +228,15 @@
   }
   $("#btn-leave").onclick = async (ev) => {
     const btn = ev.currentTarget;
-    const last = Array.isArray(members) && members.length === 1;
+    // 가족 목록을 아직 모르면 먼저 다시 받는다. 그래도 모르면 "마지막 가족일 수 있음"으로 보고 지울 때처럼 확인 창 2번
+    const list = Array.isArray(members) ? members : await busy(btn, "가족 목록 확인 중…", () => renderMembers());
+    const unknown = !Array.isArray(list);
+    const last = unknown || list.length <= 1;
     const name = elder.label || "어르신";
-    if (!(await confirmDialog(`${name}에서 빠질까요?`, { ok: "빠지기", danger: last,
-      detail: last ? "함께 보는 가족이 없어서, 빠지면 이 어르신의 정보(추억의 장소·일지·기록·위치 기록)가 모두 지워져요." : "내 계정에서만 사라지고, 다른 가족에게는 그대로 남아요." }))) return;
+    const detail = unknown
+      ? "가족 목록을 확인하지 못했어요. 내가 마지막 가족이면, 빠질 때 이 어르신의 정보(추억의 장소·일지·기록·위치 기록)가 모두 지워져요."
+      : last ? "함께 보는 가족이 없어서, 빠지면 이 어르신의 정보(추억의 장소·일지·기록·위치 기록)가 모두 지워져요." : "내 계정에서만 사라지고, 다른 가족에게는 그대로 남아요.";
+    if (!(await confirmDialog(`${name}에서 빠질까요?`, { ok: "빠지기", danger: last, detail }))) return;
     if (last && !(await confirmDialog("정말 지울까요? 되돌릴 수 없어요.", { ok: "빠지고 모두 지우기", danger: true }))) return;
     await busy(btn, "빠지는 중…", async () => {
       expectGone(elder.id);
@@ -266,6 +272,7 @@
         el("div", {}, el("b", {}, b.saved_at ? `${fmtDay(b.saved_at)} 보관` : "보관본"), el("div", { class: "small muted" }, parts.join(" · ") || "내용 없음")),
         el("button", { class: "btn-ghost", onclick: async () => {
           if (!(await confirmDialog("이 보관본을 이 폰에서 지울까요?", { ok: "지우기", danger: true, detail: "서버에는 없는 정보라 지우면 되돌릴 수 없어요." }))) return;
+          if (!(await confirmDialog("정말 지울까요? 되돌릴 수 없어요.", { ok: "보관본 지우기", danger: true }))) return;
           try { localStorage.removeItem(k); } catch {}
           renderBackups();
         } }, "이 폰에서 지우기")));
@@ -274,10 +281,17 @@
 
   // ---------------------------------------------------------------- 탈퇴
   function wipeAccountCopies() {
-    // 이 계정의 어르신 사본·집 주소·현재 어르신·연결 코드를 이 폰에서 지운다 (계정이 없어졌으니 남길 이유가 없다). 옛 보관본(rw_backup_*)은 그대로
+    // 이 계정의 어르신 사본·현재 어르신·연결 코드와, 이 계정 어르신들의 집 주소(rw_home:<id>)를 이 폰에서 지운다 (계정이 없어졌으니 남길 이유가 없다).
+    // 이전 계정 어르신의 집 주소·옛 보관본(rw_backup_*)은 그대로 (family.js 가 일부러 남기는 것)
     const keys = []; try { for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i)); } catch {}
-    const drop = new Set(["rw_elder", "rw_elders", "rw_dirty", "rw_owner_user", "rw_import_asked", "rw_profile", "rw_diary", "rw_incidents", "rw_track", "rw_email"]);
-    for (const k of keys) if (k && (drop.has(k) || k.startsWith("rw_cache:") || k.startsWith("rw_home:"))) { try { localStorage.removeItem(k); } catch {} }
+    const mine = new Set(shellElders().map((x) => x.id));
+    const cached = jget("rw_elders"); if (Array.isArray(cached)) for (const x of cached) if (x?.id) mine.add(x.id);
+    if (jget("rw_elder")?.id) mine.add(jget("rw_elder").id);
+    const created = jget("rw_created"); if (created && typeof created === "object") for (const id of Object.keys(created)) mine.add(id);
+    for (const k of keys) if (k?.startsWith("rw_cache:")) mine.add(k.slice("rw_cache:".length));   // 다른 계정으로 바꿀 때 모두 지워지므로 rw_cache:* 는 이 계정 것
+    const drop = new Set(["rw_elder", "rw_elders", "rw_dirty", "rw_created", "rw_owner_user", "rw_import_asked", "rw_profile", "rw_diary", "rw_incidents", "rw_track", "rw_email"]);
+    for (const id of mine) drop.add(`rw_home:${id}`);
+    for (const k of keys) if (k && (drop.has(k) || k.startsWith("rw_cache:"))) { try { localStorage.removeItem(k); } catch {} }
   }
   $("#btn-withdraw").onclick = async (ev) => {
     const btn = ev.currentTarget;

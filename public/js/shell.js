@@ -7,7 +7,7 @@
 // - 다른 가족이 먼저 고쳤으면(conflict) 안내 후 1.5초 뒤 새로고침 (화면이 들고 있는 옛 배열로 덮어쓰지 않게)
 // - 어르신에 더 이상 접근할 수 없으면(gone) 안내 후 처음 화면으로
 import { el, $ } from "./common.js";
-import { session, storedSession, requireLogin, signOut, reasonText } from "./auth.js";
+import { session, storedSession, requireLogin, signOut, reasonText, authFetch } from "./auth.js";
 import { installSync, checkAccount, listElders, createElder, importLocalData, setCurrentElder, currentElder, pull, flush, onSync, CONFLICT_TEXT } from "./family.js";
 
 export const TABS = [
@@ -21,7 +21,9 @@ const OFFLINE_TEXT = "오프라인 — 이 폰의 마지막 사본";
 const PENDING_TEXT = "아직 서버에 못 올린 변경이 있어요. 연결되면 다시 올려요.";
 const LABEL_CHIPS = ["아버지", "어머니", "할아버지", "할머니", "어르신"];
 const LABEL_MAX = 20;
-const OFFLINE_REASONS = new Set(["NETWORK", "TIMEOUT", "AUTH_UNAVAILABLE", "NO_STORE", "STORE_ERROR", "RATE_LIMIT", "HTTP_502", "HTTP_503", "HTTP_504"]);
+const SKIP_KEY = "rw_reg_skip";   // sessionStorage: 이번 방문에서는 "어르신 등록"을 건너뜀 (찾기 흐름·112 를 막지 않게). 고르기 창의 [+ 새 어르신 등록]으로 언제든
+const skipped = () => { try { return sessionStorage.getItem(SKIP_KEY) === "1"; } catch { return false; } };
+const setSkipped = () => { try { sessionStorage.setItem(SKIP_KEY, "1"); } catch {} };
 const WAIT_MS = 8000;      // 이 폰 사본이 있을 때 서버를 기다리는 최대 시간
 const RELOAD_MS = 1500;
 
@@ -77,11 +79,15 @@ export function registerElder({ required = false } = {}) {
     input.addEventListener("input", sync);
     const msg = el("p", { class: "msg-err", role: "alert" });
     const go = el("button", { class: "btn-primary btn-xl", type: "submit" }, "등록하기");
-    const skip = el("button", { type: "button", class: "btn-secondary", onclick: () => { dlg.close(); dlg.remove(); resolve(null); } }, "지금은 건너뛰기 (이 폰의 정보로 계속)");
+    const skip = el("button", { type: "button", class: "btn-secondary", onclick: () => { setSkipped(); dlg.close(); dlg.remove(); resolve(null); } }, "지금은 건너뛰기");
+    const findNow = el("a", { class: "btn btn-secondary", href: "/report", onclick: (ev) => {
+      setSkipped();
+      if (location.pathname === "/report") { ev.preventDefault(); dlg.close(); dlg.remove(); resolve(null); }   // 이미 찾기 화면이면 창만 닫는다
+    } }, "🚨 등록 없이 지금 찾기");
     const form = el("form", { novalidate: "" },
       el("label", { for: "reg-label" }, `어르신을 부르는 호칭 (${LABEL_MAX}자까지)`),
       el("div", { class: "chips", style: "margin:6px 0 10px" }, chips), input, msg,
-      el("div", { class: "stack", style: "margin-top:12px" }, go));
+      el("div", { class: "stack", style: "margin-top:12px" }, go, required ? [skip, findNow] : []));
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const label = input.value.trim();
@@ -90,12 +96,7 @@ export function registerElder({ required = false } = {}) {
       go.disabled = true; go.textContent = "등록하는 중…"; msg.textContent = "";
       const r = await createElder(label).catch(() => ({ ok: false, reason: "NETWORK" }));
       go.disabled = false; go.textContent = "등록하기";
-      if (!r.ok) {
-        msg.textContent = errText(r.reason);
-        // 어르신이 한 분도 없는데 서버에 닿지 않을 때: 막아 두지 않고 이 폰의 정보로 계속할 수 있게 (찾기 흐름·112는 써야 한다)
-        if (required && OFFLINE_REASONS.has(r.reason) && !skip.isConnected) go.after(skip);
-        return;
-      }
+      if (!r.ok) { msg.textContent = errText(r.reason); return; }   // [지금은 건너뛰기]·[🚨 등록 없이 지금 찾기]는 처음부터 보인다
       dlg.close(); dlg.remove();
       resolve({ id: r.elder.id, label: r.elder.label ?? label, role: r.elder.role ?? "owner" });
     });
@@ -229,25 +230,16 @@ async function start(tab) {
     if (!st) { requireLogin(); return new Promise(() => {}); }   // 로그인 화면으로 가는 중
     // 로그인 정보는 있는데 갱신을 못 함 = 서버·네트워크 문제 → 이 폰의 마지막 사본으로
     checkAccount(st.user?.id);
-    elders = await listElders().catch(() => []);
-    if (!currentElder() && elders.length) setCurrentElder(elders[0]);
-    renderBar(tab);
-    setBanner("shell-offline", OFFLINE_TEXT);
-    mounted = true;
-    return { elder: currentElder(), offline: true };
+    elders = (await within(listElders().catch(() => null), WAIT_MS, null)) ?? [];   // 로그인이 없으니 서버는 묻지 않고 이 폰의 마지막 목록이 바로 온다
+    return finishOffline(tab);
   }
 
   checkAccount(s.user.id);
-  let offline = false;
-  if (currentElder()) {
-    // 사본이 있으면 오래 기다리지 않는다. 늦게 온 목록은 고르기 창에 반영 (목록에 없는 어르신은 family.js 가 지우고 gone 으로 알린다)
-    const lp = listElders().catch(() => null);
-    const l = await within(lp, WAIT_MS, null);
-    if (l) elders = l;
-    else { elders = [currentElder()]; offline = true; lp.then((x) => { if (x) { elders = x; renderBar(tab); } }); }
-  } else elders = await listElders().catch(() => []);
+  const known = await knownElders(tab);   // {list, ok}: ok = 서버가 지금 답한 목록 (실패·시간 초과면 이 폰의 마지막 목록)
+  elders = known.list;
+  if (!known.ok) return finishOffline(tab);   // 서버 장애: 올리기·등록을 묻지 않고 이 폰의 사본으로
 
-  if (!elders.length && !offline) {
+  if (!elders.length) {   // 서버가 "정말 0명"이라고 답했을 때만
     try {
       const r = await importLocalData({ elders, userId: s.user.id, ask: askImport });
       if (r?.ok) { elders = [{ id: r.elder.id, label: r.elder.label ?? "", role: r.elder.role ?? "owner" }]; if (r.message) toast(r.message, 8000); }
@@ -258,8 +250,8 @@ async function start(tab) {
   let res = "offline";
   for (let i = 0; i < 5; i++) {
     if (!elders.length) {
-      const e = await registerElder({ required: true });
-      if (!e) { res = "offline"; break; }   // 서버에 닿지 않아 건너뜀 — 고른 어르신 없이 계속
+      const e = skipped() ? null : await registerElder({ required: true });
+      if (!e) { setCurrentElder(null); res = "skipped"; break; }   // 건너뜀 — 고른 어르신 없이 계속 (elder: null)
       elders = [e];
     }
     const cur = currentElder();
@@ -271,7 +263,35 @@ async function start(tab) {
     break;
   }
   renderBar(tab);
-  if (offline || res === "offline") setBanner("shell-offline", OFFLINE_TEXT);
+  if (res === "offline") setBanner("shell-offline", OFFLINE_TEXT);
   mounted = true;
-  return { elder: currentElder(), offline: offline || res === "offline" };
+  return { elder: currentElder(), offline: res === "offline" };
+}
+
+/** 내 어르신 목록. 서버가 지금 답했으면 ok:true. 목록이 비었으면 서버에 한 번 더 물어 "정말 0명"인지 확인한다
+ *  (listElders 는 실패하면 이 폰의 마지막 목록을 돌려줘서, 빈 배열만으로는 "0명"과 "서버 장애"를 구분할 수 없다). 모두 WAIT_MS 까지만 기다린다 */
+async function knownElders(tab) {
+  const lp = listElders().catch(() => null);
+  const l = await within(lp, WAIT_MS, null);
+  if (l === null) {   // 늦음 — 이 폰의 사본으로 먼저. 늦게 온 목록은 고르기 창에 반영
+    lp.then((x) => { if (x?.length) { elders = x; renderBar(tab); } });
+    const cur = currentElder();
+    return { list: cur ? [cur] : [], ok: false };
+  }
+  if (l.length) return { list: l, ok: true };   // 서버 목록이든 이 폰의 마지막 목록이든, 고를 어르신은 있다 (서버 장애면 pull 이 offline 으로 알려 준다)
+  const me = await within(authFetch({ action: "me" }).catch(() => null), WAIT_MS, null);
+  if (!me?.ok || !Array.isArray(me.elders)) return { list: [], ok: false };
+  if (!me.elders.length) return { list: [], ok: true };
+  // 그 사이 생겼다 (다른 기기에서 등록·초대 수락) — 목록을 다시 받아 사본까지 맞춘다
+  const again = await within(listElders().catch(() => null), WAIT_MS, null);
+  return again?.length ? { list: again, ok: true } : { list: [], ok: false };
+}
+
+/** 서버에 닿지 않을 때: 이 폰의 현재 어르신(없으면 마지막 목록의 첫 어르신)으로 계속. 서버를 더 기다리지 않는다 */
+function finishOffline(tab) {
+  if (!currentElder() && elders.length) setCurrentElder(elders[0]);
+  renderBar(tab);
+  setBanner("shell-offline", OFFLINE_TEXT);
+  mounted = true;
+  return { elder: currentElder(), offline: true };
 }

@@ -369,3 +369,27 @@ export function haversineM(lat1, lng1, lat2, lng2) {
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return Math.round(2 * R * Math.asin(Math.sqrt(a)));
 }
+
+// ---------------------------------------------------------------- 예상 후보지 겹그림 (Task 11): 예상 경로(보라 점선)·걸어서 닿는 범위(보라 원)·후보 핀(보라 네모 1·2·3)
+// 동선 핀(파란 동그라미 번호)과 헷갈리지 않게 색·모양을 다르게 한다. 장소 이름은 escapeHtml 로만 HTML에 들어간다.
+export const PRED_COLOR = "#7b3fe4";
+export const candPinHtml = (n, name) => `<div title="${escapeHtml(name)}" style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:${PRED_COLOR};color:#fff;font-weight:800;border-radius:8px;border:2px solid #fff;font-size:15px;box-shadow:0 1px 4px rgba(0,0,0,.4)">${escapeHtml(n)}</div>`;
+/**
+ * naver = loadMap 결과(window.naver), map = naver.maps.Map. from = 마지막 위치(또는 집), path = projectPath 결과(마지막 위치 제외),
+ * reachM = 걸어서 닿는 반경(m), pins = [{lat,lng,name}] (순서대로 1·2·3), fit = 한 번 화면 맞춤. → { clear() }
+ */
+export function drawPrediction(naver, map, { from, path = [], reachM = 0, pins = [], fit = false } = {}) {
+  const M = naver?.maps, ok = (p) => !!p && Number.isFinite(p.lat) && Number.isFinite(p.lng);
+  if (!M || !map || !ok(from)) return { clear() {} };
+  const objs = [], ll = (p) => new M.LatLng(p.lat, p.lng);
+  if (reachM > 0) objs.push(new M.Circle({ map, center: ll(from), radius: reachM, strokeColor: PRED_COLOR, strokeWeight: 2, strokeOpacity: .8, strokeStyle: "shortdash", fillColor: PRED_COLOR, fillOpacity: .05, clickable: false }));
+  const line = [from, ...path].filter(ok);
+  if (line.length >= 2) objs.push(new M.Polyline({ map, path: line.map(ll), strokeColor: PRED_COLOR, strokeWeight: 5, strokeOpacity: .9, strokeStyle: "shortdash", clickable: false }));
+  pins.filter(ok).forEach((c, i) => objs.push(new M.Marker({ map, position: ll(c), icon: { content: candPinHtml(String(i + 1), c.name), anchor: new M.Point(15, 15) }, title: `후보 ${i + 1}. ${c.name ?? ""}`, zIndex: 120 })));
+  if (fit) {
+    const b = new M.LatLngBounds(ll(from), ll(from));
+    [line[line.length - 1], ...pins].filter(ok).forEach((p) => b.extend(ll(p)));
+    map.fitBounds(b, { top: 40, right: 40, bottom: 40, left: 40 });
+  }
+  return { clear() { objs.forEach((o) => o.setMap(null)); objs.length = 0; } };
+}

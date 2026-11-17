@@ -33,6 +33,7 @@
       </div>
     </div>
     <!-- 예상 후보지 (Task 11) -->
+    <div id="cand"></div>
     <div class="stack" style="margin-bottom:14px">
       <a class="btn btn-secondary" href="/gps">자주 머문 곳 보기 →</a>
       <a class="btn btn-secondary" href="/find">목걸이 소리로 찾기 →</a>
@@ -53,9 +54,9 @@
 </main>
 <script type="module">
   import { mountShell, errText } from "/js/shell.js";
-  import { $, loadConfig } from "/js/common.js";
+  import { $, loadConfig, el, api, aiConsented, store, KEYS, getHome, mockBanner } from "/js/common.js";
   import { authFetch } from "/js/auth.js";
-  import { loadMap } from "/js/map.js";
+  import { loadMap, drawPrediction, findPlaceLoose, findNearby } from "/js/map.js";
   const { elder, offline } = await mountShell({ tab: "live" });
   let map = null, marker = null, line = null, timer = null, busy = false;
 
@@ -86,18 +87,45 @@
     }
     const pts = Array.isArray(r.points) ? r.points : [];
     $("#nocode").classList.toggle("hidden", pts.length > 0);
-    if (!pts.length) { $("#when").textContent = "아직 받은 위치가 없어요"; $("#detail").textContent = "어르신 휴대폰 앱이 켜져 있고 목걸이가 가까이 있어야 위치가 옵니다."; return; }
+    if (!pts.length) { $("#when").textContent = "아직 받은 위치가 없어요"; $("#detail").textContent = "어르신 휴대폰 앱이 켜져 있고 목걸이가 가까이 있어야 위치가 옵니다."; candidates(pts, r.now, null); return; }
     const p = pts[0], t = p.gps_time || p.received_at;
     $("#when").textContent = `${p.gps_time ? "GPS 측정" : "받은 시각"} ${hhmmss(t)} (${ago(t, r.now)})`;
     $("#detail").textContent = `받은 시각 ${hhmmss(p.received_at)} · 좌표 ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${p.speed_kmh != null ? ` · 속도 ${p.speed_kmh.toFixed(1)}km/h` : ""} · 최근 위치 ${pts.length}개`;
     $("#nav").href = `https://map.naver.com/p/directions/-/${p.lng},${p.lat},${encodeURIComponent("목걸이 마지막 위치")}/-/walk`; $("#nav").classList.remove("hidden");
-    const nv = await mapLib(); if (!nv) { $("#map").textContent = "지도를 불러오지 못했어요. 위 좌표와 길찾기 버튼을 쓰세요."; return; }
+    const nv = await mapLib(); if (!nv) { $("#map").textContent = "지도를 불러오지 못했어요. 위 좌표와 길찾기 버튼을 쓰세요."; candidates(pts, r.now, null); return; }
     const pos = new nv.maps.LatLng(p.lat, p.lng), path = pts.slice().reverse().map((x) => new nv.maps.LatLng(x.lat, x.lng));
     if (!map) map = new nv.maps.Map($("#map"), { center: pos, zoom: 16 });
     if (!marker) marker = new nv.maps.Marker({ map, position: pos, icon: { content: '<div style="width:22px;height:22px;border-radius:50%;background:#d92d20;border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)"></div>', anchor: new nv.maps.Point(11, 11) } });
     else marker.setPosition(pos);
     if (!line) line = new nv.maps.Polyline({ map, path, strokeColor: "#2f6fe4", strokeWeight: 4, strokeOpacity: 0.7 }); else line.setPath(path);
     map.setCenter(pos);
+    candidates(pts, r.now, nv);
+  }
+
+  // ---------- 📍 예상 후보지: 오늘 GPS로 예상 경로·후보 (계산은 코드, AI는 순서·이유만). 3분에 한 번까지만 다시 계산 ----------
+  // 카드 모듈은 동적으로 불러온다 — 못 불러와도(오프라인 첫 방문 등) 위치 화면은 그대로 돈다
+  let candMod = null, candBusy = false, candLast = 0, candKey = "", overlay = null, fitted = false;
+  const geoCache = new Map();
+  // 위치 화면에서 갑자기 동의 창을 띄우지 않는다 — 동의한 기기에서만 AI, 아니면 코드 순서
+  const quietApi = (name, body) => (aiConsented() ? api(name, body) : Promise.resolve({ ok: false, reason: "NO_CONSENT" }));
+  async function candidates(raw, serverNow, nv) {
+    if (candBusy) return;
+    const nowMs = Number.isFinite(Date.parse(serverNow)) ? Date.parse(serverNow) : Date.now();
+    try { candMod ??= await import("/js/candidates.js"); } catch { return; }
+    const pts = candMod.pointsToday(raw, nowMs);
+    const key = pts.length ? String(pts.reduce((m, p) => Math.max(m, p.t), 0)) : "none";
+    if (candLast && (key === candKey ? Date.now() - candLast < 5 * 60000 : Date.now() - candLast < 3 * 60000)) return;
+    candBusy = true; candKey = key; candLast = Date.now();
+    const box = $("#cand");
+    try {
+      if (!box.firstChild) candMod.renderCandidates(box, null, { el, loading: true });
+      const res = await candMod.computeCandidates({ points: pts, clue: store.sget(KEYS.clue), mode: store.sget(KEYS.mode), home: getHome(), profile: store.get(KEYS.profile), elderId: elder.id, nowMs, authFetch: call, api: quietApi, findPlaceLoose, findNearby, geoCache });
+      if (res.mock) mockBanner({ mock: true });
+      candMod.renderCandidates(box, res, { el, nowMs });
+      overlay?.clear(); overlay = null;
+      if (nv && map && res.motion) { overlay = drawPrediction(nv, map, { from: res.motion, path: res.path, reachM: res.reach, pins: res.top ?? [], fit: !fitted }); fitted = true; }
+    } catch { candMod.renderCandidates(box, null, { el, message: "예상 후보지를 계산하지 못했어요. 위 지도의 마지막 위치부터 확인해 주세요." }); }
+    finally { candBusy = false; }
   }
   let libP = null;
   function mapLib() { return (libP ??= loadConfig().then((c) => loadMap(c?.map ?? {}))); }

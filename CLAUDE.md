@@ -4,9 +4,9 @@
 
 ## 이 앱이 하는 일 (한 문장)
 
-기기도 등록도 없이 사라진 치매 어르신을, 보호자의 기억만으로 찾게 돕고 그 경험으로 다음 실종을 막는 보호자용 실종 대응 시뮬레이터.
+어르신이 GPS를 끄거나 목걸이·휴대폰을 두고 나가셨을 때, 보호자가 직접 등록한 추억의 장소와 최근 30일 GPS 기록에서 자주 머문 곳을 바탕으로 확인할 곳을 정리해 찾기를 돕는 보호자용 프로그램. (2026-11-17 지도교사 결정. 이전: "기기도 등록도 없이 사라진 치매 어르신을, 보호자의 기억만으로 찾게 돕고…")
 
-**AI가 하는 일:** 보호자의 말을 경찰이 쓸 정보로 바꾸고, 빠진 것을 되묻고, 확인할 곳을 지도에 정리한다.
+**AI가 하는 일:** 보호자의 말을 경찰이 쓸 정보로 바꾸고, 빠진 것을 되묻고, GPS로 자주 머문 곳이 어떤 곳인지 보호자에게 되묻고, 확인할 곳을 지도에 정리한다. (머문 곳 계산·순서는 코드)
 
 ## 절대 하지 않는 것
 
@@ -15,7 +15,7 @@
 - **AI 출력을 검증 없이 쓰지 않는다.** 모든 AI 응답은 `public/lib/verify.js`(스키마 검사, 원문 대조 ⚠)를 거친 뒤에만 화면에 쓴다. `missing`은 AI 값을 믿지 않고 `computeMissing`으로 다시 계산한다.
 - **이름을 입력받지 않는다.** 호칭(아버지·어머니·어르신)만. 집 주소는 도로명·지번·건물명까지만(아파트 동·호수는 받지 않음), 보호자 기기 `localStorage`(`rw_home`)에만 저장하고 서버에 남기지 않는다. 경찰 요약·공유 글·AI 호출에는 동까지만. 복용약은 성분명 없이 "복용 여부"만. 사진은 저장하지 않는다. (2026-11-03 지도교사 결정)
 - **API 키를 브라우저에 두지 않는다.** `UPSTAGE_API_KEY`/`GEMINI_API_KEY`/`ANTHROPIC_API_KEY`는 서버 함수(`api/*.js`, `lib/claude.js`)에서만 읽는다. `.env.local`은 커밋하지 않는다.
-- **서버 DB를 만들지 않는다.** 프로필·일지·사건 기록은 보호자 기기 `localStorage`에만. (예외 1: 푸시 알림 구독 — 알림 주소와 마지막 일지 날짜만 Supabase `push_subs`에. 결정표 2026-10-30. 예외 2: 목걸이 실시간 위치 — 연결 코드 해시·좌표·시각만 Supabase `loc_events`에, 보호자가 [기록 모두 지우기]로 지운다. 이름·주소·일지 내용은 서버에 두지 않는다. 결정표 2026-11-16 지도교사 결정)
+- **서버 DB를 만들지 않는다.** 프로필·일지·사건 기록은 보호자 기기 `localStorage`에만. (예외 1: 푸시 알림 구독 — 알림 주소와 마지막 일지 날짜만 Supabase `push_subs`에. 결정표 2026-10-30. 예외 2: 목걸이 실시간 위치 — 연결 코드 해시·좌표·시각만 Supabase `loc_events`에, 30일 지나면 자동 삭제, 보호자가 [기록 모두 지우기]로도 지운다. 이름·주소·일지 내용은 서버에 두지 않는다. 결정표 2026-11-16 지도교사 결정)
 - **녹화 결과를 실시간인 척하지 않는다.** 미리 저장한 결과를 보여 줄 때는 화면에 "녹화 결과"라고 표시한다.
 - **MOCK_AI=1 모의 응답을 실제 AI 결과처럼 쓰지 않는다.** 모의 응답이면 화면 상단 배너(`mockBanner`)를 지우지 않는다.
 - **모의 데이터를 실제인 것처럼 쓰지 않는다.** 모든 사례는 가명·가짜 주소. `data/mock_cases.json`의 `_note`를 유지한다.
@@ -27,10 +27,11 @@ public/lib/schema.js    타입 설명·가중치·임계값·되묻기 우선순
 public/lib/verify.js    스키마 검사·missing 재계산·환각 대조 (브라우저·서버 공용)
 public/lib/priority.js  R_max, 우선 확인 순서, 지금 할 일 3가지, 요약문 조립 (규칙)
 public/lib/diary.js     일지 → 장소 4분류, 주간 집계 (규칙)
-lib/prompts.js          호출 ①②④⑤⑥ 시스템 프롬프트  ← "없으면 null", "원문에 없는 사실 금지"는 삭제 금지
+public/lib/gps.js       GPS 기록 → 머문 곳(박진관·오수열 2016 통계 방식) → 자주 머문 곳, 최근 30일 (규칙, 브라우저·서버 공용)
+lib/prompts.js          호출 ①②④⑤⑥⑦ 시스템 프롬프트  ← "없으면 null", "원문에 없는 사실 금지"는 삭제 금지
 lib/claude.js           생성형 AI 호출 — Upstage Solar / Gemini / Claude (AI_PROVIDER), fetch, 서버 전용, 15초 타임아웃·대체 모델, MOCK_AI
 lib/http.js             서버 함수 공통 (POST 파싱, 오류 → ok:false)
-api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤  api/weekly.js ⑥  api/config.js(AI 상태만)  api/loc.js(목걸이 위치 중계, AI 없음)
+api/extract.js ①  api/followup.js ②  api/record.js ④  api/diary.js ⑤·⑦(mode "gps")  api/weekly.js ⑥  api/config.js(AI 상태만)  api/loc.js(목걸이 위치 중계, AI 없음)
                         ※ Vercel 무료 플랜 함수 12개 한도 — 지금 12개. 새 API는 기존 파일에 action으로 합친다
 public/*.html           화면. 빌드 없음. 각 화면의 스크립트는 그 HTML 안에 있다
 public/js/common.js     저장·API 호출·음성 입력·공통 UI   public/js/map.js  지도(네이버 지도만)·장소 찾기(네이버 검색)·도보 길찾기(Valhalla)

@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>GPS 자주 머문 곳 — REMEMBER WAY AI</title>
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#f2f4f6">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<main>
+  <div class="topbar"><a class="back" href="/diary">← 일지</a><span class="step">화면 0 · GPS로 자주 머문 곳</span></div>
+  <h1>GPS로 자주 머문 곳 찾기</h1>
+  <p class="muted">최근 30일 목걸이 GPS 기록에서 <b>코드가</b> 자주 머문 곳을 세고, <b>AI가</b> "어떤 곳인지" 보호자께 되묻습니다. 보호자가 확인한 곳만 일지와 추억의 장소에 들어가, 어르신이 GPS를 끄거나 두고 나가셨을 때 확인할 곳이 됩니다.</p>
+
+  <div class="card">
+    <h3 style="margin-top:0">기록 가져오기</h3>
+    <button class="btn-primary" id="server">📍 서버에 모인 목걸이 위치 (최근 30일)</button>
+    <p class="small muted" id="server-note" style="margin:6px 0 0"></p>
+    <details style="margin-top:10px"><summary class="small">다른 방법: 목걸이 USB · 파일 · 붙여 넣기</summary>
+      <button class="btn-secondary" id="serial" style="margin-top:8px">🔌 목걸이에서 바로 (노트북 크롬 + USB 선)</button>
+      <label class="btn btn-secondary" style="cursor:pointer;margin-top:8px">📂 기록 파일 (CSV · GPX)<input type="file" id="file" accept=".csv,.gpx,.txt,text/csv,application/gpx+xml" class="hidden"></label>
+      <textarea id="paste" style="min-height:70px;margin-top:8px" placeholder="time,lat,lon&#10;2026-11-15T01:03:00Z,36.31,127.43"></textarea>
+      <button class="btn-secondary" id="paste-go" style="margin-top:6px">붙여 넣은 글로 계산</button>
+    </details>
+    <p class="small muted" style="margin-bottom:0"><a href="#" id="mock">모의 기록으로 시험하기 (가짜 데이터)</a></p>
+    <p class="small" id="msg"></p>
+  </div>
+
+  <section id="result" class="hidden">
+    <h2>자주 머문 곳 <span class="small muted" id="stat"></span></h2>
+    <div class="callout hidden" id="low">기록이 적어 패턴 신뢰도가 낮습니다.</div>
+    <div class="callout hidden" id="ai-note"></div>
+    <p id="summary" class="hidden" style="margin:6px 0 10px"></p>
+    <div id="places"></div>
+    <button class="btn-primary" id="save">확인한 곳을 일지·추억의 장소에 넣기</button>
+    <p class="small muted" id="saved" style="text-align:center"></p>
+  </section>
+
+  <details class="card tight"><summary class="small"><b>머문 곳을 정하는 방법</b> (숫자를 미리 정하지 않음)</summary>
+    <ul class="plain small muted">
+      <li>박진관·오수열(2016, 스마트미디어저널)의 통계 방식: 그날 기록의 속력 분포를 나눠 가장 느린 무리를 "멈춤"으로, 방향이 제멋대로인 구간을 머문 곳으로 봅니다. 건물에 들어가 GPS가 유난히 오래 끊기고(상위 5%) 끊기기 전후 거리가 평범하면 실내에 머문 것으로 봅니다.</li>
+      <li>논문의 식이 PDF에서 깨져 있어 일부는 우리 해석입니다 (코드 public/lib/gps.js 주석).</li>
+      <li>기간: 최근 30일 (Bayat 외 2020: 노인 GPS 4주). 자주·최근 자주·새로운 곳 분류는 일지와 같은 규칙입니다.</li>
+      <li id="rules"></li>
+    </ul>
+  </details>
+  <div class="card tight">
+    <ul class="plain small muted">
+      <li>원본 기록(점)은 이 화면에 저장하지 않습니다. 서버 기록은 30일이 지나면 자동으로 지워집니다.</li>
+      <li>AI에는 좌표 없이 동 이름과 날 수·시간대만 보냅니다. 장소 이름을 찾을 때만 좌표가 네이버 주소 변환에 쓰입니다(저장 안 함).</li>
+      <li>위치를 예측하지 않습니다. 지난 기록을 세는 것입니다.</li>
+    </ul>
+  </div>
+</main>
+<script type="module">
+  import { store, KEYS, api, $, el, mockBanner, getHome } from "/js/common.js";
+  import { parseTrack, findStays, groupPlaces, trackSummary, templateQuestion, mockTrack, distM, GPS_WINDOW_DAYS } from "/lib/gps.js";
+
+  const profile = store.get(KEYS.profile);
+  if (!profile) location.replace("/profile");
+  const home = getHome();
+  const pair = (() => { try { return JSON.parse(localStorage.getItem("rw_track") || "null"); } catch { return null; } })();
+  let places = [], track = null, isMock = false;
+
+  if (!pair) { $("#server").disabled = true; $("#server-note").innerHTML = '먼저 <a href="/track">목걸이 위치 보기</a>에서 연결 코드를 만들어 주세요.'; }
+  $("#server").onclick = async () => {
+    $("#msg").innerHTML = '<span class="spinner"></span> 서버 기록에서 머문 곳을 계산하는 중…';
+    let r; try { r = await (await fetch("/api/loc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "places", key: pair.key }) })).json(); } catch { r = { ok: false, reason: "NETWORK" }; }
+    if (!r.ok) { $("#msg").textContent = `불러오지 못했어요 (${r.reason})`; return; }
+    isMock = false; show(r.track, r.places, r.rules, "서버에 모인 목걸이 위치");
+  };
+  $("#file").onchange = async (e) => { const f = e.target.files[0]; if (f) { isMock = false; local(parseTrack(await f.text()), f.name); } };
+  $("#paste-go").onclick = () => { isMock = false; local(parseTrack($("#paste").value), "붙여 넣은 글"); };
+  $("#mock").onclick = (e) => { e.preventDefault(); isMock = true; local(mockTrack(home), "모의 기록"); };
+  $("#serial").onclick = async () => {
+    if (!("serial" in navigator)) { $("#msg").textContent = "이 브라우저는 USB 연결을 지원하지 않아요. 노트북의 크롬이나 엣지에서 열어 주세요."; return; }
+    let port;
+    try {
+      port = await navigator.serial.requestPort(); await port.open({ baudRate: 115200 });
+      $("#msg").textContent = "목걸이에서 기록을 읽는 중…";
+      const w = port.writable.getWriter(); await w.write(new TextEncoder().encode("DUMP\n")); w.releaseLock();
+      const rd = port.readable.getReader(), dec = new TextDecoder(); let text = "";
+      const stop = setTimeout(() => rd.cancel(), 20000);
+      while (true) { const { value, done } = await rd.read(); if (done) break; text += dec.decode(value); if (/\nEND/.test(text)) break; }
+      clearTimeout(stop); rd.releaseLock();
+      const body = text.includes("BEGIN") ? text.slice(text.indexOf("BEGIN")) : text;
+      isMock = false; local(parseTrack(body.split(/\nEND/)[0]), "목걸이 기록");
+    } catch (e) { $("#msg").textContent = e.name === "NotFoundError" ? "포트를 고르지 않았어요." : `읽지 못했어요 (${e.message}). 아두이노 시리얼 모니터가 열려 있으면 닫아 주세요.`; }
+    finally { try { await port?.close(); } catch {} }
+  };
+
+  function local(pts, from) {
+    const since = Date.now() - GPS_WINDOW_DAYS * 86400000;
+    pts = pts.filter((p) => p.t >= since);
+    if (pts.length < 3) { $("#msg").textContent = "최근 30일 위치 기록을 읽지 못했어요. 시각·위도·경도가 있는 기록인지 확인해 주세요."; return; }
+    const { stays, rules } = findStays(pts);
+    show(trackSummary(pts), groupPlaces(stays), rules, from);
+  }
+
+  async function show(tr, all, rules, from) {
+    track = tr;
+    for (const p of all) p.home = !!(home && Number.isFinite(home.lat) && distM(p, home) <= Math.max(p.radius_m, 1) * 2) || p.home;
+    places = all.filter((p) => !p.home && p.days.length >= 1);
+    const r0 = rules?.[rules.length - 1];
+    $("#rules").textContent = r0 ? `이번 기록에서 계산된 기준 예 (${r0.day}): 멈춤 속력 ${r0.speed_mps ?? "구분 안 됨"} m/s · 실내 판정 끊김 ${r0.gap_s}초 이상, 거리 ${r0.gap_m}m 이하` : "";
+    $("#msg").textContent = `${from}: ${tr.from} ~ ${tr.to}, 위치 ${tr.points}개${isMock ? " · ⚠ 모의 기록(가짜 데이터)" : ""}`;
+    $("#result").classList.remove("hidden");
+    $("#stat").textContent = `· 기록 ${tr.days}일 · ${places.length}곳 (집 제외)`;
+    $("#low").classList.toggle("hidden", tr.days >= 7);
+    if (!places.length) { $("#places").innerHTML = ""; $("#places").append(el("p", { class: "muted" }, "자주 머문 곳을 찾지 못했어요 (집 제외).")); return; }
+    $("#places").innerHTML = '<p class="muted small"><span class="spinner"></span> 장소 이름을 찾는 중…</p>';
+    for (const p of places) {
+      try { const g = await (await fetch(`/api/geocode?lat=${p.lat}&lng=${p.lng}`)).json(); if (g.ok) { p.dong = (g.label ?? "").split(" ").pop() || null; p.addr = g.building || g.road || g.jibun || g.label; } } catch {}
+      p.label = p.dong ? `${p.dong} 어딘가` : "이름 모르는 곳";
+      p.name = p.addr && p.addr !== p.dong ? p.addr : "";
+      p.question = templateQuestion(p, p.label, tr.period_days); p.byAI = false; p.choice = null;
+    }
+    render();
+    $("#ai-note").classList.remove("hidden"); $("#ai-note").textContent = "AI가 보호자께 드릴 질문을 만드는 중…";
+    const res = await api("diary", { mode: "gps", honorific: profile.honorific, track: { days: tr.days, period_days: tr.period_days }, places: places.map((p) => ({ id: p.id, label: p.label, days_n: p.days.length, avg_min: p.avg_min, weekdays: p.weekdays, hour_band: p.hour_band })) });
+    if (!res.ok) { $("#ai-note").textContent = `AI를 쓸 수 없어 기본 질문으로 보여 드려요 (${res.reason}).`; return; }
+    mockBanner(res);
+    for (const q of res.questions) { const p = places.find((x) => x.id === q.id); if (p) { p.question = q.question; p.byAI = true; } }
+    $("#ai-note").textContent = `질문 ${res.questions.length}개는 AI가 만들었어요${res.dropped ? ` · ${res.dropped}개는 검사에서 걸러져 기본 질문으로 보여 드려요` : ""}. 숫자는 코드가 센 값입니다.`;
+    if (res.summary) { $("#summary").classList.remove("hidden"); $("#summary").textContent = res.summary; }
+    render();
+  }
+
+  function render() {
+    const box = $("#places"); box.innerHTML = "";
+    for (const p of places) {
+      const name = el("input", { type: "text", value: p.name, placeholder: "이곳 이름 (예: 석교동 경로당)", oninput: (e) => (p.name = e.target.value.trim()) });
+      const chips = el("div", { class: "chips", style: "margin-top:8px" });
+      for (const [k, t] of [["liked", "❤ 좋아하시는(추억의) 곳"], ["often", "📍 그냥 자주 가는 곳"], ["skip", "✕ 빼기"]])
+        chips.append(el("button", { class: "chip", "aria-pressed": String(p.choice === k), onclick: () => { p.choice = k; render(); } }, t));
+      box.append(el("div", { class: "card" },
+        el("div", { class: "small muted" }, `${p.days.length}일 · 평균 ${p.avg_min}분${p.weekdays.length ? ` · 주로 ${p.weekdays.join("·")}요일` : ""}${p.hour_band ? ` ${p.hour_band}` : ""} · ${p.first_date.slice(5)}~${p.last_date.slice(5)}`),
+        el("p", { style: "margin:8px 0" }, el("span", { class: "badge src" }, p.byAI ? "AI 질문" : "기본 질문"), " ", p.question),
+        p.addr ? el("div", { class: "small muted" }, `주소 근처: ${p.addr} (이 기기에서만 보임)`) : "",
+        name, chips));
+    }
+  }
+
+  $("#save").onclick = () => {
+    const chosen = places.filter((p) => p.choice && p.choice !== "skip");
+    if (!chosen.length) { $("#saved").textContent = "확인한 곳이 없어요. 장소마다 ❤ 또는 📍를 골라 주세요."; return; }
+    if (chosen.some((p) => !p.name)) { $("#saved").textContent = "고른 곳의 이름을 적어 주세요."; return; }
+    if (isMock && !confirm("모의 기록(가짜 데이터)입니다. 시험용으로 넣을까요?")) return;
+    const diary = store.get(KEYS.diary, []);
+    for (const p of chosen) {
+      for (const date of p.days) {
+        let e = diary.find((x) => x.date === date);
+        if (!e) { e = { date, visited: [], source: "gps" }; diary.push(e); }
+        e.visited = [...new Set([...(e.visited ?? []), p.name])]; e.stayed_home = false; e.unknown = false;
+        e.coords = { ...(e.coords ?? {}), [p.name]: { lat: p.lat, lng: p.lng } };
+      }
+      if (p.choice === "liked" && !profile.places.some((x) => x.name === p.name))
+        profile.places.push({ name: p.name, source: "memory", evidence: `GPS ${p.days.length}일 머묾 + 보호자 확인 (좋아하시는 곳)`, lat: p.lat, lng: p.lng, from_gps: true, mock: isMock || undefined });
+    }
+    diary.sort((a, b) => a.date.localeCompare(b.date));
+    store.set(KEYS.diary, diary); store.set(KEYS.profile, profile);
+    $("#saved").innerHTML = ""; $("#saved").append(`${chosen.length}곳을 넣었어요 ✓ `, el("a", { href: "/diary" }, "일지에서 분류 보기 →"));
+  };
+</script>
+</body>
+</html>

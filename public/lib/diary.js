@@ -26,6 +26,7 @@ export function classifyPlaces(profile, diary, now = new Date()) {
     for (const name of e.visited ?? []) {
       const x = touch(name, `일지 ${e.date}`);
       x.visits_30d = (x.visits_30d ?? 0) + 1;
+      if (!x.lat && e.coords?.[name]) { x.lat = e.coords[name].lat; x.lng = e.coords[name].lng; }   // GPS로 확인한 곳은 좌표가 같이 온다
       x.first_seen = x.first_seen && x.first_seen < e.date ? x.first_seen : e.date;
       x.last_seen = x.last_seen && x.last_seen > e.date ? x.last_seen : e.date;
       if (d <= 14) recent14[name] = (recent14[name] ?? 0) + 1; else prev14[name] = (prev14[name] ?? 0) + 1;

@@ -3,7 +3,7 @@
 //   1) 블루투스 이름표 "RW-NECKLACE"를 계속 내보낸다 → 현관 수신기가 문 앞에서 감지, 보호자 휴대폰(앱 /find)이 근처에서 찾는다
 //   2) 휴대폰이 보내는 값으로 부저: 1=울림(멈출 때까지), 0=멈춤
 //   3) 움직일 때만 GPS 위치를 10초마다 보드 안 저장공간(LittleFS)에 적는다 → 앱 /gps 로 옮긴다
-//   4) 10초마다 위치 JSON을 블루투스(READ·NOTIFY)로 내보낸다 → 어르신 휴대폰 앱(android/)이 받아 서버로 → 보호자 웹앱 /track (2026-11-16)
+//   4) 움직이는 동안 10초마다 위치 JSON을 블루투스(READ·NOTIFY)로 내보낸다 → 어르신 휴대폰 앱(android/)이 받아 서버로 → 보호자 웹앱 /track (2026-11-16)
 //      JSON 형식은 GPS_BLE 위치중계 가이드 v1의 8개 필드. 위치가 없으면 {"status":"waiting"}
 //      - 10초: Shoval 외 2008 (치매 어르신 GPS 연구, 밖에서 10초마다 기록)
 //      - 움직일 때만, 3분 안 움직이면 기록 멈춤: Bayat 외 2020 (노인 GPS, 3분 넘게 머물면 정지로 봄, 멈추면 대기)
@@ -162,7 +162,11 @@ void loop() {
 #endif
 
 #if USE_GPS
-  if (millis() - lastSend >= SEND_EVERY_MS) { lastSend = millis(); sendLocation(); }
+  // 움직이는 동안만 10초마다 보낸다. 3분 넘게 멈추면(Bayat 2020) 멈춘 자리를 한 번 보내고 쉰다 → 서버 기록의 빈틈 = 머문 시간 (박진관·오수열 2016 실내 판정과 같은 원리)
+  static bool wasMoving = true;
+  bool mv = moving();
+  if ((mv && millis() - lastSend >= SEND_EVERY_MS) || (!mv && wasMoving)) { lastSend = millis(); sendLocation(); }
+  wasMoving = mv;
 #endif
   if (millis() - lastStat > 15000) { lastStat = millis(); stat(); }
   if (Serial.available()) {

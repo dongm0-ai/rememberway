@@ -87,6 +87,23 @@
   else $("#mic").onclick = () => (speech.listening ? speech.stop() : speech.start(ta.value));
 
   // 집 수신기(문 센서 + 목걸이 신호)의 텔레그램 알림 링크: /report?out=14:03 → 외출 시각·지난 시간을 미리 채운다 (보호자가 고칠 수 있음)
+  // 목걸이 GPS 마지막 위치 (보호자가 /track 에서 연결 코드를 만든 경우): GPS가 꺼졌거나 두고 나가셨을 때 "마지막 본 곳" 단서로 쓴다
+  (async () => {
+    let pair = null; try { pair = JSON.parse(localStorage.getItem("rw_track") || "null"); } catch {}
+    if (!pair?.key) return;
+    let r; try { r = await (await fetch("/api/loc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "latest", key: pair.key, limit: 1 }) })).json(); } catch { return; }
+    const p = r?.ok && r.points?.[0]; if (!p) return;
+    const t = new Date(p.gps_time || p.received_at), mins = Math.round((Date.now() - t) / 60000);
+    let label = `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`;
+    try { const g = await (await fetch(`/api/geocode?lat=${p.lat}&lng=${p.lng}`)).json(); if (g.ok) label = g.building ? `${g.road || g.label} ${g.building}` : g.road || g.jibun || g.label; } catch {}
+    const hh = t.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    const line = `목걸이 GPS 마지막 위치는 ${label} 근처, ${hh}입니다. `;
+    $("#talk").prepend(el("div", { class: "notice", style: "margin-bottom:10px" },
+      `📍 목걸이 GPS 마지막 위치: ${label} 근처 · ${hh} (${mins < 60 ? `${mins}분` : `${Math.round(mins / 60)}시간`} 전). `,
+      el("button", { class: "btn-ghost", style: "padding:4px 10px", onclick: (e) => { if (!ta.value.includes(line)) ta.value = line + ta.value; e.target.textContent = "넣었어요 ✓"; } }, "단서에 넣기"),
+      " ", el("a", { href: "/track" }, "지도 보기")));
+  })();
+
   const outQ = new URLSearchParams(location.search).get("out");
   if (/^\d{1,2}:\d{2}$/.test(outQ ?? "")) {
     const [h, m] = outQ.split(":").map(Number), t = new Date(); t.setHours(h, m, 0, 0);

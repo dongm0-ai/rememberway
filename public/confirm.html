@@ -52,7 +52,7 @@
   await mountShell({ tab: "find" });
 
   const clue = store.sget(KEYS.clue);
-  if (!clue) location.replace("/report");
+  if (!clue) { location.replace("/report"); await new Promise(() => {}); }   // 단서가 없으면 이동만 하고 아래는 실행하지 않는다
   const mode = store.sget(KEYS.mode, {});
   if (mode.source === "mock") mockBanner({ mock: true });
   const utter = store.sget(KEYS.utterance, "");

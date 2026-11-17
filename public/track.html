@@ -62,6 +62,9 @@
   const hhmmss = (iso) => new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const ago = (iso, now) => { const s = Math.max(0, Math.round((Date.parse(now) - Date.parse(iso)) / 1000)); return s < 60 ? `${s}초 전` : s < 3600 ? `${Math.round(s / 60)}분 전` : `${Math.round(s / 3600)}시간 전`; };
   const call = (body) => authFetch(body).catch(() => ({ ok: false, reason: "NETWORK" }));
+  const NET_REASONS = new Set(["NETWORK", "TIMEOUT", "AUTH_UNAVAILABLE"]);
+  // 위치 기록 지우기는 관리자(owner)만 — 버튼도 관리자에게만 (서버도 따로 확인한다)
+  $("#clear").classList.toggle("hidden", elder?.role !== "owner");
 
   $("#clear").onclick = async () => {
     if (!confirm("서버에 있는 이 목걸이의 위치 기록을 모두 지울까요? 되돌릴 수 없어요.")) return;
@@ -77,7 +80,8 @@
   async function draw() {
     const r = await call({ action: "latest", elderId: elder.id, limit: 360 });
     if (!r?.ok) {
-      $("#detail").textContent = r?.reason === "NETWORK" || r?.reason === "TIMEOUT" ? `위치를 불러오지 못했어요. ${errText(r.reason)}${offline ? " (오프라인 — 지금은 이 폰의 사본만 볼 수 있어요)" : ""}` : `위치를 불러오지 못했어요. ${errText(r?.reason)}`;
+      const net = NET_REASONS.has(r?.reason);
+      $("#detail").textContent = `위치를 불러오지 못했어요. ${errText(r?.reason)}${net || offline ? " (오프라인 — 지금은 서버의 위치를 볼 수 없어요. 연결되면 10초마다 다시 불러와요)" : ""}`;
       return;
     }
     const pts = Array.isArray(r.points) ? r.points : [];

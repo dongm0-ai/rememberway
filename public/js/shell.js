@@ -25,6 +25,8 @@ const SKIP_KEY = "rw_reg_skip";   // sessionStorage: 이번 방문에서는 "어
 const skipped = () => { try { return sessionStorage.getItem(SKIP_KEY) === "1"; } catch { return false; } };
 const setSkipped = () => { try { sessionStorage.setItem(SKIP_KEY, "1"); } catch {} };
 const WAIT_MS = 8000;      // 이 폰 사본이 있을 때 서버를 기다리는 최대 시간
+const TOTAL_MS = 7000;     // 화면이 셸을 기다리는 최대 시간 (로그인 갱신·목록·불러오기를 모두 합쳐서). 넘으면 이 폰의 사본으로 먼저 그리고 동기화는 뒤에서 계속
+const SLOW = Symbol("slow");
 const RELOAD_MS = 1500;
 
 const ERR = {
@@ -217,20 +219,27 @@ export function mountShell({ tab } = {}) {
   return mounting;
 }
 
+// 서버를 기다리는 시간 예산. 보호자가 창(올리기 질문·어르신 등록)에 답하는 시간은 세지 않는다 — 답한 뒤 다시 채운다
+let deadline = 0;
+const resetBudget = () => { deadline = Date.now() + TOTAL_MS; };
+const left = () => Math.max(0, deadline - Date.now());
+const budget = (p, fallback) => within(p, Math.min(left(), WAIT_MS), fallback);
+
 async function start(tab) {
+  resetBudget();
   currentTab = tab ?? null;
   renderTabs(tab);
   renderBar(tab);
   onSync(onSyncEvent);
   installSync();
 
-  const s = await session().catch(() => null);
-  if (!s) {
+  const s = await budget(session().catch(() => null), SLOW);   // 갱신이 늦으면(로그인 서버 멈춤) 기다리지 않는다 — 갱신은 뒤에서 계속
+  if (!s || s === SLOW) {
     const st = storedSession();
     if (!st) { requireLogin(); return new Promise(() => {}); }   // 로그인 화면으로 가는 중
-    // 로그인 정보는 있는데 갱신을 못 함 = 서버·네트워크 문제 → 이 폰의 마지막 사본으로
+    // 로그인 정보는 있는데 갱신을 못 함(또는 늦음) = 서버·네트워크 문제 → 이 폰의 마지막 사본으로
     checkAccount(st.user?.id);
-    elders = (await within(listElders().catch(() => null), WAIT_MS, null)) ?? [];   // 로그인이 없으니 서버는 묻지 않고 이 폰의 마지막 목록이 바로 온다
+    elders = (await budget(listElders().catch(() => null), null)) ?? lastElders();
     return finishOffline(tab);
   }
 
@@ -242,6 +251,7 @@ async function start(tab) {
   if (!elders.length) {   // 서버가 "정말 0명"이라고 답했을 때만
     try {
       const r = await importLocalData({ elders, userId: s.user.id, ask: askImport });
+      resetBudget();
       if (r?.ok) { elders = [{ id: r.elder.id, label: r.elder.label ?? "", role: r.elder.role ?? "owner" }]; if (r.message) toast(r.message, 8000); }
       else if (r && r.ok === false) toast(`이 폰의 등록 정보를 올리지 못했어요. ${errText(r.reason)}`, 6000);
     } catch {}
@@ -251,6 +261,7 @@ async function start(tab) {
   for (let i = 0; i < 5; i++) {
     if (!elders.length) {
       const e = skipped() ? null : await registerElder({ required: true });
+      resetBudget();
       if (!e) { setCurrentElder(null); res = "skipped"; break; }   // 건너뜀 — 고른 어르신 없이 계속 (elder: null)
       elders = [e];
     }
@@ -258,7 +269,7 @@ async function start(tab) {
     const chosen = elders.find((x) => x.id === cur?.id) ?? elders[0];
     setCurrentElder(chosen);
     renderBar(tab);
-    res = await within(pull().catch(() => "offline"), WAIT_MS, "offline");   // 늦으면 이 폰 사본으로 먼저 (pull 은 뒤에서 계속)
+    res = await budget(pull().catch(() => "offline"), "offline");   // 늦으면 이 폰 사본으로 먼저 (pull 은 뒤에서 계속)
     if (res === "gone") { elders = elders.filter((x) => x.id !== chosen.id); continue; }
     break;
   }
@@ -269,22 +280,27 @@ async function start(tab) {
 }
 
 /** 내 어르신 목록. 서버가 지금 답했으면 ok:true. 목록이 비었으면 서버에 한 번 더 물어 "정말 0명"인지 확인한다
- *  (listElders 는 실패하면 이 폰의 마지막 목록을 돌려줘서, 빈 배열만으로는 "0명"과 "서버 장애"를 구분할 수 없다). 모두 WAIT_MS 까지만 기다린다 */
+ *  (listElders 는 실패하면 이 폰의 마지막 목록을 돌려줘서, 빈 배열만으로는 "0명"과 "서버 장애"를 구분할 수 없다). 모두 남은 시간 예산(TOTAL_MS)까지만 기다린다 */
 async function knownElders(tab) {
   const lp = listElders().catch(() => null);
-  const l = await within(lp, WAIT_MS, null);
+  const l = await budget(lp, null);
   if (l === null) {   // 늦음 — 이 폰의 사본으로 먼저. 늦게 온 목록은 고르기 창에 반영
     lp.then((x) => { if (x?.length) { elders = x; renderBar(tab); } });
-    const cur = currentElder();
-    return { list: cur ? [cur] : [], ok: false };
+    const cur = currentElder(), last = lastElders();
+    return { list: cur ? [cur, ...last.filter((x) => x.id !== cur.id)] : last, ok: false };
   }
   if (l.length) return { list: l, ok: true };   // 서버 목록이든 이 폰의 마지막 목록이든, 고를 어르신은 있다 (서버 장애면 pull 이 offline 으로 알려 준다)
-  const me = await within(authFetch({ action: "me" }).catch(() => null), WAIT_MS, null);
+  const me = await budget(authFetch({ action: "me" }).catch(() => null), null);
   if (!me?.ok || !Array.isArray(me.elders)) return { list: [], ok: false };
   if (!me.elders.length) return { list: [], ok: true };
   // 그 사이 생겼다 (다른 기기에서 등록·초대 수락) — 목록을 다시 받아 사본까지 맞춘다
-  const again = await within(listElders().catch(() => null), WAIT_MS, null);
+  const again = await budget(listElders().catch(() => null), null);
   return again?.length ? { list: again, ok: true } : { list: [], ok: false };
+}
+
+/** 이 폰에 마지막으로 받은 내 어르신 목록 (family.js 가 rw_elders 에 둔다) */
+function lastElders() {
+  try { const l = JSON.parse(localStorage.getItem("rw_elders") || "[]"); return Array.isArray(l) ? l.filter((x) => x && typeof x.id === "string" && x.id) : []; } catch { return []; }
 }
 
 /** 서버에 닿지 않을 때: 이 폰의 현재 어르신(없으면 마지막 목록의 첫 어르신)으로 계속. 서버를 더 기다리지 않는다 */

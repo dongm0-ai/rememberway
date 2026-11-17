@@ -245,11 +245,13 @@ export function createMap(lib, el, center, rMax) {
 // 핀 글자: c.pin — 동선 순서 번호("1"…), 갈림길 "✕", 동선에 없는 후보는 "·"(작은 회색 점).
 // 이름표: 멀리서는(줌 < LABEL_ZOOM) "편의점"·"카페"처럼 종류만, 가까이서는(줌 ≥ LABEL_ZOOM) 가게 전체 이름. 화면 픽셀 기준으로 겹치는 이름표는 숨긴다 (번호 핀 → 점 → ✕ 순으로 우선, 오른쪽이 막히면 왼쪽). 핀을 누르면 언제나 말풍선으로 전체 이름.
 const LABEL_ZOOM = 16;
+/** 지도 표식(Marker icon.content·InfoWindow)은 HTML 문자열로 들어간다. 장소 이름은 가족 누구나 적어 동기화되는 값이라 꼭 이스케이프한다 */
+export const escapeHtml = (v) => String(v ?? "").replace(/[&<>"'`]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" })[ch]);
 const pinLabel = (c, i) => c.kind === "intersection" ? "✕" : (c.pin ?? String(i + 1));
-const pinHtml = (c, i) => {
+export const pinHtml = (c, i) => {
   const lbl = pinLabel(c, i), isX = lbl === "✕", isDot = lbl === "·";
   const size = isX ? 20 : isDot ? 16 : 28, bg = isX ? "#8a5a00" : isDot ? "#7d8796" : "#2f6fe4";
-  return `<div title="${c.name}" style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;background:${bg};color:#fff;font-weight:800;border-radius:50%;border:2px solid #fff;font-size:${isX ? 11 : isDot ? 12 : 14}px;box-shadow:0 1px 4px rgba(0,0,0,.35)">${isDot ? "" : lbl}</div>`;
+  return `<div title="${escapeHtml(c.name)}" style="width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;background:${bg};color:#fff;font-weight:800;border-radius:50%;border:2px solid #fff;font-size:${isX ? 11 : isDot ? 12 : 14}px;box-shadow:0 1px 4px rgba(0,0,0,.35)">${isDot ? "" : escapeHtml(lbl)}</div>`;
 };
 const pinTitle = (c, i) => { const l = pinLabel(c, i); return l === "·" || l === "✕" ? c.name : `${l}. ${c.name}`; };
 const pinAnchor = (c, i) => { const l = pinLabel(c, i); return l === "✕" ? 10 : l === "·" ? 8 : 14; };
@@ -261,7 +263,7 @@ const labelText = (c, i, zoom) => {
   if (zoom >= LABEL_ZOOM) return full.replace(":", "");
   return c.kindOf || (full.includes(":") ? full.split(":")[0].trim() : full.length > 6 ? full.slice(0, 6) + "…" : full);
 };
-const labelHtml = (c, i, text) => { const l = pinLabel(c, i); const bg = l === "✕" ? "#fff4d6" : "#fff"; return `<div style="padding:1px 7px;font-size:12px;font-weight:700;color:#1c1b1a;background:${bg};border:1px solid rgba(0,0,0,.25);border-radius:6px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25);line-height:16px">${text}</div>`; };
+export const labelHtml = (c, i, text) => { const l = pinLabel(c, i); const bg = l === "✕" ? "#fff4d6" : "#fff"; return `<div style="padding:1px 7px;font-size:12px;font-weight:700;color:#1c1b1a;background:${bg};border:1px solid rgba(0,0,0,.25);border-radius:6px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25);line-height:16px">${escapeHtml(text)}</div>`; };
 const labelW = (text) => { let w = 16; for (const ch of text) w += ch.charCodeAt(0) > 0x7f ? 12 : 7; return w; };
 const labelPriority = (c, i) => { const l = pinLabel(c, i); return l === "✕" ? 2 : l === "·" ? 1 : 0; };
 /** 겹침 검사: items [{c,i,px,py}] (px,py = 핀 중심 화면 픽셀). 보이게 할 항목의 index 집합을 돌려준다 */
@@ -285,7 +287,7 @@ function pickVisibleLabels(items, viewW = Infinity) {
 
 // 반경 원 색: 걸어서(실선 파랑), 버스·지하철(점선 초록), 택시(점선 주황). 버스·택시 원은 "최대로 갈 수 있는 거리"일 뿐 그 안에 있다는 뜻이 아니다
 export const RING = { walk: { color: "#2f6fe4", name: "걸어서" }, bus: { color: "#1e7b4f", name: "버스·지하철" }, taxi: { color: "#b85c00", name: "택시" } };
-const ringLabelHtml = (k, r) => `<div style="padding:1px 8px;font-size:12px;font-weight:800;color:#fff;background:${RING[k].color};border-radius:999px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)">${RING[k].name} 최대 ${r >= 1000 ? (r / 1000).toFixed(r >= 10000 ? 0 : 1) + "km" : r + "m"}</div>`;
+const ringLabelHtml = (k, r) => `<div style="padding:1px 8px;font-size:12px;font-weight:800;color:#fff;background:${RING[k].color};border-radius:999px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)">${escapeHtml(RING[k].name)} 최대 ${r >= 1000 ? (r / 1000).toFixed(r >= 10000 ? 0 : 1) + "km" : r + "m"}</div>`;
 const ringTop = (center, r) => ({ lat: center.lat + r / 111320, lng: center.lng }); // 원 맨 위(북쪽) 점에 이름표
 // 보호자 "나" 위치: 파란 점 + 흰 테두리 (이 기기에서만 쓰고 저장·전송하지 않음)
 const meHtml = '<div style="width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 2px rgba(26,115,232,.35),0 1px 4px rgba(0,0,0,.4)"></div>';
@@ -345,7 +347,7 @@ function createNaverMap(naver, el, center, rMax) {
         const pos = new M.LatLng(c.lat, c.lng);
         const a = pinAnchor(c, i);
         const mk = new M.Marker({ map, position: pos, icon: { content: pinHtml(c, i), anchor: new M.Point(a, a) }, title: c.name, zIndex: 100 });
-        M.Event.addListener(mk, "click", () => { info.setContent(`<div style="padding:6px 10px;font-size:14px;font-weight:700;color:#1c1b1a;white-space:nowrap">${pinTitle(c, i)}</div>`); info.open(map, mk); });
+        M.Event.addListener(mk, "click", () => { info.setContent(`<div style="padding:6px 10px;font-size:14px;font-weight:700;color:#1c1b1a;white-space:nowrap">${escapeHtml(pinTitle(c, i))}</div>`); info.open(map, mk); });
         markers.push(mk); current.push({ c, i });
         if (c.kind !== "intersection" && pinLabel(c, i) !== "·") { bounds.extend(pos); any = true; } // 화면 맞춤은 동선 핀 기준
       });

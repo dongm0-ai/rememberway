@@ -178,9 +178,19 @@
 
   // ---------------------------------------------------------------- 어르신 폰 연결 코드
   const pretty = (k) => String(k).match(/.{1,4}/g).join("-");
+  // 위치 수집 동의: 코드를 보여 주거나 새로 만들기 전에 매번 확인한다 (예전 목걸이 위치 화면의 동의와 같은 문구)
+  const LOC_CONSENT = "어르신 본인(또는 보호 의무가 있는 가족)의 동의를 받았습니다. 위치는 찾기 위해서만 보고, 찾은 뒤에는 기록을 지웁니다.";
+  let locAgreed = false;
   function renderDevice() {
     const box = $("#device"); box.innerHTML = "";
     const t = jget(TRACK_KEY);
+    if (!locAgreed && (t?.key || isOwner)) {
+      const cb = el("input", { type: "checkbox", id: "loc-agree" });
+      cb.addEventListener("change", () => { locAgreed = cb.checked; if (locAgreed) renderDevice(); });
+      box.append(el("div", { class: "card tight", style: "margin:0 0 8px" }, el("label", { class: "small", for: "loc-agree" }, cb, " ", LOC_CONSENT)),
+        el("p", { class: "small muted", style: "margin:0" }, t?.key ? "동의에 표시하면 연결 코드를 보여 드려요." : "동의에 표시하면 연결 코드를 만들 수 있어요."));
+      return;
+    }
     const reset = isOwner ? el("button", { class: t?.key ? "btn-secondary" : "btn-primary", onclick: (ev) => resetDevice(ev.currentTarget) }, "다시 만들기") : "";
     if (t?.key) {
       box.append(el("div", { class: "dev-code" }, pretty(t.key)),
@@ -195,6 +205,7 @@
     }
   }
   async function resetDevice(btn) {
+    if (!locAgreed) return renderDevice();
     if (!(await confirmDialog("연결 코드를 새로 만들까요?", { ok: "새로 만들기", detail: "지금 어르신 폰에 넣어 둔 코드는 바로 끊겨요. 새 코드를 어르신 폰 앱에 다시 넣어 주세요." }))) return;
     await busy(btn, "만드는 중…", async () => {
       const r = await authFetch({ action: "device.reset", elderId: elder.id });

@@ -4,9 +4,9 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."); // URL.pathname 은 Windows 에서 "/C:/..." 라 경로가 깨짐
 loadEnv(path.join(root, ".env.local"));
 
 const PORT = Number(process.env.PORT || 3000);
@@ -25,7 +25,7 @@ const server = http.createServer(async (req, res) => {
     let p = url.pathname === "/" ? "/index.html" : url.pathname;
     if (!path.extname(p) && fs.existsSync(path.join(root, "public", p + ".html"))) p += ".html"; // /report → report.html (Vercel cleanUrls)
     const file = path.join(root, "public", path.normalize(p));
-    if (!file.startsWith(path.join(root, "public")) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.statusCode = 404; return res.end("not found"); }
+    if (!file.startsWith(path.join(root, "public") + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.statusCode = 404; return res.end("not found"); }
     res.setHeader("content-type", MIME[path.extname(file)] ?? "application/octet-stream");
     res.setHeader("cache-control", "no-store");
     fs.createReadStream(file).pipe(res);

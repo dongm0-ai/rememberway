@@ -1,5 +1,7 @@
 -- REMEMBER WAY AI — 일지 알림 저장소 (Supabase → SQL Editor → 붙여넣고 Run, 한 번만)
--- 저장하는 것: 푸시 구독 주소와 마지막 일지 날짜뿐. 이름·주소·일지 내용은 저장하지 않는다.
+-- 이 부분(일지 알림)이 저장하는 것: 푸시 구독 주소와 마지막 일지 날짜뿐. 일지 내용·이름·집 주소는 저장하지 않는다.
+-- (2026-11-17부터 가족이 저장한 정보는 아래 "보호자 계정" 표에 따로 있다. 서버에 남는 사람 정보는 로그인 이메일뿐, 이름·전화번호·집 주소는 받지 않는다.)
+-- 이 파일은 몇 번 Run 해도 안전하다 (create ... if not exists). 이미 실행한 적이 있으면 "보호자 계정" 구간부터만 Run 해도 된다.
 create table if not exists push_subs (
   id       text primary key,          -- 구독 주소의 해시 (원래 주소를 키로 쓰지 않음)
   endpoint text not null,
@@ -49,10 +51,11 @@ create table if not exists elders (
 create table if not exists elder_members (
   elder_id  uuid not null references elders on delete cascade,
   user_id   uuid not null,                     -- Supabase Auth 사용자 id
-  role      text check (role in ('owner','member')),  -- owner: 내보내기·어르신 삭제·연결 코드 재발급 / member: 초대까지
+  role      text not null check (role in ('owner','member')),  -- owner: 내보내기·어르신 삭제·연결 코드 재발급 / member: 초대까지
   joined_at timestamptz default now(),
   primary key (elder_id, user_id)
 );
+create index if not exists elder_members_user on elder_members (user_id);   -- "내 어르신 목록"(user_id로 찾기) 속도
 create table if not exists elder_data (
   elder_id   uuid primary key references elders on delete cascade,
   profile    jsonb,                            -- 어르신 정보 (집 주소·좌표는 이 폰에만 저장, 여기에 넣지 않음)
@@ -62,9 +65,9 @@ create table if not exists elder_data (
 );
 create table if not exists invites (
   token_hash text primary key,                 -- 초대 토큰의 해시 (24시간, 1회)
-  elder_id   uuid references elders on delete cascade,
+  elder_id   uuid not null references elders on delete cascade,
   created_by uuid,
-  expires_at timestamptz,
+  expires_at timestamptz not null,
   used_at    timestamptz
 );
 create table if not exists revoked_devices (

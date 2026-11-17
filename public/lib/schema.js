@@ -112,3 +112,23 @@ export const WALK_SPEED = { slow: 0.5, normal: 0.8, fast: 1.2 };
 export const RIDE_SPEED_KMH = { bus: 15, taxi: 20 };
 /** 보호자가 후보 장소에 이만큼(m) 가까워지면 "확인하셨나요?"를 묻는다 */
 export const ARRIVE_M = 50;
+
+/** 기억 꺼내기 대화(화면 memory.html)의 주제. 순서 고정 — 다음 주제는 AI가 아니라 코드가 이 순서대로 고른다.
+ *  근거: 실종 어르신이 발견되는 곳의 유형(옛 집·고향·옛 직장·단골 가게·목욕탕·종교 시설·병원·친구/친척 집) */
+export const MEMORY_TOPICS = [
+  { key: "old_home", label: "예전에 사시던 집·동네" },
+  { key: "hometown", label: "고향" },
+  { key: "old_work", label: "예전 직장·일하시던 곳" },
+  { key: "market", label: "자주 가시던 시장·가게" },
+  { key: "bath", label: "목욕탕·이발소·미용실" },
+  { key: "religion", label: "교회·성당·절" },
+  { key: "hospital", label: "다니시던 병원·복지관·경로당" },
+  { key: "people", label: "자주 찾아가시던 친구·친척 집" },
+];
+
+/** 주제 질문: "{호칭}께서 {label}은/는 어디셨나요?" — 받침 있으면 은, 없으면 는 */
+export function memoryQuestion(honorific, topic) {
+  const label = topic.label, last = label.charCodeAt(label.length - 1);
+  const hasBatchim = last >= 0xac00 && last <= 0xd7a3 ? (last - 0xac00) % 28 !== 0 : true;
+  return `${String(honorific || "").trim() || "어르신"}께서 ${label}${hasBatchim ? "은" : "는"} 어디셨나요?`;
+}

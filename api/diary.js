@@ -1,11 +1,13 @@
 // POST /api/diary — 호출 ⑤ 일지 발화 → new_places / mentions / notes
 //                  호출 ⑦ (mode:"gps") GPS 자주 머문 곳 → 보호자 되묻기 질문 + 정리 문장 (Vercel 함수 12개 한도로 이 파일에 합침)
+//                  호출 ⑧ (mode:"memory") 기억 꺼내기 대화: 보호자의 답 → 장소 이름 + 후속 질문 1개. body: { mode, honorific, topic, question, answer, knownPlaces }
 // 칩만 탭한 날은 이 라우트를 부르지 않는다. "다른 곳이 있어요"로 말했을 때만.
 // body: { spoken: string, knownPlaces: string[], date: string }
 import { askJSON } from "../lib/claude.js";
-import { SYSTEM_DIARY, userDiary, SYSTEM_GPS, userGps } from "../lib/prompts.js";
+import { SYSTEM_DIARY, userDiary, SYSTEM_GPS, userGps, SYSTEM_MEMORY, userMemory } from "../lib/prompts.js";
 import { postHandler } from "../lib/http.js";
-import { appearsInSource } from "../public/lib/verify.js";
+import { appearsInSource, verifyMemory } from "../public/lib/verify.js";
+import { MEMORY_TOPICS } from "../public/lib/schema.js";
 
 const BANNED = /(위험|예측|확률|실종 가능성|AI가 추천)/;
 
@@ -25,8 +27,18 @@ async function gpsQuestions({ honorific, track, places }) {
   return { ok: true, summary, questions, dropped: clean.length - questions.length };
 }
 
+// 호출 ⑧ 검증(코드): 답에 없는 장소·이미 아는 장소는 버리고, 후속 질문은 160자 이하 질문 1개만 남김 (public/lib/verify.js verifyMemory)
+async function memoryPlaces({ honorific, topic, question, answer, knownPlaces }) {
+  const t = MEMORY_TOPICS.find((x) => x.key === topic);
+  if (!t || typeof answer !== "string" || !answer.trim() || answer.length > 1000) return { ok: false, reason: "BAD_INPUT" };
+  const known = (Array.isArray(knownPlaces) ? knownPlaces : []).map((k) => String(k).slice(0, 40)).slice(0, 200);
+  const raw = await askJSON(SYSTEM_MEMORY, userMemory(String(honorific ?? "어르신").slice(0, 10), t.label, String(question ?? "").slice(0, 200), answer, known), { maxTokens: 700 });
+  return { ok: true, ...verifyMemory(raw, answer, known) };
+}
+
 export default postHandler(async (body) => {
   if (body?.mode === "gps") return gpsQuestions(body);
+  if (body?.mode === "memory") return memoryPlaces(body);
   const { spoken, knownPlaces = [], date } = body ?? {};
   if (!spoken || typeof spoken !== "string" || spoken.length > 1000) return { ok: false, reason: "BAD_INPUT" };
   const raw = await askJSON(SYSTEM_DIARY, userDiary(spoken, knownPlaces, date ?? new Date().toISOString().slice(0, 10)));

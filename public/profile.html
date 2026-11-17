@@ -34,6 +34,10 @@
     <button class="btn-secondary" id="extract" style="margin-top:8px">말한 내용에서 장소 뽑기 (AI)</button>
     <div id="places" class="stack" style="margin-top:12px"></div>
     <div class="row" style="margin-top:8px"><input type="text" id="place-new" placeholder="장소 직접 추가"><button class="btn-secondary" id="place-add" style="width:auto">추가</button></div>
+    <div id="memory-start" class="hidden" style="margin-top:14px">
+      <a class="btn btn-secondary" href="/memory">📝 기억 꺼내기 대화 시작</a>
+      <p class="small muted" style="margin-bottom:0">옛 집·고향·단골 가게를 하나씩 여쭤봅니다. 이 화면에서 고친 내용은 먼저 아래 [수정 저장]으로 남겨 주세요.</p>
+    </div>
   </div>
 
   <div class="fixed-bottom"><div class="inner"><button class="btn-primary" id="save">저장하고 일지 시작 →</button></div></div>
@@ -47,6 +51,7 @@
     $("#dong").value = existing.home_dong ?? getHome()?.label ?? ""; $("#gait-note").value = existing.gait_note ?? ""; $("#habits").value = (existing.habits ?? []).join(", ");
     $$("#gait .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.g === existing.gait)));
     $("#save").textContent = "수정 저장 →";
+    $("#memory-start").classList.remove("hidden"); // 등록된 뒤부터 (기억 꺼내기는 호칭이 필요)
   }
   const pick = (sel) => $$(sel).forEach((c) => c.onclick = () => $$(sel).forEach((x) => x.setAttribute("aria-pressed", String(x === c))));
   pick("#hon .chip"); pick("#gait .chip");

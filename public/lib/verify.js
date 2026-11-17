@@ -105,3 +105,52 @@ export function setPath(obj, path, value) {
   o[keys[keys.length - 1]] = value;
   return obj;
 }
+
+// ---------------------------------------------------------------- 기억 꺼내기 대화 (api/diary.js mode "memory", 화면 memory.html)
+const MEMORY_BANNED = /(위험|예측|확률|실종 가능성|AI가 추천)/;
+const PHONE_LIKE = /\d{2,4}[-\s.]?\d{3,4}[-\s.]?\d{4}/;
+
+/** 값이 원문에 글자 그대로(공백·대소문자 무시) 들어 있는가. appearsInSource(두 글자만 겹쳐도 통과)보다 엄격 — 아니면 화면에 ⚠ */
+export function appearsExactly(value, source) {
+  const v = norm(value ?? "");
+  return v.length > 0 && norm(source ?? "").includes(v);
+}
+
+/** 근거 문장: AI가 준 evidence가 원문에 그대로 있을 때만 쓴다. 아니면 코드가 원문에서 이름이 나온 부분을 직접 잘라 쓴다 (AI가 만든 문장은 저장하지 않음) */
+function memoryEvidence(name, evidence, answer) {
+  const ev = typeof evidence === "string" ? evidence.trim() : "";
+  if (ev && appearsExactly(ev, answer)) return ev.slice(0, 80);
+  const clauses = answer.split(/[.!?。\n]+/).map((c) => c.trim()).filter(Boolean);
+  const clause = clauses.find((c) => appearsExactly(name, c)) ?? clauses.find((c) => appearsInSource(name, c)) ?? "";
+  if (clause.length <= 60) return clause;
+  const start = Math.max(0, clause.indexOf(name) - 20); // 말로 입력하면 마침표가 없어 한 문장이 길다 → 이름 둘레만
+  return clause.slice(start, start + 60).trim();
+}
+
+function memoryFollowup(f) {
+  if (typeof f !== "string") return null;
+  const t = f.trim();
+  if (t.length < 3 || t.length > 160 || !/[?？]$/.test(t) || (t.match(/[?？]/g) ?? []).length > 1 || MEMORY_BANNED.test(t)) return null;
+  return t;
+}
+
+/**
+ * 호출 ⑧ 검증(코드): AI가 뽑은 장소 중 보호자 답(answer)에 없는 이름·이미 아는 이름·전화번호 꼴·중복은 버리고(최대 5곳),
+ * 근거는 원문에서만 가져온다. exact=false(이름이 원문에 글자 그대로는 없음)면 화면이 ⚠를 붙인다.
+ * followup은 160자 이하의 질문 1개일 때만 남기고, 아니면 null.
+ */
+export function verifyMemory(raw, answer, knownPlaces = []) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const src = String(answer ?? "");
+  const known = new Set((Array.isArray(knownPlaces) ? knownPlaces : []).map((k) => norm(k)));
+  const places = [], seen = new Set();
+  for (const p of Array.isArray(r.places) ? r.places : []) {
+    if (typeof p?.name !== "string") continue;
+    const name = p.name.trim().replace(/\s+/g, " "), key = norm(name);
+    if (key.length < 2 || name.length > 30 || PHONE_LIKE.test(name) || !appearsInSource(name, src) || known.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    places.push({ name, evidence: memoryEvidence(name, p.evidence, src), exact: appearsExactly(name, src) });
+    if (places.length === 5) break;
+  }
+  return { places, followup: memoryFollowup(r.followup) };
+}

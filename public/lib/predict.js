@@ -130,3 +130,30 @@ export function fallbackOrder(features) {
     || key(a) - key(b)
     || Number(b.source === "memory") - Number(a.source === "memory"));
 }
+
+// ---------------------------------------------------------------- 후보지 순서를 AI에 부탁할 때 쓰는 요약 (api/diary.js mode "candidates")
+/** 8방위 이름. 북 0°에서 시계 방향, 45°씩 */
+export const DIRECTIONS_8 = ["북", "북동", "동", "남동", "남", "남서", "서", "북서"];
+/** 방위각(°) → 8방위 이름. 각 방향 중심 ±22.5° (북 = 337.5~22.5°). 숫자가 아니면 null */
+export function direction8(bearingDeg) {
+  if (!num(bearingDeg)) return null;
+  return DIRECTIONS_8[Math.floor((((bearingDeg % 360) + 360) % 360 + 22.5) / 45) % 8];
+}
+
+/**
+ * lastMotion 결과 → AI·서버에 보내는 요약 {state, minutes_since, speed_kmh, direction_8}. 좌표·시각 원본은 담지 않는다.
+ * minutes_since: 마지막 기록부터 지금까지 분(정수, 0 이상). speed_kmh: 소수 1자리, moving_lost만. direction_8: moving_lost만.
+ * 알 수 없는 값은 null. none·알 수 없는 state는 모두 null인 none.
+ */
+export function motionSummary(motion, nowMs) {
+  const state = motion?.state;
+  if (state !== "moving_lost" && state !== "stayed") return { state: "none", minutes_since: null, speed_kmh: null, direction_8: null };
+  const minutes = num(motion.t) && num(nowMs) ? Math.max(0, Math.round((nowMs - motion.t) / MIN_MS)) : null;
+  const moving = state === "moving_lost";
+  return {
+    state,
+    minutes_since: minutes,
+    speed_kmh: moving && num(motion.speedMps) ? Math.round(motion.speedMps * 36) / 10 : null,
+    direction_8: moving ? direction8(motion.bearingDeg) : null,
+  };
+}

@@ -161,3 +161,43 @@ export function verifyMemory(raw, answer, knownPlaces = [], question = "") {
   }
   return { places, followup: memoryFollowup(r.followup, src + " " + String(question ?? "")) };
 }
+
+// ---------------------------------------------------------------- 예상 후보지 (api/diary.js mode "candidates", 화면 summary.html·track.html)
+const CAND_MAX = 3, CAND_REASON_MAX = 200;
+
+/** 입력(motion·candidates)에 나온 숫자 덩어리 집합. 값만 훑는다 — 키 이름의 숫자(direction_8)와 id(c1 같은 이름표)는 계산값이 아니라서 뺀다 */
+function inputNumbers(...parts) {
+  const nums = new Set();
+  const walk = (v, key) => {
+    if (key === "id") return;
+    if (typeof v === "number" || typeof v === "string") for (const n of String(v).match(/\d+/g) ?? []) nums.add(n);
+    else if (Array.isArray(v)) v.forEach((x) => walk(x));
+    else if (v && typeof v === "object") Object.entries(v).forEach(([k, x]) => walk(x, k));
+  };
+  parts.forEach((p) => walk(p));
+  return nums;
+}
+
+/**
+ * 호출 ⑨ 검증(코드): AI가 고른 후보 중 목록(candidates)에 없는 id·중복 id·이유가 없거나 200자를 넘는 항목은 버린다(자르지 않고 버림). 최대 3개, AI가 준 순서 그대로.
+ * 이유 안의 숫자(연속된 숫자 덩어리)가 입력(motion·candidates의 값)에 없는 것이 하나라도 있으면 warn:true — 버리지 않고 화면이 ⚠를 붙인다.
+ * 쓸 만한 게 없으면 [] — 화면이 fallbackOrder(코드 순서)를 쓴다.
+ * @param {*} raw AI가 돌려준 JSON {ranked:[{id, reason}]}
+ * @param {{id:string}[]} candidates AI에 보낸 후보 목록
+ * @param {object} motion AI에 보낸 요약 {state, minutes_since, speed_kmh, direction_8}
+ * @returns {{id:string, reason:string, warn:boolean}[]}
+ */
+export function verifyCandidates(raw, candidates, motion) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  const ids = new Set(list.map((c) => c?.id).filter((id) => typeof id === "string"));
+  const nums = inputNumbers(motion, list);
+  const out = [], seen = new Set();
+  for (const r of Array.isArray(raw?.ranked) ? raw.ranked : []) {
+    const id = r?.id, reason = typeof r?.reason === "string" ? r.reason.trim() : "";
+    if (typeof id !== "string" || !ids.has(id) || seen.has(id) || !reason || reason.length > CAND_REASON_MAX) continue;
+    seen.add(id);
+    out.push({ id, reason, warn: !(reason.match(/\d+/g) ?? []).every((n) => nums.has(n)) });
+    if (out.length === CAND_MAX) break;
+  }
+  return out;
+}

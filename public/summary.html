@@ -321,7 +321,7 @@
         authFetch: (b) => authFetch(b).catch(() => ({ ok: false })), api: quietApi, findPlaceLoose, findNearby });
       if (res.mock) mockBanner({ mock: true });
       mod.renderCandidates(box, res, { el, nowMs });
-      if (L && view && res.motion) drawPrediction(L, view.map, { from: res.motion, path: res.path, reachM: res.reach, pins: res.top ?? [] });
+      if (L && view && res.motion && res.status !== "live") drawPrediction(L, view.map, { from: res.motion, path: res.path, reachM: res.reach, pins: res.top ?? [] });
     } catch { mod.renderCandidates(box, null, { el, message: "예상 후보지를 계산하지 못했어요. 아래 돌아볼 곳부터 확인해 주세요." }); }
   }
   // 장소 이름 → 좌표 (네이버 검색). 종류만 말한 곳은 집 근처 실제 가게로 펼친다. list 안의 항목을 직접 고친다

@@ -94,18 +94,20 @@
     $("#nav").href = `https://map.naver.com/p/directions/-/${p.lng},${p.lat},${encodeURIComponent("목걸이 마지막 위치")}/-/walk`; $("#nav").classList.remove("hidden");
     const nv = await mapLib(); if (!nv) { $("#map").textContent = "지도를 불러오지 못했어요. 위 좌표와 길찾기 버튼을 쓰세요."; candidates(pts, r.now, null); return; }
     const pos = new nv.maps.LatLng(p.lat, p.lng), path = pts.slice().reverse().map((x) => new nv.maps.LatLng(x.lat, x.lng));
-    if (!map) map = new nv.maps.Map($("#map"), { center: pos, zoom: 16 });
+    if (!map) { map = new nv.maps.Map($("#map"), { center: pos, zoom: 16 }); nv.maps.Event.addListener(map, "dragstart", () => { predFit = false; }); }
     if (!marker) marker = new nv.maps.Marker({ map, position: pos, icon: { content: '<div style="width:22px;height:22px;border-radius:50%;background:#d92d20;border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)"></div>', anchor: new nv.maps.Point(11, 11) } });
     else marker.setPosition(pos);
     if (!line) line = new nv.maps.Polyline({ map, path, strokeColor: "#2f6fe4", strokeWeight: 4, strokeOpacity: 0.7 }); else line.setPath(path);
-    map.setCenter(pos);
+    // 예상 후보지로 화면을 맞춘(fitBounds) 뒤에는, 보호자가 지도를 움직이기 전까지·어르신 위치가 화면 안에 있는 동안 가운데로 다시 옮기지 않는다
+    const inView = (() => { try { return !!map.getBounds()?.hasLatLng?.(pos); } catch { return false; } })();
+    if (!(predFit && inView)) { map.setCenter(pos); predFit = false; }
     candidates(pts, r.now, nv);
   }
 
   // ---------- 📍 예상 후보지: 오늘 GPS로 예상 경로·후보 (계산은 코드, AI는 순서·이유만). 3분에 한 번까지만 다시 계산 ----------
   // 카드 모듈은 동적으로 불러온다 — 못 불러와도(오프라인 첫 방문 등) 위치 화면은 그대로 돈다
-  let candMod = null, candBusy = false, candLast = 0, candKey = "", overlay = null, fitted = false;
-  const geoCache = new Map();
+  let candMod = null, candBusy = false, candLast = 0, candKey = "", overlay = null, fitted = false, predFit = false, lastRes = null;
+  const geoCache = new Map(), aiCache = new Map();   // aiCache: 마지막 위치·후보 묶음이 같으면 AI 순서를 다시 쓴다
   // 위치 화면에서 갑자기 동의 창을 띄우지 않는다 — 동의한 기기에서만 AI, 아니면 코드 순서
   const quietApi = (name, body) => (aiConsented() ? api(name, body) : Promise.resolve({ ok: false, reason: "NO_CONSENT" }));
   async function candidates(raw, serverNow, nv) {
@@ -114,17 +116,21 @@
     try { candMod ??= await import("/js/candidates.js"); } catch { return; }
     const pts = candMod.pointsToday(raw, nowMs);
     const key = pts.length ? String(pts.reduce((m, p) => Math.max(m, p.t), 0)) : "none";
-    if (candLast && (key === candKey ? Date.now() - candLast < 5 * 60000 : Date.now() - candLast < 3 * 60000)) return;
-    candBusy = true; candKey = key; candLast = Date.now();
     const box = $("#cand");
+    // 이동 중(live)이면 매번 다시 본다(검색·AI 없음, 가벼움). 아니면 위치가 바뀌면 3분, 그대로면 5분에 한 번까지만 — 그 사이엔 부제(경과 시간)만 고친다
+    const wait = key === candKey ? 5 * 60000 : 3 * 60000;
+    if (candLast && lastRes?.status !== "live" && Date.now() - candLast < wait) { candMod.refreshHeadline(box, lastRes, nowMs); return; }
+    candBusy = true; candKey = key; candLast = Date.now();
     try {
       if (!box.firstChild) candMod.renderCandidates(box, null, { el, loading: true });
-      const res = await candMod.computeCandidates({ points: pts, clue: store.sget(KEYS.clue), mode: store.sget(KEYS.mode), home: getHome(), profile: store.get(KEYS.profile), elderId: elder.id, nowMs, authFetch: call, api: quietApi, findPlaceLoose, findNearby, geoCache });
+      const res = await candMod.computeCandidates({ points: pts, clue: store.sget(KEYS.clue), mode: store.sget(KEYS.mode), home: getHome(), profile: store.get(KEYS.profile), elderId: elder.id, nowMs, authFetch: call, api: quietApi, findPlaceLoose, findNearby, geoCache, aiCache });
       if (res.mock) mockBanner({ mock: true });
       candMod.renderCandidates(box, res, { el, nowMs });
+      lastRes = res;
       overlay?.clear(); overlay = null;
-      if (nv && map && res.motion) { overlay = drawPrediction(nv, map, { from: res.motion, path: res.path, reachM: res.reach, pins: res.top ?? [], fit: !fitted }); fitted = true; }
-    } catch { candMod.renderCandidates(box, null, { el, message: "예상 후보지를 계산하지 못했어요. 위 지도의 마지막 위치부터 확인해 주세요." }); }
+      if (res.status === "live") { fitted = false; predFit = false; }   // 다시 끊기면 그때 한 번 화면을 맞춘다
+      else if (nv && map && res.motion) { overlay = drawPrediction(nv, map, { from: res.motion, path: res.path, reachM: res.reach, pins: res.top ?? [], fit: !fitted }); if (!fitted) predFit = true; fitted = true; }
+    } catch { candLast = 0; candMod.renderCandidates(box, null, { el, message: "예상 후보지를 계산하지 못했어요. 위 지도의 마지막 위치부터 확인해 주세요." }); }
     finally { candBusy = false; }
   }
   let libP = null;

@@ -1,7 +1,7 @@
 // 📍 예상 후보지 카드(public/js/candidates.js)의 순수 부분 + 지도 겹그림(public/js/map.js drawPrediction)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pointsToday, parseDirection, motionFromClue, buildPlaces, toAICandidate, forAI, codeReason, mergeRanked, headline, computeCandidates, sourceBadge, safeEvidence, hhmm, MAX_AI } from "../public/js/candidates.js";
+import { liveLine, refreshHeadline, addressLike, LIVE_MS, pointsToday, parseDirection, motionFromClue, buildPlaces, toAICandidate, forAI, codeReason, mergeRanked, headline, computeCandidates, sourceBadge, safeEvidence, hhmm, MAX_AI } from "../public/js/candidates.js";
 import { drawPrediction, candPinHtml } from "../public/js/map.js";
 import { fmtDist } from "../public/lib/verify.js";
 
@@ -232,4 +232,57 @@ test("candPinHtml: 이름 이스케이프", () => {
   const h = candPinHtml("1", `x"><img src=x onerror=alert(1)>`);
   assert.ok(!h.includes("<img"));
   assert.equal((h.match(/</g) || []).length, 2);
+});
+
+// ---------------------------------------------------------------- 고침 1회차: 이동 중(live)·AI 순서 기억·주소 같은 이름·부제만 갱신
+test("computeCandidates: 아직 움직이는 중(마지막 위치 20초 전) → live, AI·검색 없음", async () => {
+  let nearby = 0;
+  const { d, sent } = deps({ points: pointsToday(neTrack(NOON - 20000), NOON), findNearby: async () => { nearby++; return []; } });
+  const r = await computeCandidates(d);
+  assert.equal(r.status, "live");
+  assert.equal(sent.length, 0); assert.equal(nearby, 0);
+  assert.ok(!("path" in r) && !("top" in r));
+  assert.equal(liveLine(r.motion, NOON), "지금 북동쪽으로 시속 3km로 이동 중이세요 (마지막 위치 20초 전). 위치가 끊기면 예상 후보지를 계산해요.");
+  // 2분 30초가 넘으면 끊김으로 본다
+  const lost = await computeCandidates({ ...d, points: pointsToday(neTrack(NOON - LIVE_MS - 1000), NOON) });
+  assert.equal(lost.status, "ok"); assert.equal(sent.length, 1);
+});
+
+test("computeCandidates: 시간만 지난 재계산은 AI 순서를 다시 쓰고, 후보 묶음이 바뀌면 다시 묻는다", async () => {
+  const stay = [{ t: NOON - 30 * MIN, ...off(HOME, 400, 400), speed_kmh: 0 }];
+  const aiCache = new Map();
+  const { d, sent } = deps({ points: stay, aiCache, api: async (name, body) => { sent.push(body); return { ok: true, ranked: [{ id: body.candidates[0].id, reason: "AI 이유" }] }; } });
+  const r1 = await computeCandidates(d);
+  const r2 = await computeCandidates({ ...d, nowMs: NOON + 5 * MIN });
+  const r3 = await computeCandidates({ ...d, nowMs: NOON + 10 * MIN });
+  assert.equal(sent.length, 1);
+  assert.equal(r2.top[0].reason, "AI 이유"); assert.equal(r3.top[0].by, "ai");
+  assert.match(headline(r3.motion, NOON + 10 * MIN), /40분 지남/);
+  await computeCandidates({ ...d, nowMs: NOON + 15 * MIN, findNearby: async (kind, near) => (kind === "편의점" ? [{ found_name: "새 편의점", ...off(near, 0, 300) }] : []) });
+  assert.equal(sent.length, 2);   // 후보 묶음이 바뀜
+  await computeCandidates({ ...d, points: [{ ...stay[0], t: NOON - 20 * MIN }] });
+  assert.equal(sent.length, 3);   // 마지막 위치가 바뀜
+  // 실패한 답은 기억하지 않는다
+  const failCache = new Map(); let calls = 0;
+  const f = deps({ points: stay, aiCache: failCache, api: async () => { calls++; return { ok: false, reason: "TIMEOUT" }; } }).d;
+  await computeCandidates(f); await computeCandidates(f);
+  assert.equal(calls, 2);
+});
+
+test("toAICandidate: 주소·좌표처럼 보이는 이름은 출처 이름 + 번호로", () => {
+  assert.equal(addressLike("대종로 12번길 3"), true);
+  assert.equal(addressLike("옛 직장"), false);
+  const c = toAICandidate({ id: "m2", name: "대전 중구 대종로 123-4", source: "memory", dist_m: 1, bearing_diff_deg: null, reachable: true, path_dist_m: null });
+  assert.equal(c.name, "추억의 장소 2");
+  assert.equal(toAICandidate({ id: "m1", name: "36.3101, 127.4302", source: "guardian", dist_m: 1, bearing_diff_deg: null, reachable: true, path_dist_m: null }).name, "보호자가 말한 곳 1");
+  assert.equal(toAICandidate({ id: "m1", name: "옛 직장", source: "memory", dist_m: 1, bearing_diff_deg: null, reachable: true, path_dist_m: null }).name, "옛 직장");
+});
+
+test("refreshHeadline: 부제만 새 시각으로 (네트워크 없음)", () => {
+  const p = { textContent: "old" }, box = { querySelector: (sel) => (sel === ".cand-sub" ? p : null) };
+  assert.equal(refreshHeadline(box, { status: "ok", motion: MOVING }, NOON + 5 * MIN), true);
+  assert.match(p.textContent, /45분 지남$/);
+  refreshHeadline(box, { status: "live", motion: { ...MOVING, t: NOON - 30000 } }, NOON);
+  assert.match(p.textContent, /마지막 위치 30초 전/);
+  assert.equal(refreshHeadline({ querySelector: () => null }, { status: "ok", motion: MOVING }, NOON), false);
 });

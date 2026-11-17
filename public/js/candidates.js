@@ -11,7 +11,8 @@ import { distM } from "../lib/gps.js";
 const num = (v) => typeof v === "number" && Number.isFinite(v);
 const hasCoord = (p) => !!p && num(p.lat) && num(p.lng) && !(p.lat === 0 && p.lng === 0);
 export const MAX_AI = 15;          // 서버가 받는 최대 후보 수
-export const HOME_M = 100;         // 집에서 이 안이면 후보에서 뺀다
+export const HOME_M = 100;
+export const LIVE_MS = 150000;     // 움직이는 동안 목걸이는 10초마다 보낸다(멈춤 판정 3분) — 마지막 위치가 2분 30초 안이면 "이동 중"         // 집에서 이 안이면 후보에서 뺀다
 const SAME_M = 60;                 // 이미 있는 후보와 이 안이면 같은 곳으로 보고 뺀다
 const LIMITS = { memory: 8, frequent: 4 };
 
@@ -100,9 +101,12 @@ export function buildPlaces({ memory = [], frequent = [], basic = [], home = nul
   return out;
 }
 
-/** AI에 보낼 모양 — 좌표·주소 없음 */
+/** 이름이 주소·좌표처럼 보이는지 (보호자가 "대종로 12번길 3"처럼 적은 경우) */
+export const addressLike = (s) => /\d+\s*(번길|길|로)\s*\d|\d+-\d+|번지|\d+\.\d{3,}/.test(String(s ?? ""));
+/** AI에 보낼 모양 — 좌표·주소 없음. 주소처럼 보이는 이름은 "추억의 장소 N" 같은 이름으로 바꿔 보낸다(화면에는 원래 이름) */
 export function toAICandidate(f) {
-  const c = { id: f.id, name: f.name, source: f.source, dist_m: f.dist_m, bearing_diff_deg: f.bearing_diff_deg, reachable: f.reachable, path_dist_m: f.path_dist_m };
+  const n = String(f.id ?? "").replace(/\D/g, "") || "1";
+  const c = { id: f.id, name: addressLike(f.name) ? `${sourceBadge(f.source)} ${n}` : f.name, source: f.source, dist_m: f.dist_m, bearing_diff_deg: f.bearing_diff_deg, reachable: f.reachable, path_dist_m: f.path_dist_m };
   if (f.evidence) c.evidence = f.evidence;
   return c;
 }
@@ -169,7 +173,9 @@ export function headline(motion, nowMs) {
  * 후보지 계산 전체 흐름 (지도 그리기·화면 붙이기는 페이지가).
  * deps: { points(오늘 GPS, pointsToday 결과), clue, mode, home, profile, elderId, nowMs,
  *         authFetch, api, findPlaceLoose, findNearby, geoCache?: Map }
- * → { status:"ok"|"empty"|"nodata", motion, path, reach, top, ai:boolean, aiReason, mock }
+ *         aiCache?: Map — AI 순서를 (마지막 위치·후보 id 묶음)별로 기억. 시간만 지난 재계산은 AI를 다시 부르지 않는다
+ * → { status:"ok"|"empty"|"nodata"|"live", motion, path, reach, top, ai:boolean, aiReason, mock }
+ * live: 아직 움직이며 위치가 오는 중(마지막 위치가 LIVE_MS 안) — 예상 후보지를 만들지 않는다(AI·검색 없음)
  */
 export async function computeCandidates(deps) {
   const { points = [], clue = null, mode = null, home = null, profile = null, elderId = null, nowMs = Date.now(), authFetch, api, findPlaceLoose, findNearby } = deps;
@@ -180,6 +186,7 @@ export async function computeCandidates(deps) {
     const v = hasCoord(f) ? { lat: f.lat, lng: f.lng } : null; cache.set(name, v); return v;
   };
   let motion = lastMotion(points);
+  if (motion.state === "moving_lost" && nowMs - motion.t < LIVE_MS) return { status: "live", motion };
   if (motion.state === "none") {
     if (!clue || !hasCoord(home)) return { status: "nodata" };
     const dest = clue.today_destination && parseDirection(clue.direction) === null ? await geo(String(clue.today_destination), home) : null;
@@ -208,32 +215,51 @@ export async function computeCandidates(deps) {
   const features = candidateFeatures(motion, nowMs, places);
   if (!features.length) return { status: "empty", motion, path, reach, top: [] };
   const sent = forAI(features);
-  let res = { ok: false, reason: "NO_API" };
-  if (api) {
-    try {
-      res = await api("diary", { mode: "candidates", honorific: profile?.honorific || clue?.honorific || "어르신", motion: motionSummary(motion, nowMs), candidates: sent.map(toAICandidate) });
-    } catch { res = { ok: false, reason: "NETWORK" }; }
+  // AI 순서는 마지막 위치와 후보 묶음이 같으면 다시 쓰고(성공한 답만 기억), 바뀌었을 때만 다시 묻는다
+  const aiCache = deps.aiCache, aiKey = /* id+이름: 다른 곳이 같은 id(b1)를 받을 수 있어 이름까지 */ `${motion.state}|${motion.t}|${sent.map((c) => `${c.id}=${c.name}`).sort().join(",")}`;
+  let res = aiCache?.get(aiKey) ?? null;
+  if (!res) {
+    res = { ok: false, reason: "NO_API" };
+    if (api) {
+      try {
+        res = await api("diary", { mode: "candidates", honorific: profile?.honorific || clue?.honorific || "어르신", motion: motionSummary(motion, nowMs), candidates: sent.map(toAICandidate) });
+      } catch { res = { ok: false, reason: "NETWORK" }; }
+    }
+    if (res?.ok && aiCache) { aiCache.clear(); aiCache.set(aiKey, res); }
   }
   const ranked = res?.ok && Array.isArray(res.ranked) ? res.ranked : [];
   const top = mergeRanked(ranked, sent, motion);
   return { status: "ok", motion, path, reach, top, ai: top.some((c) => c.by === "ai"), aiReason: res?.ok ? (ranked.length ? null : "EMPTY") : res?.reason ?? "ERROR", mock: !!res?.mock };
 }
 
+/** 아직 움직이는 중일 때 한 줄 */
+export function liveLine(motion, nowMs) {
+  const s = motionSummary(motion, nowMs), sec = Math.max(0, Math.round((nowMs - motion.t) / 1000));
+  return `지금 ${s.direction_8}쪽으로 시속 ${Math.round(s.speed_kmh)}km로 이동 중이세요 (마지막 위치 ${sec}초 전). 위치가 끊기면 예상 후보지를 계산해요.`;
+}
+/** 10초 갱신 때: 네트워크 없이 부제(경과 시간)만 새 시각으로 고친다 */
+export function refreshHeadline(box, result, nowMs) {
+  const p = box?.querySelector?.(".cand-sub");
+  if (!p || !result?.motion) return false;
+  p.textContent = result.status === "live" ? liveLine(result.motion, nowMs) : headline(result.motion, nowMs);
+  return true;
+}
 /** 카드 그리기. box 안을 비우고 다시 채운다. el = common.js 의 el (글은 textContent 로만 들어간다) */
 export function renderCandidates(box, result, { el, nowMs = Date.now(), loading = false, message = "" } = {}) {
   box.replaceChildren();
   const card = el("div", { class: "card", id: "cand-card" }, el("h2", { style: "margin:0 0 4px" }, "📍 예상 후보지"));
   box.append(card);
+  if (result?.status === "live" && !loading && !message) { card.append(el("p", { class: "cand-sub", style: "margin:0;font-size:18px" }, liveLine(result.motion, nowMs))); return; }
   if (loading || message || !result || result.status !== "ok") {
     const text = loading ? "예상 경로와 후보지를 계산하는 중…" : message
       || (result?.status === "empty" ? "근처에서 후보로 볼 만한 곳을 찾지 못했어요. 지도의 점선(예상 경로)과 원(걸어서 닿는 범위)을 참고해 주세요."
         : "오늘 받은 GPS 위치도, 집 위치도 없어 예상 후보지를 만들 수 없어요.");
-    if (result?.status === "empty" && result.motion) card.append(el("p", { class: "small", style: "margin:0 0 6px" }, headline(result.motion, nowMs)));
+    if (result?.status === "empty" && result.motion) card.append(el("p", { class: "small cand-sub", style: "margin:0 0 6px" }, headline(result.motion, nowMs)));
     card.append(el("p", { class: "muted", style: "margin:0" }, text));
     return;
   }
   const { motion, top } = result;
-  card.append(el("p", { class: "small", style: "margin:0 0 8px;font-weight:700" }, headline(motion, nowMs)));
+  card.append(el("p", { class: "small cand-sub", style: "margin:0 0 8px;font-weight:700" }, headline(motion, nowMs)));
   const ol = el("ol", { class: "rank", id: "cand-list" });
   const origin = motion.fromClue ? "집" : "마지막 위치";
   top.forEach((c, i) => {

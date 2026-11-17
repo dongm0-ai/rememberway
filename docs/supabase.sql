@@ -1,7 +1,7 @@
--- REMEMBER WAY AI — 일지 알림 저장소 (Supabase → SQL Editor → 붙여넣고 Run, 한 번만)
+-- REMEMBER WAY AI — 일지 알림 저장소 (Supabase → SQL Editor → 붙여넣고 Run. 몇 번 다시 Run 해도 안전)
 -- 이 부분(일지 알림)이 저장하는 것: 푸시 구독 주소와 마지막 일지 날짜뿐. 일지 내용·이름·집 주소는 저장하지 않는다.
 -- (2026-11-17부터 가족이 저장한 정보는 아래 "보호자 계정" 표에 따로 있다. 서버에 남는 사람 정보는 로그인 이메일뿐, 이름·전화번호·집 주소는 받지 않는다.)
--- 이 파일은 몇 번 Run 해도 안전하다 (create ... if not exists). 이미 실행한 적이 있으면 "보호자 계정" 구간부터만 Run 해도 된다.
+-- 이 파일은 몇 번 Run 해도 안전하다 (create ... if not exists, alter ... set not null 은 이미 적용돼 있어도 오류 없이 지나감). 이미 실행한 적이 있으면 "보호자 계정" 구간부터만 Run 해도 된다.
 create table if not exists push_subs (
   id       text primary key,          -- 구독 주소의 해시 (원래 주소를 키로 쓰지 않음)
   endpoint text not null,
@@ -18,7 +18,7 @@ create table if not exists app_kv (
 alter table push_subs enable row level security;
 alter table app_kv    enable row level security;
 
--- ---------------------------------------------------------------- 실시간 위치 중계 (2026-11-16 지도교사 결정, 한 번만 Run)
+-- ---------------------------------------------------------------- 실시간 위치 중계 (2026-11-16 지도교사 결정, 다시 Run 해도 안전)
 -- 목걸이 → 어르신 휴대폰 앱 → /api/loc → 여기 → 보호자 웹앱 지도.
 -- dev 는 연결 코드의 해시(코드 자체는 저장 안 함). 이름·주소는 저장하지 않는다. 보호자가 [기록 모두 지우기]로 지운다.
 create table if not exists loc_events (
@@ -36,7 +36,7 @@ create table if not exists loc_events (
 create index if not exists loc_events_dev_time on loc_events (dev, received_at desc);
 alter table loc_events enable row level security;
 
--- ---------------------------------------------------------------- 보호자 계정 (2026-11-17, 한 번만 Run)
+-- ---------------------------------------------------------------- 보호자 계정 (2026-11-17, 다시 Run 해도 안전)
 -- 먼저: Supabase → Authentication → Providers → Email 에서 "Confirm email" 을 끈다 (이메일 인증 메일 없이 바로 가입·로그인).
 -- 서버에 남는 사람 정보는 로그인 이메일(Supabase Auth)뿐. 이름·전화번호는 받지 않고, 어르신은 호칭(label)만 저장한다.
 -- 집 주소·집 좌표, 보호자가 말한 원문 전체는 서버로 보내지 않는다.
@@ -74,6 +74,11 @@ create table if not exists revoked_devices (
   device_hash text primary key,                -- 재발급·삭제로 막힌 목걸이 연결 코드의 해시
   revoked_at  timestamptz default now()
 );
+-- 이전 버전으로 이미 만든 표를 위한 보정: 아래 세 칸은 비어 있으면 안 된다 (이미 not null 이면 아무 일도 하지 않음).
+-- 만약 "column ... contains null values" 오류가 나면 그 칸이 빈 행이 있다는 뜻이다 — 그 행을 지우거나 값을 채운 뒤 다시 Run.
+alter table elder_members alter column role       set not null;
+alter table invites       alter column elder_id   set not null;
+alter table invites       alter column expires_at set not null;
 -- 브라우저용 공개 키(anon)로는 읽기·쓰기 불가. 서버 함수는 service_role 키로만 접근 (정책 없음).
 alter table elders          enable row level security;
 alter table elder_members   enable row level security;

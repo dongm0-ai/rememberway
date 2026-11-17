@@ -10,7 +10,7 @@
 //   Z 기준 1.645 = "신뢰구간 0~95%"(한쪽 5%). GMM 성분 수 = BIC 최소(Schwarz 1978; Baudry 외 2010), 1~5개(논문 표 5가 5개).
 // 같은 장소 묶기(논문에 없음): DBSCAN(Ester 외 1996), MinPts 4·Eps 94m = Bayat 외 2020(노인 GPS)의 MinPts와 참가자별 Eps(32·59·94·95·97m)의 가운데 값.
 //   4번 넘게 머물지 않은 곳은 묶이지 않는다(일지 규칙 "자주 = 30일 4회 이상"과 같은 수).
-// 기간: 최근 30일 (Bayat 외 2020, JMIR Aging: 노인 GPS 4주 수집). 위치를 예측하지 않는다 — 지난 기록을 세는 것이다.
+// 기간: 최근 30일 (Bayat 외 2020, JMIR Aging: 노인 GPS 4주 수집). 이 파일은 지난 기록을 세는 규칙이다 — 지금 있을 곳(예상 경로·후보지)은 public/lib/predict.js 가 따로 계산한다.
 
 export const GPS_WINDOW_DAYS = 30;
 const R = 6371000, rad = (x) => (x * Math.PI) / 180;

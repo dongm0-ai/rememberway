@@ -13,7 +13,7 @@ import { MEMORY_TOPICS } from "../public/lib/schema.js";
 import { DIRECTIONS_8 } from "../public/lib/predict.js";
 
 const BANNED = /(위험|예측|확률|실종 가능성|AI가 추천)/; // mode "gps" 전용
-const BANNED_CANDIDATES = /(확률|%|AI가 추천)/;          // mode "candidates" 전용
+const BANNED_CANDIDATES = /(확률|%|AI가 추천|실종 가능성)/; // mode "candidates" 전용 ("예측"은 이 기능의 이름이라 거르지 않는다. 화면 글에서는 "예상 경로"·"후보지"로 부름)
 
 // 호출 ⑦ 검증(코드): id 일치, 질문에 장소 label 포함, 금지어·입력에 없는 숫자가 있으면 그 질문은 버림 → 화면이 기본 질문(templateQuestion)을 씀
 async function gpsQuestions({ honorific, track, places }) {

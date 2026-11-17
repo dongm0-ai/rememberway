@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>REMEMBER WAY AI</title>
-  <meta name="description" content="기기도 등록도 없이 사라진 치매 어르신을, 보호자의 기억만으로 찾게 돕는 실종 대응 도우미">
+  <meta name="description" content="어르신이 GPS를 끄거나 목걸이·휴대폰을 두고 나가셨을 때, 보호자가 등록한 추억의 장소와 최근 30일 GPS 기록으로 확인할 곳을 정리해 찾기를 돕는 보호자용 프로그램">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#f2f4f6">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,7 +17,7 @@
 <main>
   <div id="home-chip-slot" style="margin:2px 0 4px"></div>
   <section class="hero">
-    <p class="hero-sub">기기도 등록도 없이 사라진 치매 어르신을<br>보호자의 기억만으로 찾도록 돕는</p>
+    <p class="hero-sub">등록한 추억의 장소와 최근 GPS 기록으로<br>확인할 곳을 정리해 어르신 찾기를 돕는</p>
     <h1>어르신이 안 보이시나요?</h1>
     <p class="hero-desc">말하거나 쓰면, 경찰이 쓸 정보로 정리하고 확인할 곳을 지도에 모읍니다.</p>
   </section>
@@ -45,11 +45,11 @@
     <ul class="plain small muted">
       <li>이름은 묻지 않습니다 (호칭만)</li>
       <li>사진은 저장하지 않습니다</li>
-      <li>서버에는 이메일과 가족이 저장한 정보만 남고, 가족만 봅니다</li>
-      <li class="muted">AI로 정리할 때만 말한 내용이 AI 회사로 전달됩니다 (처음에 동의를 묻고, 싫으면 서식으로)</li>
+      <li>서버에는 이메일, 가족이 저장한 정보(가족만 봄), 위치 기록(30일 뒤 자동 삭제), 알림을 켠 경우 알림 주소가 남습니다</li>
+      <li class="muted">AI로 정리할 때만 말한 내용이 서버를 거쳐 AI 회사로 전달되고, 서버에는 저장하지 않습니다 (처음에 동의를 묻고, 싫으면 서식으로)</li>
     </ul>
   </div>
-  <p class="footer-note">이 앱은 보호자가 말한 것을 정리합니다. 위치를 예측하지 않으며, 안전을 보장하는 제품이 아닙니다. 2026 AI 동행 프로젝트 · 생성형AI 분과 · 그럴게요 팀</p>
+  <p class="footer-note">이 앱은 보호자가 말한 것과 등록한 장소, GPS 기록으로 확인할 곳(예상 후보지)을 정리합니다. 후보지는 어르신이 그곳에 계시다는 뜻이 아니며, 안전을 보장하는 제품이 아닙니다. 2026 AI 동행 프로젝트 · 생성형AI 분과 · 그럴게요 팀</p>
   <p class="footer-note"><a href="/about">이 앱은?</a> · <a href="/settings">설정</a> · <span id="ai-status" class="muted"></span></p>
 </main>
 <script type="module">

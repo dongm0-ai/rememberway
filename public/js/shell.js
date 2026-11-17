@@ -6,6 +6,8 @@
 //   - 현재 어르신을 고른 뒤 pull() — 이 폰 사본이 있으면 WAIT_MS 까지만 기다리고 사본으로 먼저 그린다(서버 장애 때 찾기 흐름이 막히지 않게)
 // - 다른 가족이 먼저 고쳤으면(conflict) 안내 후 1.5초 뒤 새로고침 (화면이 들고 있는 옛 배열로 덮어쓰지 않게)
 // - 어르신에 더 이상 접근할 수 없으면(gone) 안내 후 처음 화면으로
+// - 🚨 찾기 흐름 화면(/report /confirm /summary /record)에서는 "이 폰의 등록 정보를 올릴까요?"·"어르신 등록" 창을 자동으로 띄우지 않는다 (창이 신고·찾기를 가로막으면 안 됨).
+//   어르신이 한 분도 없으면 작은 링크 "어르신 등록하기"만 두고, 눌렀을 때만 창을 연다. 처음 화면·📍·📝·설정은 지금처럼 자동.
 import { el, $ } from "./common.js";
 import { session, storedSession, requireLogin, signOut, reasonText, authFetch } from "./auth.js";
 import { installSync, checkAccount, listElders, createElder, importLocalData, setCurrentElder, currentElder, pull, flush, onSync, CONFLICT_TEXT } from "./family.js";
@@ -21,6 +23,8 @@ const OFFLINE_TEXT = "오프라인 — 이 폰의 마지막 사본";
 const PENDING_TEXT = "아직 서버에 못 올린 변경이 있어요. 연결되면 다시 올려요.";
 const LABEL_CHIPS = ["아버지", "어머니", "할아버지", "할머니", "어르신"];
 const LABEL_MAX = 20;
+const FIND_FLOW = /^\/(report|confirm|summary|record)(\.html)?\/?$/;
+const inFindFlow = (tab) => tab === "find" && typeof location !== "undefined" && FIND_FLOW.test(location.pathname);
 const SKIP_KEY = "rw_reg_skip";   // sessionStorage: 이번 방문에서는 "어르신 등록"을 건너뜀 (찾기 흐름·112 를 막지 않게). 고르기 창의 [+ 새 어르신 등록]으로 언제든
 const skipped = () => { try { return sessionStorage.getItem(SKIP_KEY) === "1"; } catch { return false; } };
 const setSkipped = () => { try { sessionStorage.setItem(SKIP_KEY, "1"); } catch {} };
@@ -122,6 +126,34 @@ const askImport = (text) => confirmDialog(text, {
   detail: "올리면 등록·일지·기록을 가족과 함께 볼 수 있어요. 집 주소는 이 폰에만 남아요. [아니요]를 고르면 이 폰에 따로 보관해요.",
   cancellable: false,
 });
+
+/** "이 폰의 등록 정보를 새 어르신으로 올릴까요?" (사용자마다 한 번). 올렸으면 elders 를 채우고 true */
+async function offerImport(userId) {
+  try {
+    const r = await importLocalData({ elders, userId, ask: askImport });
+    resetBudget();
+    if (r?.ok) { elders = [{ id: r.elder.id, label: r.elder.label ?? "", role: r.elder.role ?? "owner" }]; if (r.message) toast(r.message, 8000); return true; }
+    if (r && r.ok === false) toast(`이 폰의 등록 정보를 올리지 못했어요. ${errText(r.reason)}`, 6000);
+  } catch {}
+  return false;
+}
+
+/** 🚨 찾기 흐름 화면용: 어르신이 한 분도 없을 때 창 대신 두는 작은 링크 (찾기·112는 그대로 쓸 수 있다). 눌렀을 때만 (올리기 질문 →) 등록 창을 연다 */
+function showRegisterLink(userId) {
+  if (document.getElementById("shell-register")) return;
+  const btn = el("button", { type: "button", class: "btn-ghost", style: "min-height:48px", id: "shell-register-btn" }, "어르신 등록하기");
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      if (await offerImport(userId)) { setTimeout(() => location.reload(), RELOAD_MS); return; }   // 올린 어르신이 현재 어르신 (안내 글을 읽을 시간 뒤 새로고침)
+      const e = await registerElder();   // 닫을 수 있는 창
+      if (!e) return;
+      elders = [e]; setCurrentElder(e); location.reload();
+    } finally { btn.disabled = false; }
+  };
+  const box = el("div", { id: "shell-register", class: "shell-banner small muted" }, "등록한 어르신이 없어도 찾기는 계속할 수 있어요. ", btn);
+  const bar = $(".shellbar"); bar ? bar.after(box) : document.querySelector("main")?.prepend(box);
+}
 
 // ---------------------------------------------------------------- 셸 상태
 let elders = [];
@@ -248,21 +280,15 @@ async function start(tab) {
   elders = known.list;
   if (!known.ok) return finishOffline(tab);   // 서버 장애: 올리기·등록을 묻지 않고 이 폰의 사본으로
 
-  if (!elders.length) {   // 서버가 "정말 0명"이라고 답했을 때만
-    try {
-      const r = await importLocalData({ elders, userId: s.user.id, ask: askImport });
-      resetBudget();
-      if (r?.ok) { elders = [{ id: r.elder.id, label: r.elder.label ?? "", role: r.elder.role ?? "owner" }]; if (r.message) toast(r.message, 8000); }
-      else if (r && r.ok === false) toast(`이 폰의 등록 정보를 올리지 못했어요. ${errText(r.reason)}`, 6000);
-    } catch {}
-  }
+  const deferred = inFindFlow(tab);   // 🚨 찾기 흐름 화면: 창 대신 작은 링크
+  if (!elders.length && !deferred) await offerImport(s.user.id);   // 서버가 "정말 0명"이라고 답했을 때만
 
   let res = "offline";
   for (let i = 0; i < 5; i++) {
     if (!elders.length) {
-      const e = skipped() ? null : await registerElder({ required: true });
+      const e = deferred || skipped() ? null : await registerElder({ required: true });
       resetBudget();
-      if (!e) { setCurrentElder(null); res = "skipped"; break; }   // 건너뜀 — 고른 어르신 없이 계속 (elder: null)
+      if (!e) { setCurrentElder(null); res = "skipped"; if (deferred) showRegisterLink(s.user.id); break; }   // 건너뜀 — 고른 어르신 없이 계속 (elder: null)
       elders = [e];
     }
     const cur = currentElder();

@@ -180,36 +180,62 @@ export function fmtElapsed(min) {
 }
 
 // 같은 코드 값에서 사람이 흔히 쓰는 다른 꼴 (1200m → 1.2km·1km, 75분 → 1시간 15분, 시속 3.6 → 약 4). 이 꼴의 숫자는 새 숫자가 아니다.
+// 값마다 "어떤 단위로 쓸 때만" 인정하는지를 붙인다: m(미터) km(킬로미터) h(시간) min(분) kmh(시속) deg(도), "*" = 단위 상관없음.
+// 그래서 1200m 에서 나온 "1km"(반올림)는 인정하지만 "1시간"은 아니다 (거리의 반올림값이 시간으로 통과하던 틈을 막는다).
 const DERIVED = {
-  dist_m: (v) => [round1(v / 1000), Math.round(v / 1000)],
-  path_dist_m: (v) => [round1(v / 1000), Math.round(v / 1000)],
-  minutes_since: (v) => [Math.floor(v / 60), v % 60, round1(v / 60)],
-  speed_kmh: (v) => [Math.round(v)],
+  dist_m: (v) => [[v, "m"], [Math.round(v), "m"], [round1(v / 1000), "km"], [Math.round(v / 1000), "km"]],
+  path_dist_m: (v) => [[v, "m"], [Math.round(v), "m"], [round1(v / 1000), "km"], [Math.round(v / 1000), "km"]],
+  minutes_since: (v) => { const r = Math.round(v); return [[v, "min"], [r, "min"], [Math.floor(r / 60), "h"], [r % 60, "min"], [round1(v / 60), "h"]]; },
+  speed_kmh: (v) => [[v, "kmh"], [Math.round(v), "kmh"]],
+  bearing_diff_deg: (v) => [[v, "deg"]],
 };
-const NUM_RE = /\d+(?:\.\d+)?/g;
-const numTokens = (x) => (String(x).match(NUM_RE) ?? []).map((t) => String(Number(t)));
+const NUM_RE = /\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g;   // "1,200"(천 단위 쉼표)·"1.2"(소수)는 각각 한 덩어리
+const SPEED_BEFORE = /(?:시속|속도|속력)\s*(?:약|대략|거의)?\s*$/;
+/** 숫자 뒤(와 앞)의 글자로 단위를 알아본다. 단위가 아닌 말(번·곳·년·시 …)이 붙었거나 아무것도 없으면 "other" */
+function unitOf(before, after) {
+  if (/^\s*(?:km\s*\/\s*h|㎞\s*\/\s*h|킬로(?:미터)?\s*\/\s*(?:h|시))/i.test(after)) return "kmh";
+  if (/^\s*(?:km|㎞|킬로)/i.test(after)) return SPEED_BEFORE.test(before) ? "kmh" : "km";
+  if (/^\s*(?:m(?![a-z])|미터)/i.test(after)) return "m";
+  if (/^\s*시간/.test(after)) return "h";
+  if (/^\s*분/.test(after)) return "min";
+  if (/^\s*(?:°|도(?![가-힣]))/.test(after)) return "deg";
+  return "other";
+}
+/** 글 속의 숫자 덩어리와 단위 [{n, unit}] — n 은 String(Number(...)) ("3.60" → "3.6", "1,200" → "1200") */
+function numUnits(text) {
+  const s = String(text), out = [];
+  for (const m of s.matchAll(NUM_RE)) out.push({ n: String(Number(m[0].replace(/,/g, ""))), unit: unitOf(s.slice(0, m.index), s.slice(m.index + m[0].length)) });
+  return out;
+}
 const NOT_FACTS = new Set(["id", "lat", "lng"]); // id는 이름표, 좌표는 AI에 보내지 않는 값 — 이유가 인용해도 되는 숫자가 아니다
 
-/** part(motion 또는 후보 하나)의 값에 나온 숫자를 set에 모은다. 값만 훑는다 — 키 이름의 숫자(direction_8)는 아니다. 숫자는 소수까지 한 덩어리("1.2"), 비교는 String(Number(...))로 */
-function inputNumbers(part, set = new Set()) {
+/** part(motion 또는 후보 하나)의 값에 나온 숫자를 Map(숫자 → 인정하는 단위들)으로 모은다. 값만 훑는다 — 키 이름의 숫자(direction_8)는 아니다. 글자 값("1.2km", "40분")은 글 속의 단위 그대로 */
+function inputNumbers(part, facts = new Map()) {
+  const add = (n, unit) => { const k = String(Number(n)); if (!facts.has(k)) facts.set(k, new Set()); facts.get(k).add(unit); };
   const walk = (v, key) => {
     if (NOT_FACTS.has(key)) return;
     if (typeof v === "number") {
       if (!Number.isFinite(v)) return;
-      numTokens(v).forEach((n) => set.add(n));
-      for (const d of DERIVED[key]?.(v) ?? []) set.add(String(d));
-    } else if (typeof v === "string") numTokens(v).forEach((n) => set.add(n));
+      for (const [n, unit] of Object.hasOwn(DERIVED, key) ? DERIVED[key](v) : [[v, "*"]]) add(n, unit);
+    } else if (typeof v === "string") numUnits(v).forEach((t) => add(t.n, t.unit));
     else if (Array.isArray(v)) v.forEach((x) => walk(x));
     else if (v && typeof v === "object") Object.entries(v).forEach(([k, x]) => walk(x, k));
   };
   walk(part);
-  return set;
+  return facts;
+}
+/** 이유 속 숫자 하나가 입력 값으로 설명되는가. 단위가 붙은 숫자(m·km·시간·분·시속·도)는 같은 단위로 인정된 값과만 맞는다. 그 밖의 말이 붙은 숫자(번·곳·년 …)는 값만 본다 */
+function supported(tok, factSets) {
+  const units = factSets.flatMap((f) => [...(f.get(tok.n) ?? [])]);
+  if (!units.length) return false;
+  return tok.unit === "other" || units.includes("*") || units.includes(tok.unit);
 }
 
 /**
  * 호출 ⑨ 검증(코드): AI가 고른 후보 중 목록(candidates)에 없는 id·중복 id·이유가 없거나 200자를 넘는 항목은 버린다(자르지 않고 버림). 최대 3개, AI가 준 순서 그대로.
  * 이유 안의 숫자(소수 포함 덩어리)가 "그 후보의 값 + motion의 값"에 없는 것이 하나라도 있으면 warn:true — 버리지 않고 화면이 ⚠를 붙인다.
- * 같은 값의 다른 꼴은 새 숫자가 아니다: dist_m·path_dist_m → km(소수 1자리·반올림), minutes_since → 시간·분·시간(소수 1자리), speed_kmh → 반올림 정수. 다른 후보의 숫자는 인용할 수 없다.
+ * 같은 값의 다른 꼴은 새 숫자가 아니다: dist_m·path_dist_m → km(소수 1자리·반올림), minutes_since → 시간·분·시간(소수 1자리), speed_kmh → 반올림 정수(시속).
+ * 단 단위를 맞춰서만 인정한다 — km 값은 km·킬로 앞에서만, 시간 값은 "시간" 앞에서만, 분 값은 "분" 앞에서만, 시속 값은 km/h·시속 문맥에서만. 천 단위 쉼표("1,200m")는 한 숫자다. 다른 후보의 숫자는 인용할 수 없다.
  * 쓸 만한 게 없으면 [] — 화면이 fallbackOrder(코드 순서)를 쓴다.
  * @param {*} raw AI가 돌려준 JSON {ranked:[{id, reason}]}
  * @param {{id:string}[]} candidates AI에 보낸 후보 목록
@@ -219,14 +245,14 @@ function inputNumbers(part, set = new Set()) {
 export function verifyCandidates(raw, candidates, motion) {
   const byId = new Map();
   for (const c of Array.isArray(candidates) ? candidates : []) if (typeof c?.id === "string" && !byId.has(c.id)) byId.set(c.id, c);
-  const motionNums = inputNumbers(motion);
+  const motionFacts = inputNumbers(motion);
   const out = [], seen = new Set();
   for (const r of Array.isArray(raw?.ranked) ? raw.ranked : []) {
     const id = r?.id, reason = typeof r?.reason === "string" ? r.reason.trim() : "";
     if (typeof id !== "string" || !byId.has(id) || seen.has(id) || !reason || reason.length > CAND_REASON_MAX) continue;
     seen.add(id);
-    const nums = inputNumbers(byId.get(id), new Set(motionNums));
-    out.push({ id, reason, warn: !numTokens(reason).every((n) => nums.has(n)) });
+    const own = inputNumbers(byId.get(id));
+    out.push({ id, reason, warn: !numUnits(reason).every((t) => supported(t, [motionFacts, own])) });
     if (out.length === CAND_MAX) break;
   }
   return out;

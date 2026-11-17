@@ -463,3 +463,120 @@ test("sanitize treats string numbers and [lat,lng] tuples as points", () => {
   assert.equal(p.places[0].lat, undefined); assert.equal(p.places[0].name, "a");
   assert.deepEqual(p.path, [[FAR.lat, FAR.lng]]);
 });
+
+// ---- 고친 것 (남은 작은 문제) -----------------------------------------------------------------
+const created = (b) => ({ "elder.create": { ok: true, elder: E1, deviceCode: "NEWCODENEWCODE23" }, "data.save": { ok: true, updated_at: base1 }, "device.import": { ok: true } }[b.action]);
+
+test("listElders: an elder this phone just created is kept (with its device code) when an older `me` answer does not list it", async (t) => {
+  reset();
+  let clock = 1_000_000; t.mock.method(Date, "now", () => clock);
+  let releaseMe; const meGate = new Promise((r) => (releaseMe = r));
+  fakeServer(async (b) => (b.action === "me" ? (await meGate, { ok: true, elders: [E2] }) : created(b)));   // me 는 서버가 어르신을 만들기 전의 상태로 답한다
+  const listing = listElders();
+  const made = await createElder("아버지");
+  releaseMe();
+  const list = await listing;
+  assert.equal(made.ok, true);
+  assert.deepEqual(list.map((x) => x.id).sort(), [E1.id, E2.id].sort(), "방금 만든 어르신도 목록에 있다");
+  assert.equal(lsGet(`rw_cache:${E1.id}`).track.key, "NEWCODENEWCODE23", "이 폰에만 있는 연결 코드를 잃지 않는다");
+  assert.ok(lsGet("rw_elders").some((x) => x.id === E1.id));
+  // 30초가 지나도 서버 목록에 없으면 그때는 잊는다 (정말 없는 어르신)
+  clock += 31000;
+  fakeServer(() => ({ ok: true, elders: [E2] }));
+  assert.deepEqual((await listElders()).map((x) => x.id), [E2.id]);
+  assert.equal(mem.has(`rw_cache:${E1.id}`), false);
+});
+test("listElders keeps an elder whose import is still uploading (pending marker) even after 30 seconds", async (t) => {
+  reset(); lsSet(KEYS.profile, { honorific: "아버지", places: [] });
+  let clock = 1_000_000; t.mock.method(Date, "now", () => clock);
+  let release; const gate = new Promise((r) => (release = r));
+  let saving; const atSave = new Promise((r) => (saving = r));
+  fakeServer(async (b) => { if (b.action === "data.save") { saving(); await gate; } return created(b); });
+  const importing = importLocalData({ elders: [], userId: "u1", ask: () => true });
+  await atSave;
+  clock += 60000;   // 올리는 데 오래 걸린다
+  fakeServer(() => ({ ok: true, elders: [] }));
+  assert.deepEqual((await listElders()).map((x) => x.id), [E1.id]);
+  assert.ok(mem.has(`rw_cache:${E1.id}`), "올리는 중인 어르신의 사본을 지우지 않는다");
+  fakeServer(created); release();
+  assert.equal((await importing).ok, true);
+  assert.deepEqual(currentElder(), E1);
+  clock += 31000;   // 끝난 뒤 30초가 지나면 보통 규칙
+  fakeServer(() => ({ ok: true, elders: [] }));
+  await listElders();
+  assert.equal(mem.has(`rw_cache:${E1.id}`), false);
+});
+
+test("an account switch keeps the previous account's home addresses; only elders this account lost lose theirs", async () => {
+  reset(); lsSet("rw_owner_user", "u1");
+  setCurrentElder(E1); lsSet("rw_home:" + E1.id, HOME);
+  fakeServer(() => ({ ok: true, elders: [E1] })); await listElders();
+  assert.equal(checkAccount("u2"), "switched");
+  fakeServer(() => ({ ok: true, elders: [E2] }));
+  await listElders();
+  assert.equal(lsGet("rw_home:" + E1.id).label, "석교동", "집 주소는 이 폰에만 있다 — 이전 계정 것을 지우지 않는다");
+  setCurrentElder(E2); lsSet("rw_home:" + E2.id, { ...HOME, label: "대흥동" });
+  fakeServer(() => ({ ok: true, elders: [] }));   // 이 계정이 E2 를 잃었다
+  await listElders();
+  assert.equal(mem.has("rw_home:" + E2.id), false, "이 계정이 잃은 어르신의 집 주소는 지운다");
+  assert.equal(lsGet("rw_home:" + E1.id).label, "석교동");
+});
+
+test("pull: an account switch during the pre-flush stops before data.load and writes nothing", async () => {
+  withElder(); lsSet("rw_owner_user", "u1");
+  let release; const gate = new Promise((r) => (release = r));
+  const calls = fakeServer(async (b) => { if (b.action === "data.save") { await gate; return { ok: true, updated_at: base1 }; } return { ok: true, data: { profile: { honorific: "x" }, diary: [], incidents: [], updated_at: base2 } }; });
+  store.set(KEYS.profile, { honorific: "아버지" });
+  const p = pull();
+  await new Promise((r) => setImmediate(r));
+  checkAccount("u2"); release();
+  assert.equal(await p, "offline");
+  assert.deepEqual(calls.map((c) => c.action), ["data.save"]);
+  assert.equal(mem.has(`rw_cache:${E1.id}`), false); assert.equal(mem.has(KEYS.profile), false);
+});
+
+for (const phase of ["ask", "elder.create", "data.save", "device.import"]) {
+  test(`importLocalData: an account switch during ${phase} writes nothing for the old account`, async () => {
+    reset(); lsSet("rw_owner_user", "u1");
+    lsSet(KEYS.profile, { honorific: "아버지", places: [] }); lsSet("rw_track", { key: "OLDCODEOLDCODE23" }); lsSet("rw_home", HOME);
+    let release; const gate = new Promise((r) => (release = r));
+    let reached; const at = new Promise((r) => (reached = r));
+    const calls = fakeServer(async (b) => { if (b.action === phase) { reached(); await gate; } return created(b); });
+    const ask = async () => { if (phase === "ask") { reached(); await gate; } return true; };
+    const p = importLocalData({ elders: [], userId: "u1", ask });
+    await at;
+    assert.equal(checkAccount("u2"), "switched"); release();
+    const r = await p;
+    assert.ok(r.skipped || r.reason === "ACCOUNT_CHANGED", JSON.stringify(r));
+    const upTo = ["elder.create", "data.save", "device.import"];
+    assert.deepEqual(calls.map((c) => c.action), phase === "ask" ? [] : upTo.slice(0, upTo.indexOf(phase) + 1), "계정이 바뀐 뒤에는 서버를 더 부르지 않는다");
+    for (const k of ["rw_elder", `rw_cache:${E1.id}`, "rw_elders", "rw_dirty", "rw_created", "rw_home:" + E1.id, KEYS.profile]) assert.equal(mem.has(k), false, k);
+    assert.equal(lsGet("rw_home").label, "석교동", "옛 집 주소는 그대로"); assert.equal(lsGet("rw_track").key, "OLDCODEOLDCODE23");
+    if (phase === "ask") assert.equal(mem.has("rw_import_asked"), false, "이전 계정으로 '물었음'을 적지 않는다");
+  });
+}
+test("importLocalData: a failed create after an account switch does not erase the new account's 'asked' mark", async () => {
+  reset(); lsSet("rw_owner_user", "u1"); lsSet(KEYS.profile, { honorific: "아버지", places: [] });
+  let release; const gate = new Promise((r) => (release = r));
+  fakeServer(async () => { await gate; return { ok: false, reason: "NETWORK" }; });
+  const p = importLocalData({ elders: [], userId: "u1", ask: () => true });
+  await new Promise((r) => setImmediate(r));
+  checkAccount("u2"); lsSet("rw_import_asked", "u2"); release();
+  assert.equal((await p).ok, false);
+  assert.equal(lsGet("rw_import_asked"), "u2");
+});
+
+test("a home saved before any elder is picked goes into the phone backup, not to the picked elder; importLocalData is what carries it over", async () => {
+  reset(); saveHome(HOME);
+  assert.ok(mem.has("rw_home"), "어르신이 없을 때는 옛 키");
+  setCurrentElder(E1);   // 계정 전 데이터를 올리지 않고 어르신만 고른 경우
+  assert.equal(mem.has("rw_home"), false); assert.equal(getHome(), null);
+  const keys = fam.phoneBackups();
+  assert.equal(keys.length, 1); assert.equal(lsGet(keys[0]).home.label, "석교동", "이전 집 주소는 보관본에 남는다");
+  // 가져오기를 고른 경우: 방금 만든 그 어르신만 집 주소를 이어받고 보관본은 만들지 않는다
+  reset(); saveHome(HOME); lsSet(KEYS.profile, { honorific: "아버지", places: [] });
+  fakeServer(created);
+  assert.equal((await importLocalData({ elders: [], userId: "u1", ask: () => true })).ok, true);
+  assert.equal(lsGet("rw_home:" + E1.id).label, "석교동"); assert.equal(mem.has("rw_home"), false);
+  assert.equal(fam.phoneBackups().length, 0);
+});

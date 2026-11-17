@@ -47,6 +47,9 @@ class TrackerService : Service() {
         val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         const val ENDPOINT = "https://rememberway.vercel.app/api/loc"
         const val CHANNEL = "tracker"
+        const val ALERT_CHANNEL = "tracker_alert"                // 멈춘 뒤에도 남는 안내용 (진행 중 알림은 서비스와 함께 사라진다)
+        const val ALERT_ID = 2
+        const val REVOKED_TEXT = "가족이 연결을 끊었어요. 보호자에게 새 연결 코드를 받아 넣어 주세요."
         const val MAX_QUEUE = 5000
     }
 
@@ -62,6 +65,8 @@ class TrackerService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "목걸이 위치 중계", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(ALERT_CHANNEL, "연결 안내", NotificationManager.IMPORTANCE_DEFAULT))
+        nm.cancel(ALERT_ID)                                    // 다시 시작했으면 지난 멈춤 안내는 치운다
         val n = note("목걸이를 찾는 중")
         if (Build.VERSION.SDK_INT >= 29) startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE) else startForeground(1, n)
         if (!running) { running = true; scan(); flushLater(0) }
@@ -79,6 +84,13 @@ class TrackerService : Service() {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL).setContentTitle("리멤버웨이 위치").setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation).setOngoing(true).setContentIntent(open).build()
+    }
+    /** 서비스가 멈춘 뒤에도 어르신이 볼 수 있게 남는 알림 (진행 중 알림이 아님, 누르면 앱이 열림) */
+    private fun alert(text: String) {
+        val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val n = Notification.Builder(this, ALERT_CHANNEL).setContentTitle("리멤버웨이 위치").setContentText(text).setStyle(Notification.BigTextStyle().bigText(text))
+            .setSmallIcon(android.R.drawable.ic_menu_mylocation).setOngoing(false).setAutoCancel(true).setContentIntent(open).build()
+        getSystemService(NotificationManager::class.java).notify(ALERT_ID, n)
     }
     private fun status(s: String) {
         if (!running) return                                   // 멈춘 뒤 늦게 온 블루투스 콜백이 멈춤 안내를 덮거나 알림을 되살리지 않게
@@ -170,8 +182,13 @@ class TrackerService : Service() {
                 code in 200..299 -> lines.removeAt(0)
                 code == 400 || code == 422 -> lines.removeAt(0)          // 잘못된 데이터는 다시 보내지 않음
                 code == 410 -> {                                          // 보호자가 연결 코드를 폐기함 → 더 보내지 않고 멈춤(새 코드를 넣고 [시작]하면 다시 동작)
+                    if (Store.key(this) != key) {                          // 보내는 사이 새 코드를 넣었다 — 폐기된 건 이전 코드. 멈추지 말고 새 코드로 남은 것을 다시 보낸다
+                        queueFile.writeText(lines.joinToString("\n") + "\n"); Store.pending(this, lines.size)
+                        if (running) flushLater(0); return
+                    }
                     queueFile.writeText(""); Store.pending(this, 0)
-                    Store.status(this, "가족이 연결을 끊었어요. 보호자에게 새 연결 코드를 받아 넣어 주세요.")
+                    Store.status(this, REVOKED_TEXT)
+                    alert(REVOKED_TEXT)                                    // 멈추면 진행 중 알림도 사라지니, 어르신이 볼 수 있게 따로 남긴다
                     running = false; stopSelf(); return                    // 파일·상태를 먼저 정리한 뒤 멈춤 (running=false로 재전송 예약도 막음)
                 }
                 else -> { queueFile.writeText(lines.joinToString("\n") + "\n"); Store.pending(this, lines.size); if (running) flushLater(15000); return }

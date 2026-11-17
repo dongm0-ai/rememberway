@@ -203,7 +203,7 @@
   // hash: 메일 링크에서 복사해 둔 #토큰 (없으면 ""). [다시 시도]도 같은 값으로 다시 부른다
   async function init(hash = "") {
     show("state-loading");
-    const retry = () => init(hash);
+    const retry = () => start(hash);
     const link = hash ? sessionFromHash(hash) : null;
     const recovery = Boolean(link && (link.error || link.type === "recovery"));
     let note = "";
@@ -233,7 +233,9 @@
     if (!ready.ok) return notice(reasonText(ready.reason), { onRetry: ready.reason === "NOT_CONFIGURED" ? null : retry });
     showLogin(recentlyRejected() ? reasonText("UNAUTHORIZED") : "");
   }
-  init(recoveryHash).catch(() => notice(reasonText("UNKNOWN"), { onRetry: () => init(recoveryHash) }));
+  // init 이 예기치 않게 실패해도 안내 화면을 띄우고, [다시 시도]가 또 실패해도 같은 안내로 돌아온다 (잡히지 않은 Promise 를 남기지 않는다)
+  function start(hash) { init(hash).catch(() => notice(reasonText("UNKNOWN"), { onRetry: () => start(hash) })); }
+  start(recoveryHash);
 </script>
 </body>
 </html>

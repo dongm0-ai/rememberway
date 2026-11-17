@@ -100,6 +100,34 @@ test("decimals are one number: 1.2 is not 1 and 2, and 3.60 equals 3.6", () => {
   assert.equal(warnOf("1.2번 출구 쪽이에요", { dist_m: 3000, name: "1.2번 출구" }), false);
   assert.equal(warnOf("시속 3.60km예요", { dist_m: 100 }, { speed_kmh: 3.6 }), false);
 });
+test("derived values are accepted only with their own unit: a rounded km is not an hour, a minute is not a metre", () => {
+  assert.equal(warnOf("1시간 전에 끊겼어요", { dist_m: 1200 }), true);                      // 1200m → 반올림 1km 는 "1시간"이 아니다
+  assert.equal(warnOf("1시간 전에 끊겼어요", { dist_m: 1200 }, { minutes_since: 75 }), false);
+  assert.equal(warnOf("1km 떨어져 있어요", { dist_m: 100 }, { minutes_since: 75 }), true);   // 75분 → 1시간 의 1 은 km 가 아니다
+  assert.equal(warnOf("45분 걸려요", { dist_m: 100, path_dist_m: 45 }), true);                // 45m 는 45분이 아니다
+  assert.equal(warnOf("예상 경로에서 45m 떨어져 있어요", { dist_m: 100, path_dist_m: 45 }), false);
+  assert.equal(warnOf("15분 전에 끊겼어요", { dist_m: 15 }, {}), true);
+  assert.equal(warnOf("15m 거리예요", { dist_m: 15 }, {}), false);
+  assert.equal(warnOf("12km 가까이 가셨어요", { dist_m: 100, bearing_diff_deg: 12 }), true);  // 방향 차이 12도 는 12km 가 아니다
+  assert.equal(warnOf("방향이 12도 달라요", { dist_m: 100, bearing_diff_deg: 12 }), false);
+  assert.equal(warnOf("약 2km 가셨어요", { dist_m: 100 }, { speed_kmh: 2.4 }), true);        // 시속 값은 시속 문맥에서만 (거리 2km 가 아니다)
+  assert.equal(warnOf("시속 약 2km로 가셨어요", { dist_m: 100 }, { speed_kmh: 2.4 }), false);
+  assert.equal(warnOf("시속 2.4km/h 정도예요", { dist_m: 100 }, { speed_kmh: 2.4 }), false);
+  assert.equal(warnOf("2.4km/h 정도예요", { dist_m: 100 }, { speed_kmh: 2.4 }), false);
+  assert.equal(warnOf("시속 2.4킬로로 가셨어요", { dist_m: 100 }, { speed_kmh: 2.4 }), false);
+  assert.equal(warnOf("2킬로 떨어져 있어요", { dist_m: 2000 }), false);
+});
+test("a number written with a thousands separator is one number (1,200m = 1200m)", () => {
+  assert.equal(warnOf("마지막 위치에서 1,200m 거리예요", { dist_m: 1200 }), false);
+  assert.equal(warnOf("마지막 위치에서 1,200m 거리예요", { dist_m: 1300 }), true);
+  assert.equal(warnOf("1,200 미터 거리예요", { dist_m: 1200 }), false);
+  assert.equal(warnOf("1,2km 거리예요", { dist_m: 1200 }), true);   // 쉼표 뒤가 3자리가 아니면 두 숫자 (1 과 2)
+});
+test("a unit written in the candidate's own text (evidence, name) is kept: 30분 there is not 30m", () => {
+  assert.equal(warnOf("걸어서 30분 거리라고 하셨어요", { dist_m: 100, evidence: "걸어서 30분 거리" }), false);
+  assert.equal(warnOf("30m 거리라고 하셨어요", { dist_m: 100, evidence: "걸어서 30분 거리" }), true);
+  assert.equal(warnOf("3번 출구 쪽이에요", { dist_m: 100, name: "3번 출구" }), false);
+});
 test("a reason may only use the numbers of its own candidate plus motion (not another candidate's)", () => {
   const cands = [{ id: "c1", dist_m: 1200 }, { id: "c2", dist_m: 800 }];
   const motion = { minutes_since: 40 };
@@ -228,6 +256,13 @@ test("mock reply for the candidates prompt is JSON whose ids come from the list 
   const v = verifyCandidates(raw, cands, motion());
   assert.equal(v.length, 3);
   assert.ok(v.every((r) => cands.some((c) => c.id === r.id) && r.warn === false), JSON.stringify(v));
+}));
+test("mock reply quotes the code-made dist_text (not a hand-built `${dist_m}m`) and never warns for it", () => withMock(async () => {
+  const cands = [cand("c1", { dist_m: 1234.6, dist_text: "1.2km" }), cand("c2", { dist_m: 800, dist_text: "800m" })];
+  const raw = await askJSON(SYSTEM_CANDIDATES, userCandidates("아버지", motion(), cands));
+  assert.ok(raw.ranked[0].reason.includes("1.2km") && !raw.ranked[0].reason.includes("1234"), raw.ranked[0].reason);
+  assert.ok(raw.ranked[1].reason.includes("800m"), raw.ranked[1].reason);
+  assert.deepEqual(verifyCandidates(raw, cands, motion()).map((r) => r.warn), [false, false]);
 }));
 test("mock reply with an empty list is an empty ranking", () => withMock(async () => {
   assert.deepEqual((await askJSON(SYSTEM_CANDIDATES, userCandidates("아버지", motion(), []))).ranked, []);

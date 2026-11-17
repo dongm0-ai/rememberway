@@ -48,7 +48,7 @@ class MainActivity : Activity() {
         col.addView(text("위치는 보호자가 어르신을 찾을 때만 쓰며, 동의한 경우에만 사용합니다. 위치가 서버를 거쳐 보호자에게 전달됩니다.", 13f))
         col.addView(Button(this).apply { text = "시작"; textSize = 20f; setOnClickListener { start() } })
         col.addView(Button(this).apply { text = "멈추기"; setOnClickListener { stopService(Intent(this@MainActivity, TrackerService::class.java)); Store.status(this@MainActivity, "멈춤") } })
-        status = text("", 16f)
+        status = text("", 18f)
         col.addView(status)
         setContentView(ScrollView(this).apply { addView(col) })
     }

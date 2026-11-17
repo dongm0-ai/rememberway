@@ -8,7 +8,8 @@
 //   (rw-sync 이벤트). 서버에서 바뀐 게 그 키가 아니면(다른 가족은 일지만 고침) 내 값을 다시 저장.
 // - 서버로 보내지 않는 것: 보호자가 말한 원문(utterance·narrative·spoken·raw), 집 좌표(ARRIVE_M 50m 안의 점), 집 주소 자체.
 // - 서버가 GONE(어르신이 지워졌거나 내가 더는 가족이 아님) → 그 어르신 사본·집 주소·rw_elder 를 이 폰에서 지운다.
-// - 다른 계정으로 로그인 → 모든 rw_cache:*·SYNCED 키 삭제 (집 주소·연결 코드·이메일은 그대로).
+// - 다른 계정으로 로그인 → 모든 rw_cache:*·SYNCED 키 삭제 (집 주소·연결 코드·이메일은 그대로). 집 주소는 기기에만 있어 지우면 되살릴 수 없으므로
+//   이전 계정 어르신의 rw_home:<id> 는 계속 남긴다 — 이 계정이 가졌다가 잃은(GONE·목록에서 사라진) 어르신의 집 주소만 지운다.
 // - import 할 때는 window/localStorage 를 건드리지 않는다 (Node 테스트). store 훅만 등록한다 — 호출될 때 읽는다.
 import { KEYS, setStoreHook, homeFor, homeKeyFor } from "./common.js";
 import { authFetch } from "./auth.js";
@@ -21,6 +22,8 @@ const FIELD = { [KEYS.profile]: "profile", [KEYS.diary]: "diary", [KEYS.incident
 const KEY_OF = { profile: KEYS.profile, diary: KEYS.diary, incidents: KEYS.incidents };
 const EMPTY = { profile: null, diary: [], incidents: [] };
 const ELDER_KEY = "rw_elder", ELDERS_KEY = "rw_elders", OWNER_KEY = "rw_owner_user", DIRTY_KEY = "rw_dirty", TRACK_KEY = "rw_track", ASKED_KEY = "rw_import_asked";
+const CREATED_KEY = "rw_created";   // 이 폰이 방금 만든 어르신 { <id>: {t, elder, pending?} } — 서버 me 의 답이 만들기 전 것이어도 잊지 않으려는 표시
+const FRESH_MS = 30000, PENDING_MS = 300000;   // 만든 뒤 30초 (importLocalData 가 아직 올리는 중이면 최대 5분)
 const CACHE_PREFIX = "rw_cache:";
 const cacheKey = (id) => CACHE_PREFIX + id;
 const DEBOUNCE_MS = 1000;
@@ -147,7 +150,9 @@ const BACKUP_PREFIX = "rw_backup_";
 const LEGACY_HOME = homeKeyFor(null);   // "rw_home"
 const HOME_PREFIX = homeKeyFor("x").slice(0, -1);   // "rw_home:"
 /** 어르신을 고르지 않은 상태의 이 폰 데이터(SYNCED 키·rw_track·옛 rw_home)를 어느 어르신에도 넘기지 않고 따로 보관한 뒤 비운다.
- *  보관 키 "rw_backup_<시각>" — 이 폰에만, 서버로 올리지 않는다. 보관할 게 없으면 null */
+ *  보관 키 "rw_backup_<시각>" — 이 폰에만, 서버로 올리지 않는다. 보관할 게 없으면 null.
+ *  어르신을 고르기 전에 저장한 집 주소(옛 rw_home)도 여기로 들어간다: 처음 고른 어르신에게 자동으로 붙지 않는다 (importLocalData 로 올려 만든 어르신만 그 집 주소를 이어받는다).
+ *  그 밖에는 설정에서 집 주소를 다시 넣어야 하고, 이전 값은 이 보관본에 남는다 */
 function backupPhoneData() {
   const b = {};
   for (const f of Object.keys(EMPTY)) { const v = jget(KEY_OF[f], null); if (v !== null) b[f] = v; }
@@ -324,45 +329,61 @@ async function saveNow(elderId) {
 export async function pull() {
   const e = currentElder();
   if (!e) return "ok";
+  const g = generation;   // 올리는 동안 계정이 바뀌는 것도 알아채려고 먼저 잡는다
   if (dirtyOf(e.id).length) {
     const r = await flush(e.id);
+    if (g !== generation) return "offline";
     if (r === "gone") return "gone";
     if (dirtyOf(e.id).length) return "offline";   // 아직 못 올림 — 서버 값으로 덮지 않는다
   }
-  const g = generation;
   const res = await call({ action: "data.load", elderId: e.id });
   if (g !== generation) return "offline";
   return applyLoadResult(res, e.id);
 }
 
+/** 이 폰이 방금 만든 어르신 (아직 유효한 표시만). 낡은 표시는 지운다 */
+function freshCreated() {
+  const m = jget(CREATED_KEY, null), now = Date.now(), out = {};
+  if (!m || typeof m !== "object") return out;
+  for (const [id, v] of Object.entries(m)) { const age = now - Number(v?.t); if (v?.elder?.id === id && age < (v.pending ? PENDING_MS : FRESH_MS)) out[id] = v; }
+  if (Object.keys(out).length !== Object.keys(m).length) { if (Object.keys(out).length) jset(CREATED_KEY, out); else del(CREATED_KEY); }
+  return out;
+}
+const markCreated = (elder, pending) => jset(CREATED_KEY, { ...freshCreated(), [elder.id]: { t: Date.now(), elder, ...(pending ? { pending: true } : {}) } });
+/** 올리는 중 표시를 끝낸다 (그 시각부터 30초는 더 지킨다) */
+function settleCreated(id) { const f = freshCreated(); if (f[id]) jset(CREATED_KEY, { ...f, [id]: { t: Date.now(), elder: f[id].elder } }); }
+
 /** 내 어르신 목록 [{id,label,role}] (me). 서버가 안 되면 이 폰에 마지막으로 받은 목록.
- *  목록에 없는 어르신(내보내졌거나 지워짐)의 사본·집 주소는 모두 지운다 (현재 어르신이면 rw_elder 도) */
+ *  이 계정이 알던 어르신(마지막 목록·이 폰 사본·현재 어르신)이 목록에서 사라졌으면 (내보내졌거나 지워짐) 사본·집 주소를 지운다 (현재 어르신이면 rw_elder 도).
+ *  사본이 없이 집 주소만 남은 어르신은 이전 계정의 것일 수 있어 건드리지 않는다 (집 주소는 이 폰에만 있어 지우면 되살릴 수 없다).
+ *  이 폰이 방금(30초 안) 만든 어르신은, 서버가 만들기 전에 낸 답에 없어도 잊지 않고 목록에 붙인다 */
 export async function listElders() {
   const g = generation;
   const res = await call({ action: "me" });
   if (g !== generation || !res?.ok || !Array.isArray(res.elders)) { const l = jget(ELDERS_KEY, []); return Array.isArray(l) ? l : []; }
   const list = res.elders.filter((x) => x && typeof x.id === "string").map((x) => ({ id: x.id, label: x.label ?? "", role: x.role ?? "member" }));
-  jset(ELDERS_KEY, list);
   const ids = new Set(list.map((x) => x.id));
-  const stale = new Set();
-  for (const k of allKeys()) {
-    if (k.startsWith(CACHE_PREFIX)) stale.add(k.slice(CACHE_PREFIX.length));
-    else if (k.startsWith(HOME_PREFIX)) stale.add(k.slice(HOME_PREFIX.length));
-  }
+  for (const [id, v] of Object.entries(freshCreated())) if (!ids.has(id)) { list.push({ id, label: v.elder.label ?? "", role: v.elder.role ?? "owner" }); ids.add(id); }
+  const known = new Set(), prev = jget(ELDERS_KEY, null);
+  if (Array.isArray(prev)) for (const x of prev) if (x && typeof x.id === "string") known.add(x.id);
+  for (const k of allKeys()) if (k.startsWith(CACHE_PREFIX)) known.add(k.slice(CACHE_PREFIX.length));
   const cur = currentElder();
-  if (cur) stale.add(cur.id);
-  for (const id of stale) if (id && !ids.has(id)) forget(id);
+  if (cur) known.add(cur.id);
+  jset(ELDERS_KEY, list);
+  for (const id of known) if (id && !ids.has(id)) forget(id);
   const now = currentElder(), mine = now && list.find((x) => x.id === now.id);
   if (mine && (mine.label !== now.label || mine.role !== now.role)) jset(ELDER_KEY, mine);
   return list;
 }
 
 /** 새 어르신 등록 (나는 owner). → {ok:true, elder, deviceCode} | {ok:false, reason}. 새 연결 코드는 그 어르신 사본(track)에 둔다. 현재 어르신은 바꾸지 않는다 */
-export async function createElder(label) {
+export const createElder = (label) => makeElder(label, false);
+async function makeElder(label, pending) {
   const g = generation;
   const res = await call({ action: "elder.create", label: String(label ?? "").trim() });
   if (g !== generation) return { ok: false, reason: "ACCOUNT_CHANGED" };
   if (!res?.ok || !res.elder?.id) return { ok: false, reason: res?.reason ?? "UNKNOWN" };
+  markCreated(res.elder, pending);   // 같은 때 보낸 me 의 답이 이 어르신을 모르더라도 잊지 않도록
   const c = readCache(res.elder.id);
   if (res.deviceCode) c.track = { key: res.deviceCode, created: new Date().toISOString() };
   writeCache(res.elder.id, c);
@@ -382,9 +403,10 @@ export function checkAccount(userId) {
   if (owner === null) return "first";
   generation++;
   for (const k of allKeys()) if (k.startsWith(CACHE_PREFIX)) del(k);
-  for (const k of [...SYNCED, ELDER_KEY, ELDERS_KEY, DIRTY_KEY]) del(k);
+  for (const k of [...SYNCED, ELDER_KEY, ELDERS_KEY, DIRTY_KEY, CREATED_KEY]) del(k);
   clearTimeout(timer); timer = null;
-  // 이전 계정의 연결 코드(rw_track)·집 주소는 지우지 않는다. 새 계정에서 처음 어르신을 고를 때 rw_backup_* 으로 옮겨져 어느 어르신에도 넘어가지 않는다
+  // 이전 계정의 연결 코드(rw_track)·집 주소(rw_home:<id>)는 지우지 않는다 (기기에만 있어 되살릴 수 없다). 새 계정에서 처음 어르신을 고를 때 rw_track 은
+  // rw_backup_* 으로 옮겨져 어느 어르신에도 넘어가지 않고, rw_home:<id> 는 그 어르신의 id 로만 읽히니 다른 어르신에게 보이지 않는다 (listElders 도 지우지 않는다)
   return "switched";
 }
 
@@ -398,37 +420,42 @@ const IMPORT_TEXT = {
  *  ask(text) → boolean | Promise<boolean>. 사용자마다 한 번만 묻는다(rw_import_asked).
  *  → {skipped:true} | {ok:true, elder, message?} (message = 연결 코드를 못 옮겼을 때 보여 줄 한 줄) | {ok:false, reason} */
 export async function importLocalData({ elders, userId, ask }) {
+  const g = generation;   // 기다리는 사이(묻기·서버 호출) 다른 계정으로 로그인하면 이전 계정 일로 이 폰에 아무것도 쓰지 않는다
   const profile = jget(KEYS.profile, null);
   if (!profile || (Array.isArray(elders) && elders.length) || !userId || jget(ASKED_KEY, null) === userId) return { skipped: true };
   const yes = await ask("이 폰의 등록 정보를 새 어르신으로 올릴까요?");   // 창을 닫거나 오류면 아래로 가지 않아 다음에 다시 묻는다
+  if (g !== generation) return { skipped: true };
   jset(ASKED_KEY, userId);
   if (!yes) return { skipped: true };
 
   const local = { profile, diary: jget(KEYS.diary, []) ?? [], incidents: jget(KEYS.incidents, []) ?? [] };
   const legacyTrack = jget(TRACK_KEY, null), legacyHome = jget(LEGACY_HOME, null);
   const label = String(profile.honorific ?? "").trim().slice(0, 20) || "어르신";
-  const made = await createElder(label);
-  if (!made.ok) { del(ASKED_KEY); return { ok: false, reason: made.reason }; }   // 다음에 다시 물을 수 있게
-  const id = made.elder.id, home = homeFor(null);   // 아직 옮기기 전의 옛 집 주소
-
-  const c = readCache(id);
-  Object.assign(c, clone(local));
-  const up = Object.fromEntries(Object.keys(EMPTY).map((f) => [f, sanitizeForUpload(KEY_OF[f], local[f], home)]));
-  const saved = await call({ action: "data.save", elderId: id, ...up, base: null });
-  if (saved?.ok) { c.updated_at = saved.updated_at ?? null; c.base = clone(up); }
-  let message;
-  if (legacyTrack?.key) {
-    const r = await call({ action: "device.import", elderId: id, key: legacyTrack.key });
-    if (r?.ok) c.track = legacyTrack;
-    else message = IMPORT_TEXT[r?.reason] ?? IMPORT_TEXT.OTHER;
-  }
-  writeCache(id, c);
-  // 이 폰 데이터를 넘겨받는 건 방금 만든 이 어르신뿐: 사본(=이 폰 데이터)·연결 코드를 꺼내고 옛 집 주소를 이 어르신 키로 옮긴다
-  // (setCurrentElder 를 쓰지 않는다 — 그건 이 폰 데이터를 rw_backup_* 으로 치운다)
-  jset(ELDER_KEY, { id, label: made.elder.label ?? label, role: made.elder.role ?? "owner" });
-  loadWorking(id);
-  if (legacyHome !== null) { if (rawGet(homeKeyFor(id)) === null) jset(homeKeyFor(id), legacyHome); del(LEGACY_HOME); }
-  if (!saved?.ok) setDirty(id, Object.keys(EMPTY));   // 못 올렸으면 다음 pull 때 다시
-  return message ? { ok: true, elder: made.elder, message } : { ok: true, elder: made.elder };
+  const made = await makeElder(label, true);   // 올리는 동안은 "만드는 중" 표시를 붙여 둔다 (listElders 가 이 어르신을 잊지 않게)
+  if (!made.ok) { if (jget(ASKED_KEY, null) === userId) del(ASKED_KEY); return { ok: false, reason: made.reason }; }   // 다음에 다시 물을 수 있게
+  const id = made.elder.id;
+  try {
+    const home = homeFor(null);   // 아직 옮기기 전의 옛 집 주소
+    const c = readCache(id);
+    Object.assign(c, clone(local));
+    const up = Object.fromEntries(Object.keys(EMPTY).map((f) => [f, sanitizeForUpload(KEY_OF[f], local[f], home)]));
+    const saved = await call({ action: "data.save", elderId: id, ...up, base: null });
+    if (g !== generation) return { ok: false, reason: "ACCOUNT_CHANGED" };
+    if (saved?.ok) { c.updated_at = saved.updated_at ?? null; c.base = clone(up); }
+    let message;
+    if (legacyTrack?.key) {
+      const r = await call({ action: "device.import", elderId: id, key: legacyTrack.key });
+      if (g !== generation) return { ok: false, reason: "ACCOUNT_CHANGED" };
+      if (r?.ok) c.track = legacyTrack;
+      else message = IMPORT_TEXT[r?.reason] ?? IMPORT_TEXT.OTHER;
+    }
+    writeCache(id, c);
+    // 이 폰 데이터를 넘겨받는 건 방금 만든 이 어르신뿐: 사본(=이 폰 데이터)·연결 코드를 꺼내고 옛 집 주소를 이 어르신 키로 옮긴다
+    // (setCurrentElder 를 쓰지 않는다 — 그건 이 폰 데이터를 rw_backup_* 으로 치운다)
+    jset(ELDER_KEY, { id, label: made.elder.label ?? label, role: made.elder.role ?? "owner" });
+    loadWorking(id);
+    if (legacyHome !== null) { if (rawGet(homeKeyFor(id)) === null) jset(homeKeyFor(id), legacyHome); del(LEGACY_HOME); }
+    if (!saved?.ok) setDirty(id, Object.keys(EMPTY));   // 못 올렸으면 다음 pull 때 다시
+    return message ? { ok: true, elder: made.elder, message } : { ok: true, elder: made.elder };
+  } finally { settleCreated(id); }
 }
-

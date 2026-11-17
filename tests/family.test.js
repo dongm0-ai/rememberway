@@ -574,3 +574,103 @@ test("inviteAccept racing deleteElder fails closed (no member row for a deleted 
     assert.equal(s.t.elder_members.length, 0);
   }
 });
+
+// ---------------------------------------------------------------- 수정 2차 (리뷰)
+test("importDevice race: both pass the check, loser hits unique → DEVICE_TAKEN, loser's events stay its own", async () => {
+  const s = setup();
+  const { elder: e1, deviceCode: c1 } = await s.api.createElder(A, { label: "어머니" });
+  const { elder: e2, deviceCode: c2 } = await s.api.createElder(B, { label: "아버지" });
+  const code = "ABCDEFGHIJKLMNOP", imp = deviceHashOf(code);
+  const h1 = deviceHashOf(c1), h2 = deviceHashOf(c2);
+  s.t.loc_events.push({ id: 1, dev: h1 }, { id: 2, dev: h2 }, { id: 3, dev: imp });
+  // B 의 DEVICE_TAKEN 확인이 끝난 직후 A 의 가져오기가 먼저 끝남
+  let fired = false;
+  const racing = familyApi({
+    db: async (m, path, body, prefer) => {
+      const out = await s.db(m, path, body, prefer);
+      if (!fired && m === "GET" && path.startsWith(`elders?device_hash=eq.${imp}`)) {
+        fired = true;
+        assert.deepEqual(await s.api.importDevice(A, e1.id, code), { ok: true });
+      }
+      return out;
+    },
+  });
+  assert.deepEqual(await racing.importDevice(B, e2.id, code), { ok: false, reason: "DEVICE_TAKEN" });
+  assert.ok(fired);
+  // 진 쪽(B) 기록은 B 의 해시에 그대로, 폐기되지도 않음
+  assert.deepEqual(s.t.loc_events.filter((e) => e.dev === h2).map((e) => e.id), [2]);
+  assert.equal(s.t.elders.find((e) => e.id === e2.id).device_hash, h2);
+  assert.ok(!s.t.revoked_devices.some((r) => r.device_hash === h2));
+  // 이긴 쪽(A) 해시 아래엔 A 의 옛 기록과 가져온 코드의 기록뿐
+  assert.deepEqual(s.t.loc_events.filter((e) => e.dev === imp).map((e) => e.id).sort(), [1, 3]);
+});
+
+test("importDevice order: elders update first, then revoke, then re-tag", async () => {
+  const s = setup();
+  const { elder, deviceCode } = await s.api.createElder(A, { label: "어머니" });
+  s.t.loc_events.push({ id: 1, dev: deviceHashOf(deviceCode) });
+  await s.api.importDevice(A, elder.id, "ABCDEFGHIJKLMNOP");
+  const seq = s.calls.filter((c) => c.method !== "GET" && !c.body?.last_seen).map((c) => c.method + " " + c.path.split("?")[0]).slice(-3);
+  assert.deepEqual(seq, ["PATCH elders", "POST revoked_devices", "PATCH loc_events"]);
+});
+
+test("importDevice failing at the re-tag rolls back so a retry works", async () => {
+  const s = setup();
+  const { elder, deviceCode } = await s.api.createElder(A, { label: "어머니" });
+  const old = deviceHashOf(deviceCode), imp = deviceHashOf("ABCDEFGHIJKLMNOP");
+  s.t.loc_events.push({ id: 1, dev: old });
+  let boom = true;
+  const flaky = familyApi({
+    db: async (m, path, body, prefer) => {
+      if (boom && m === "PATCH" && path.startsWith("loc_events?")) { boom = false; throw Object.assign(new Error("x"), { reason: "STORE_ERROR" }); }
+      return s.db(m, path, body, prefer);
+    },
+  });
+  await assert.rejects(flaky.importDevice(A, elder.id, "ABCDEFGHIJKLMNOP"));
+  assert.equal(s.t.elders[0].device_hash, old);
+  assert.equal(s.t.revoked_devices.length, 0);
+  assert.deepEqual(await flaky.importDevice(A, elder.id, "ABCDEFGHIJKLMNOP"), { ok: true });
+  assert.equal(s.t.loc_events[0].dev, imp);
+});
+
+test("resetDevice: elders update committed but response lost → no undo, events stay with the new hash", async () => {
+  const s = setup();
+  const { elder, deviceCode } = await s.api.createElder(A, { label: "어머니" });
+  const old = deviceHashOf(deviceCode);
+  s.t.loc_events.push({ id: 1, dev: old });
+  let lose = true;
+  const flaky = familyApi({
+    db: async (m, path, body, prefer) => {
+      const out = await s.db(m, path, body, prefer);
+      if (lose && m === "PATCH" && path.startsWith("elders?") && body?.device_hash) { lose = false; throw Object.assign(new Error("timeout"), { reason: "STORE_ERROR" }); }
+      return out;
+    },
+  });
+  const r = await flaky.resetDevice(A, elder.id);
+  assert.equal(r.ok, true);
+  const nh = deviceHashOf(r.deviceCode);
+  assert.equal(s.t.elders[0].device_hash, nh);
+  assert.equal(s.t.loc_events[0].dev, nh);
+});
+
+test("removeMember after a concurrent owner hand-off that leaves nobody → elder purged", async () => {
+  const s = await withMember();
+  const id = s.elder.id;
+  const h = deviceHashOf(s.deviceCode);
+  s.t.loc_events.push({ id: 1, dev: h });
+  // A 가 빠지면서 B 를 owner 로 넘긴 직후, A 의 removeMember(B) 가 B 를 지움 → 아무도 없음
+  const racing = familyApi({
+    db: async (m, path, body, prefer) => {
+      if (m === "DELETE" && path.startsWith(`elder_members?elder_id=eq.${id}&user_id=eq.${B.id}`)) {
+        s.t.elder_members = s.t.elder_members.filter((x) => x.user_id !== A.id);
+        s.t.elder_members.find((x) => x.user_id === B.id).role = "owner";
+      }
+      return s.db(m, path, body, prefer);
+    },
+  });
+  assert.deepEqual(await racing.removeMember(A, id, B.id), { ok: true, deleted: true });
+  assert.equal(s.t.elders.length, 0);
+  assert.equal(s.t.elder_data.length, 0);
+  assert.equal(s.t.loc_events.length, 0);
+  assert.deepEqual(s.t.revoked_devices.map((r) => r.device_hash), [h]);
+});

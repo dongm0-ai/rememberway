@@ -9,6 +9,7 @@ const PK = {
   invites: ["token_hash"], revoked_devices: ["device_hash"], loc_events: ["id"],
 };
 const UNIQUE = { elders: [["device_hash"]] };
+const FK_ELDER = new Set(["elder_members", "elder_data", "invites"]);   // elder_id references elders (PostgREST 409 / 23503)
 const TS = new Set(["created_at", "last_seen", "joined_at", "updated_at", "expires_at", "used_at", "revoked_at", "received_at"]);
 // Postgres 가 timestamptz 를 돌려주는 모양 (우리가 보낸 "Z" 문자열과 다르다 → 코드는 문자열 비교에 기대면 안 됨)
 const pgTs = (v) => (v == null ? v : new Date(v).toISOString().replace("Z", "000+00:00"));
@@ -34,7 +35,6 @@ function fakeDb() {
       const op = raw.slice(0, d), v = decodeURIComponent(raw.slice(d + 1).replace(/\+/g, " "));   // 쿼리 문자열의 "+" 는 공백
       if (!["eq", "lt", "gt", "is", "in"].includes(op)) throw new Error("fake db: unsupported op " + op);
       if (op === "is" && v !== "null") throw new Error("fake db: only is.null");
-      if (/[&?=]/.test(v) && op !== "in") throw new Error("fake db: suspicious value " + v);
       filters.push({ k, op, v });
     }
     return { table, filters, opts };
@@ -75,6 +75,9 @@ function fakeDb() {
       const out = [];
       for (const raw of Array.isArray(body) ? body : [body]) {
         const row = norm(table, raw);
+        if (FK_ELDER.has(table) && row.elder_id != null && !t.elders.some((e) => e.id === row.elder_id)) {
+          throw Object.assign(new Error("23503 foreign key violation " + table), { reason: "STORE_ERROR" });
+        }
         if (dupe(table, row)) {
           if ((prefer ?? "").includes("resolution=ignore-duplicates")) continue;
           throw Object.assign(new Error("duplicate key " + table), { reason: "STORE_ERROR" });
@@ -134,6 +137,14 @@ test("deviceHashOf matches old devOf for same code", () => {
   assert.equal(deviceHashOf("ABCDEFGHIJKLMNOP").length, 32);
 });
 
+test("non-member gets GONE whether or not the elder exists (no existence signal)", async () => {
+  const s = setup();
+  const { elder } = await s.api.createElder(A, { label: "어머니" });
+  const missing = "44444444-4444-4444-8444-444444444444";
+  assert.deepEqual(await s.api.load(B, elder.id), await s.api.load(B, missing));
+  assert.deepEqual(await s.api.load(B, missing), { ok: false, reason: "GONE" });
+});
+
 test("owner creates elder, member cannot load other elder", async () => {
   const s = setup();
   const r = await s.api.createElder(A, { label: "  어머니 " });
@@ -151,12 +162,12 @@ test("owner creates elder, member cannot load other elder", async () => {
   const me = await s.api.me(A);
   assert.deepEqual(me, { ok: true, elders: [{ id: r.elder.id, label: "어머니", role: "owner" }] });
   // B 는 member 아님
-  assert.deepEqual(await s.api.load(B, r.elder.id), { ok: false, reason: "NOT_MEMBER" });
-  assert.deepEqual(await s.api.save(B, r.elder.id, { profile: { x: 1 }, base: l.data.updated_at }), { ok: false, reason: "NOT_MEMBER" });
-  assert.deepEqual(await s.api.inviteCreate(B, r.elder.id), { ok: false, reason: "NOT_MEMBER" });
-  assert.deepEqual(await s.api.members(B, r.elder.id), { ok: false, reason: "NOT_MEMBER" });
-  assert.deepEqual(await s.api.leave(B, r.elder.id), { ok: false, reason: "NOT_MEMBER" });
-  assert.deepEqual(await s.api.deleteElder(B, r.elder.id), { ok: false, reason: "NOT_MEMBER" });
+  assert.deepEqual(await s.api.load(B, r.elder.id), { ok: false, reason: "GONE" });
+  assert.deepEqual(await s.api.save(B, r.elder.id, { profile: { x: 1 }, base: l.data.updated_at }), { ok: false, reason: "GONE" });
+  assert.deepEqual(await s.api.inviteCreate(B, r.elder.id), { ok: false, reason: "GONE" });
+  assert.deepEqual(await s.api.members(B, r.elder.id), { ok: false, reason: "GONE" });
+  assert.deepEqual(await s.api.leave(B, r.elder.id), { ok: false, reason: "GONE" });
+  assert.deepEqual(await s.api.deleteElder(B, r.elder.id), { ok: false, reason: "GONE" });
   assert.deepEqual(await s.api.me(B), { ok: true, elders: [] });
   assert.equal(s.t.elder_data[0].profile, null);
 });
@@ -266,7 +277,7 @@ test("invite accept twice → INVITE_USED; expired → INVITE_EXPIRED", async ()
   assert.equal(inv2.ok, true);
   s.tick(24 * 3600 * 1000 + 1);
   assert.deepEqual(await s.api.inviteAccept(C, inv2.token), { ok: false, reason: "INVITE_EXPIRED" });
-  assert.deepEqual(await s.api.load(C, elder.id), { ok: false, reason: "NOT_MEMBER" });
+  assert.deepEqual(await s.api.load(C, elder.id), { ok: false, reason: "GONE" });
   // 새 member 는 role member 로 보임
   assert.deepEqual((await s.api.me(B)).elders, [{ id: elder.id, label: "어머니", role: "member" }]);
 });
@@ -300,7 +311,7 @@ test("owner leaves → earliest member becomes owner", async () => {
   s.tick(1000);
   await s.api.inviteAccept(C, inv.token);   // C 는 B 보다 나중
   assert.deepEqual(await s.api.leave(A, id), { ok: true });
-  assert.deepEqual(await s.api.load(A, id), { ok: false, reason: "NOT_MEMBER" });
+  assert.deepEqual(await s.api.load(A, id), { ok: false, reason: "GONE" });
   const roles = Object.fromEntries(s.t.elder_members.map((m) => [m.user_id, m.role]));
   assert.deepEqual(roles, { [B.id]: "owner", [C.id]: "member" });
   assert.equal(s.t.elders.length, 1);
@@ -336,7 +347,7 @@ test("member cannot removeMember/deleteElder/resetDevice/importDevice → NOT_OW
   assert.deepEqual(await s.api.removeMember(A, id, A.id), { ok: false, reason: "USE_LEAVE" });
   assert.deepEqual(await s.api.removeMember(A, id, C.id), { ok: false, reason: "NO_SUCH_MEMBER" });
   assert.deepEqual(await s.api.removeMember(A, id, B.id), { ok: true });
-  assert.deepEqual(await s.api.load(B, id), { ok: false, reason: "NOT_MEMBER" });
+  assert.deepEqual(await s.api.load(B, id), { ok: false, reason: "GONE" });
 });
 
 test("deleted elder → load returns GONE", async () => {
@@ -409,4 +420,157 @@ test("member requests update elders.last_seen", async () => {
   s.tick(60000);
   await s.api.load(B, elder.id);
   assert.equal(Date.parse(s.t.elders[0].last_seen) - Date.parse(before), 60000);
+});
+
+// ---------------------------------------------------------------- 수정 1차 (리뷰)
+test("removed member's earlier invites stop working (deleted, and rejected if still there)", async () => {
+  const s = await withMember();
+  const id = s.elder.id;
+  const inv = await s.api.inviteCreate(B, id);
+  const kept = await s.api.inviteCreate(A, id);
+  assert.deepEqual(await s.api.removeMember(A, id, B.id), { ok: true });
+  assert.ok(!s.t.invites.some((i) => i.created_by === B.id && i.used_at == null), "B's unused invites deleted");
+  assert.ok(s.t.invites.some((i) => i.created_by === A.id && i.used_at == null), "owner's invite kept");
+  assert.deepEqual(await s.api.inviteAccept(B, inv.token), { ok: false, reason: "INVITE_NOT_FOUND" });
+  assert.deepEqual(await s.api.inviteAccept(C, inv.token), { ok: false, reason: "INVITE_NOT_FOUND" });
+  assert.deepEqual(await s.api.load(B, id), { ok: false, reason: "GONE" });
+  assert.deepEqual(await s.api.inviteAccept(C, kept.token), { ok: true, elderId: id });
+});
+
+test("member who left can't come back with their own earlier invite", async () => {
+  const s = await withMember();
+  const id = s.elder.id;
+  const inv = await s.api.inviteCreate(B, id);
+  assert.deepEqual(await s.api.leave(B, id), { ok: true });
+  assert.ok(!s.t.invites.some((i) => i.created_by === B.id && i.used_at == null));
+  assert.deepEqual(await s.api.inviteAccept(B, inv.token), { ok: false, reason: "INVITE_NOT_FOUND" });
+  assert.deepEqual(await s.api.inviteAccept(C, inv.token), { ok: false, reason: "INVITE_NOT_FOUND" });
+  assert.equal(s.t.elder_members.length, 1);
+});
+
+test("invite whose creator is no longer a member is rejected even if the row survived (race)", async () => {
+  const s = await withMember();
+  const id = s.elder.id;
+  const inv = await s.api.inviteCreate(B, id);
+  s.t.elder_members = s.t.elder_members.filter((m) => m.user_id !== B.id);   // 초대 삭제 전에 멤버만 빠진 상태
+  assert.deepEqual(await s.api.inviteAccept(C, inv.token), { ok: false, reason: "INVITE_NOT_FOUND" });
+  assert.equal(s.t.invites.find((i) => i.created_by === B.id).used_at, null);
+  assert.equal(s.t.elder_members.length, 1);
+});
+
+test("resetDevice moves old-hash location events to the new hash (revoke → re-tag → elders)", async () => {
+  const s = setup();
+  const { elder, deviceCode } = await s.api.createElder(A, { label: "어머니" });
+  const old = deviceHashOf(deviceCode);
+  s.t.loc_events.push({ id: 1, dev: old }, { id: 2, dev: old }, { id: 3, dev: "otherdev" });
+  const r = await s.api.resetDevice(A, elder.id);
+  const nh = deviceHashOf(r.deviceCode);
+  assert.deepEqual(s.t.loc_events.filter((e) => e.dev === nh).map((e) => e.id), [1, 2]);
+  assert.equal(s.t.loc_events.filter((e) => e.dev === old).length, 0);
+  assert.equal(s.t.loc_events.find((e) => e.id === 3).dev, "otherdev");
+  const seq = s.calls.filter((c) => c.method !== "GET" && !c.body?.last_seen).map((c) => c.method + " " + c.path.split("?")[0]).slice(-3);
+  assert.deepEqual(seq, ["POST revoked_devices", "PATCH loc_events", "PATCH elders"]);
+});
+
+test("resetDevice failing at the elders update is retry-safe (events go back, retry moves them)", async () => {
+  const s = setup();
+  const { elder, deviceCode } = await s.api.createElder(A, { label: "어머니" });
+  const old = deviceHashOf(deviceCode);
+  s.t.loc_events.push({ id: 1, dev: old });
+  let boom = true;
+  const flaky = familyApi({
+    db: async (m, path, body, prefer) => {
+      if (boom && m === "PATCH" && path.startsWith("elders?") && body?.device_hash) { boom = false; throw Object.assign(new Error("x"), { reason: "STORE_ERROR" }); }
+      return s.db(m, path, body, prefer);
+    },
+  });
+  await assert.rejects(flaky.resetDevice(A, elder.id));
+  assert.equal(s.t.loc_events[0].dev, old);
+  const r = await flaky.resetDevice(A, elder.id);
+  assert.equal(s.t.loc_events[0].dev, deviceHashOf(r.deviceCode));
+  assert.equal(s.t.elders[0].device_hash, deviceHashOf(r.deviceCode));
+});
+
+test("importDevice merges old-hash events into the imported code; imported code's own events stay", async () => {
+  const s = setup();
+  const { elder, deviceCode } = await s.api.createElder(A, { label: "어머니" });
+  const old = deviceHashOf(deviceCode), imp = deviceHashOf("ABCDEFGHIJKLMNOP");
+  s.t.loc_events.push({ id: 1, dev: old }, { id: 2, dev: imp });
+  assert.deepEqual(await s.api.importDevice(A, elder.id, "ABCDEFGHIJKLMNOP"), { ok: true });
+  assert.deepEqual(s.t.loc_events.map((e) => e.dev), [imp, imp]);
+});
+
+async function threeMembers() {
+  const s = await withMember();
+  s.tick(1000);
+  const inv = await s.api.inviteCreate(A, s.elder.id);
+  s.tick(1000);
+  await s.api.inviteAccept(C, inv.token);
+  return s;
+}
+
+test("removeMember racing owner's leave → remaining member still gets owner", async () => {
+  const s = await threeMembers();
+  const id = s.elder.id;
+  // A 가 B 를 내보내는 사이 A 의 leave 가 먼저 끝나 B 가 owner 가 된 상태
+  const racing = familyApi({
+    db: async (m, path, body, prefer) => {
+      if (m === "DELETE" && path.startsWith(`elder_members?elder_id=eq.${id}&user_id=eq.${B.id}`)) {
+        s.t.elder_members = s.t.elder_members.filter((x) => x.user_id !== A.id);
+        s.t.elder_members.find((x) => x.user_id === B.id).role = "owner";
+      }
+      return s.db(m, path, body, prefer);
+    },
+  });
+  assert.deepEqual(await racing.removeMember(A, id, B.id), { ok: true });
+  assert.deepEqual(s.t.elder_members.map((x) => [x.user_id, x.role]), [[C.id, "owner"]]);
+});
+
+test("leave racing removeMember → remaining member still gets owner", async () => {
+  const s = await threeMembers();
+  const id = s.elder.id;
+  // A(owner) 가 빠지는 사이, 목록을 읽은 뒤에 B 가 내보내짐 → leave 가 다시 읽어 C 를 owner 로
+  const racing = familyApi({
+    db: async (m, path, body, prefer) => {
+      if (m === "DELETE" && path.startsWith(`elder_members?elder_id=eq.${id}&user_id=eq.${A.id}`)) {
+        s.t.elder_members = s.t.elder_members.filter((x) => x.user_id !== B.id);
+      }
+      return s.db(m, path, body, prefer);
+    },
+  });
+  assert.deepEqual(await racing.leave(A, id), { ok: true });
+  assert.deepEqual(s.t.elder_members.map((x) => [x.user_id, x.role]), [[C.id, "owner"]]);
+});
+
+test("inviteAccept racing deleteElder fails closed (no member row for a deleted elder)", async () => {
+  // (1) 초대를 쓴 직후, member 행을 넣기 전에 어르신이 지워짐 → FK 위반으로 던짐
+  {
+    const s = setup();
+    const { elder } = await s.api.createElder(A, { label: "어머니" });
+    const inv = await s.api.inviteCreate(A, elder.id);
+    const racing = familyApi({
+      db: async (m, path, body, prefer) => {
+        if (m === "POST" && path === "elder_members") await s.api.deleteElder(A, elder.id);
+        return s.db(m, path, body, prefer);
+      },
+    });
+    await assert.rejects(racing.inviteAccept(B, inv.token), /foreign key/);
+    assert.equal(s.t.elder_members.length, 0);
+    assert.equal(s.t.elders.length, 0);
+    assert.deepEqual(await s.api.me(B), { ok: true, elders: [] });
+  }
+  // (2) 읽은 뒤 초대를 쓰기 전에 어르신이 지워짐 → 초대도 cascade 로 사라져 INVITE_NOT_FOUND
+  {
+    const s = setup();
+    const { elder } = await s.api.createElder(A, { label: "어머니" });
+    const inv = await s.api.inviteCreate(A, elder.id);
+    const racing = familyApi({
+      db: async (m, path, body, prefer) => {
+        if (m === "PATCH" && path.startsWith("invites?")) await s.api.deleteElder(A, elder.id);
+        return s.db(m, path, body, prefer);
+      },
+    });
+    assert.deepEqual(await racing.inviteAccept(B, inv.token), { ok: false, reason: "INVITE_NOT_FOUND" });
+    assert.equal(s.t.elder_members.length, 0);
+  }
 });

@@ -27,7 +27,7 @@ public/lib/schema.js    타입 설명·가중치·임계값·되묻기 우선순
 public/lib/verify.js    스키마 검사·missing 재계산·환각 대조 (브라우저·서버 공용)
 public/lib/priority.js  R_max, 우선 확인 순서, 지금 할 일 3가지, 요약문 조립 (규칙)
 public/lib/diary.js     일지 → 장소 4분류, 주간 집계 (규칙)
-public/lib/gps.js       GPS 기록 → 머문 곳(박진관·오수열 2016 통계 방식) → 자주 머문 곳, 최근 30일 (규칙, 브라우저·서버 공용)
+public/lib/gps.js       GPS 기록 → 머문 곳(박진관·오수열 2016 식 그대로) → 같은 곳 묶기(DBSCAN, Bayat 2020 MinPts 4·Eps 94m) → 자주 머문 곳, 최근 30일 (규칙, 브라우저·서버 공용)
 lib/prompts.js          호출 ①②④⑤⑥⑦ 시스템 프롬프트  ← "없으면 null", "원문에 없는 사실 금지"는 삭제 금지
 lib/claude.js           생성형 AI 호출 — Upstage Solar / Gemini / Claude (AI_PROVIDER), fetch, 서버 전용, 15초 타임아웃·대체 모델, MOCK_AI
 lib/http.js             서버 함수 공통 (POST 파싱, 오류 → ok:false)

@@ -39,8 +39,9 @@
 
   <details class="card tight"><summary class="small"><b>머문 곳을 정하는 방법</b> (숫자를 미리 정하지 않음)</summary>
     <ul class="plain small muted">
-      <li>박진관·오수열(2016, 스마트미디어저널)의 통계 방식: 그날 기록의 속력 분포를 나눠 가장 느린 무리를 "멈춤"으로, 방향이 제멋대로인 구간을 머문 곳으로 봅니다. 건물에 들어가 GPS가 유난히 오래 끊기고(상위 5%) 끊기기 전후 거리가 평범하면 실내에 머문 것으로 봅니다.</li>
-      <li>논문의 식이 PDF에서 깨져 있어 일부는 우리 해석입니다 (코드 public/lib/gps.js 주석).</li>
+      <li><b>머문 곳</b>: 박진관·오수열(2016, 스마트미디어저널) 식 그대로 — 날짜별 속력 분포(가우스 혼합)의 가장 느린 무리보다 느리고, 방위각 편차가 유의수준 5%를 넘게 큰(방향이 제멋대로인) 구간 = 밖에서 머묾. GPS 끊긴 시간이 상위 5%이고 거리가 평범하면 = 실내에서 머묾.</li>
+      <li><b>같은 곳 묶기</b>: DBSCAN(Ester 외 1996), 4번 이상 · 94m 안 (Bayat 외 2020 노인 GPS 연구의 값). 그래서 4번 미만 머문 곳은 목록에 나오지 않습니다.</li>
+      <li>한계: 모의 기록 시험에서 건물 안(경로당 13일)은 모두 찾았지만, 밖에서 서성인 곳(공원 6일)은 3~5일만 찾았습니다 → 보호자 확인과 직접 등록으로 보완합니다.</li>
       <li>기간: 최근 30일 (Bayat 외 2020: 노인 GPS 4주). 자주·최근 자주·새로운 곳 분류는 일지와 같은 규칙입니다.</li>
       <li id="rules"></li>
     </ul>
@@ -103,7 +104,7 @@
     for (const p of all) p.home = !!(home && Number.isFinite(home.lat) && distM(p, home) <= Math.max(p.radius_m, 1) * 2) || p.home;
     places = all.filter((p) => !p.home && p.days.length >= 1);
     const r0 = rules?.[rules.length - 1];
-    $("#rules").textContent = r0 ? `이번 기록에서 계산된 기준 예 (${r0.day}): 멈춤 속력 ${r0.speed_mps ?? "구분 안 됨"} m/s · 실내 판정 끊김 ${r0.gap_s}초 이상, 거리 ${r0.gap_m}m 이하` : "";
+    $("#rules").textContent = r0 ? `이번 기록에서 계산된 기준 예 (${r0.day}): 멈춤 속력 ${r0.speed_mps ?? "-"} m/s · 방위각 편차 ${r0.bearing_rad ?? "-"} rad 초과 · 실내 판정 끊김 ${r0.gap_s}초 넘음, 거리 ${r0.gap_m}m 미만` : "";
     $("#msg").textContent = `${from}: ${tr.from} ~ ${tr.to}, 위치 ${tr.points}개${isMock ? " · ⚠ 모의 기록(가짜 데이터)" : ""}`;
     $("#result").classList.remove("hidden");
     $("#stat").textContent = `· 기록 ${tr.days}일 · ${places.length}곳 (집 제외)`;

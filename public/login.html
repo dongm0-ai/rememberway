@@ -61,6 +61,10 @@
 
   <form class="card hidden" id="form-newpw" novalidate>
     <h2 style="margin-top:0">새 비밀번호를 정해 주세요</h2>
+    <div class="callout hidden" id="newpw-who" style="margin-bottom:6px">
+      <div>비밀번호를 바꿀 계정: <b id="newpw-email" style="word-break:break-all"></b></div>
+      <div class="small" style="margin-top:4px">내 이메일이 아니라면 바꾸지 말고 아래 [내 계정이 아니에요]를 눌러 주세요.</div>
+    </div>
     <label for="newpw">새 비밀번호 (6자 이상)</label>
     <input id="newpw" name="new-password" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
     <label for="newpw2">새 비밀번호 한 번 더</label>
@@ -69,6 +73,7 @@
     <p class="msg" id="msg2" role="alert" aria-live="polite"></p>
     <div class="stack login-actions">
       <button class="btn-primary btn-xl" type="submit" id="btn-newpw">비밀번호 바꾸기</button>
+      <button class="btn-ghost" type="button" id="btn-notme">내 계정이 아니에요</button>
     </div>
   </form>
 
@@ -77,7 +82,16 @@
 </main>
 <script type="module">
   import { $ } from "/js/common.js"; // 서비스워커 등록도 같이 된다
-  import { session, signIn, signUp, resetPassword, updatePassword, acceptRecoveryLink, savedEmail, rememberEmail, nextUrl, authReady, reasonText, recentlyRejected } from "/js/auth.js";
+  import { session, signIn, signUp, signOut, resetPassword, updatePassword, acceptRecoveryLink, sessionFromHash, savedEmail, rememberEmail, nextUrl, authReady, reasonText, recentlyRejected } from "/js/auth.js";
+
+  // 비밀번호 메일 링크의 #토큰은 가장 먼저 복사해 두고 주소창에서 바로 지운다 (?reset=1 이 없어도). 토큰은 이 변수에만 남는다
+  const recoveryHash = (() => {
+    const h = location.hash;
+    if (h.length > 1 && sessionFromHash(h)) { history.replaceState(null, "", location.pathname + location.search); return h; }
+    return "";
+  })();
+  const resetParam = new URLSearchParams(location.search).get("reset") === "1";
+  const TRANSIENT = new Set(["NETWORK", "TIMEOUT", "SERVER", "RATE_LIMITED"]); // 잠시 뒤 다시 해 볼 만한 실패 (링크 자체는 아직 쓸 수 있다)
 
   const STATES = ["state-loading", "state-notice", "form-login", "form-newpw"];
   const show = (id) => STATES.forEach((s) => $("#" + s).classList.toggle("hidden", s !== id));
@@ -86,12 +100,13 @@
   const goNext = () => location.replace(nextUrl(location.search));
   const validEmail = (v) => /^\S+@\S+\.\S+$/.test(v);
 
-  function notice(text, { retry = false } = {}) {
+  // 안내 화면. onRetry 가 있으면 [다시 시도] (새로고침이 아니라 메모리에 둔 링크 토큰으로 다시 한다)
+  function notice(text, { onRetry = null } = {}) {
     $("#notice-text").textContent = text;
-    $("#btn-retry").classList.toggle("hidden", !retry);
+    $("#btn-retry").classList.toggle("hidden", !onRetry);
+    $("#btn-retry").onclick = onRetry;
     show("state-notice");
   }
-  $("#btn-retry").onclick = () => location.reload();
 
   // 비밀번호 보기
   $("#showpw").onchange = (e) => { $("#pw").type = e.target.checked ? "text" : "password"; };
@@ -155,6 +170,28 @@
     setTimeout(goNext, 1200);
   });
 
+  // 누구의 비밀번호를 바꾸는지 보여 준다 (다른 사람이 만든 링크로 남의 계정에 들어오게 되는 일을 알아볼 수 있게). 이메일은 textContent 로만 넣는다
+  async function showNewPassword() {
+    const s = await session();
+    const email = s?.user?.email || "";
+    $("#newpw-email").textContent = email;
+    $("#newpw-who").classList.toggle("hidden", !email);
+    show("form-newpw");
+    $("#newpw").focus();
+  }
+  $("#btn-notme").onclick = async () => {
+    setBusy(formPw, true);
+    await signOut(); // 이 폰에 저장된 이 세션만 지운다
+    setBusy(formPw, false);
+    setHeading(false);
+    showLogin("");
+  };
+
+  function setHeading(reset) {
+    $("#title").textContent = reset ? "비밀번호 바꾸기" : "로그인";
+    $("#lead").textContent = reset ? "메일로 받은 링크로 들어오셨다면 새 비밀번호를 정할 수 있어요." : "가족이 어르신 정보를 함께 보려면 로그인이 필요해요. 한 번 로그인하면 이 휴대폰에서는 다음부터 자동으로 들어와요.";
+  }
+
   function showLogin(note, kind = "err") {
     show("form-login");
     const saved = savedEmail();
@@ -163,34 +200,40 @@
     $(saved ? "#pw" : "#email").focus();
   }
 
-  async function init() {
-    const isReset = new URLSearchParams(location.search).get("reset") === "1";
+  // hash: 메일 링크에서 복사해 둔 #토큰 (없으면 ""). [다시 시도]도 같은 값으로 다시 부른다
+  async function init(hash = "") {
+    show("state-loading");
+    const retry = () => init(hash);
+    const link = hash ? sessionFromHash(hash) : null;
+    const recovery = Boolean(link && (link.error || link.type === "recovery"));
     let note = "";
 
-    if (isReset) {
-      $("#title").textContent = "비밀번호 바꾸기";
-      $("#lead").textContent = "메일로 받은 링크로 들어오셨다면 새 비밀번호를 정할 수 있어요.";
+    if (recovery || resetParam) {
+      if (link?.error) { setHeading(false); return showLogin(reasonText(link.error)); } // 만료·이미 쓴 링크 — 서버에 물어볼 것 없이 안내
+      setHeading(true);
       const ready = await authReady();
-      if (!ready.ok) return notice(reasonText(ready.reason), { retry: ready.reason !== "NOT_CONFIGURED" });
-      if (location.hash.length > 1) {
-        const r = await acceptRecoveryLink(location.hash);
-        history.replaceState(null, "", location.pathname + location.search); // 주소창에 토큰이 남지 않게
-        if (r.ok) { show("form-newpw"); $("#newpw").focus(); return; }
+      if (!ready.ok) return notice(reasonText(ready.reason), { onRetry: ready.reason === "NOT_CONFIGURED" ? null : retry });
+      if (recovery) {
+        const r = await acceptRecoveryLink(hash);
+        if (r.ok) {
+          if (!resetParam) { const q = new URLSearchParams(location.search); q.set("reset", "1"); history.replaceState(null, "", location.pathname + "?" + q); } // 새로고침해도 이 화면
+          return showNewPassword();
+        }
+        if (TRANSIENT.has(r.reason)) return notice(reasonText(r.reason), { onRetry: retry });
         note = reasonText(r.reason);
-      } else if (await session()) { show("form-newpw"); $("#newpw").focus(); return; }
+      } else if (await session()) return showNewPassword();
       else note = reasonText("NO_LINK");
-      $("#title").textContent = "로그인";
-      $("#lead").textContent = "가족이 어르신 정보를 함께 보려면 로그인이 필요해요.";
+      setHeading(false);
       return showLogin(note);
     }
 
     // 자동 로그인: 저장된 로그인이 아직 유효하면(필요하면 갱신해서) 바로 원래 가려던 화면으로
     if (!recentlyRejected() && (await session())) return goNext();
     const ready = await authReady();
-    if (!ready.ok) return notice(reasonText(ready.reason), { retry: ready.reason !== "NOT_CONFIGURED" });
+    if (!ready.ok) return notice(reasonText(ready.reason), { onRetry: ready.reason === "NOT_CONFIGURED" ? null : retry });
     showLogin(recentlyRejected() ? reasonText("UNAUTHORIZED") : "");
   }
-  init().catch(() => notice(reasonText("UNKNOWN"), { retry: true }));
+  init(recoveryHash).catch(() => notice(reasonText("UNKNOWN"), { onRetry: () => init(recoveryHash) }));
 </script>
 </body>
 </html>

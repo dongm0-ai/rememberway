@@ -26,6 +26,14 @@ test("nextUrl blocks protocol-relative, backslash and scheme tricks", () => {
   for (const bad of ["//evil.com", "/\\evil.com", "/\n/evil.com", "/\t/evil.com", "javascript:alert(1)", "evil.com", "http:evil.com", "///evil.com", " //evil.com"])
     assert.equal(nextUrl("?next=" + encodeURIComponent(bad)), "/", JSON.stringify(bad));
 });
+test("nextUrl blocks dot-segment tricks that normalize to a protocol-relative URL", () => {
+  for (const bad of ["/.//evil.com", "/%2e//evil.com", "/%2E%2E//evil.com", "/a/..//evil.com", "/..//evil.com/x?y=1", "/./\\evil.com", "/%2e%2e/%2e%2e//evil.com"]) {
+    const out = nextUrl("?next=" + encodeURIComponent(bad));
+    assert.equal(out, "/", JSON.stringify(bad));
+  }
+  // 안전한 점 경로는 정리된 같은 사이트 경로로
+  assert.equal(nextUrl("?next=" + encodeURIComponent("/a/../report?x=1")), "/report?x=1");
+});
 test("nextUrl defaults to / when missing or empty", () => {
   assert.equal(nextUrl(""), "/");
   assert.equal(nextUrl("?reset=1"), "/");
@@ -36,6 +44,9 @@ test("nextUrl does not bounce back to the login page", () => {
   assert.equal(nextUrl("?next=%2Flogin"), "/");
   assert.equal(nextUrl("?next=%2Flogin%3Fnext%3D%2Freport"), "/");
   assert.equal(nextUrl("?next=%2Flogin.html"), "/");
+  for (const v of ["/LOGIN", "/Login.html", "/login/", "/login.html/", "/a/../login", "/%2e/login", "/./login?next=%2Fx"])
+    assert.equal(nextUrl("?next=" + encodeURIComponent(v)), "/", v);
+  assert.equal(nextUrl("?next=" + encodeURIComponent("/loginx")), "/loginx", "only the login page itself is excluded");
 });
 test("nextUrl keeps query and hash of a same-site path (invite link)", () => assert.equal(nextUrl("?next=" + encodeURIComponent("/join?t=abc%20d#x")), "/join?t=abc%20d#x"));
 
@@ -43,8 +54,12 @@ test("toSession fills expires_at from expires_in and keeps only needed fields", 
   const s = toSession({ access_token: "a", refresh_token: "r", expires_in: 3600, user: { id: "u1", email: "a@b.c", phone: "010", app_metadata: {} } }, 1000);
   assert.deepEqual(s, { access_token: "a", refresh_token: "r", expires_at: 4600, user: { id: "u1", email: "a@b.c" } });
 });
-test("toSession prefers expires_at, falls back to previous user, rejects tokenless data", () => {
-  assert.equal(toSession({ access_token: "a", refresh_token: "r", expires_at: 5000, expires_in: 1 }, 1000, { id: "old", email: "o@b.c" }).expires_at, 5000);
+test("toSession: expires_in + local clock wins over the server's expires_at (clock skew); expires_at is the fallback", () => {
+  assert.equal(toSession({ access_token: "a", refresh_token: "r", expires_at: 999999, expires_in: 3600 }, 1000).expires_at, 4600);
+  assert.equal(toSession({ access_token: "a", refresh_token: "r", expires_at: 5000 }, 1000).expires_at, 5000);
+  assert.equal(toSession({ access_token: "a", refresh_token: "r" }, 1000).expires_at, 4600, "neither → one hour");
+});
+test("toSession falls back to the previous user and rejects tokenless data", () => {
   assert.deepEqual(toSession({ access_token: "a", refresh_token: "r", expires_at: 5000 }, 1000, { id: "old", email: "o@b.c" }).user, { id: "old", email: "o@b.c" });
   assert.equal(toSession({ user: { id: "u1" } }, 1000), null);
   assert.equal(toSession({ access_token: "a" }, 1000), null);
@@ -54,6 +69,8 @@ test("toSession prefers expires_at, falls back to previous user, rejects tokenle
 test("sessionFromHash reads a recovery link", () => {
   const r = sessionFromHash("#access_token=AT&expires_in=3600&refresh_token=RT&token_type=bearer&type=recovery", 1000);
   assert.deepEqual(r, { type: "recovery", tokens: { access_token: "AT", refresh_token: "RT", expires_at: 4600 } });
+  assert.equal(sessionFromHash("#access_token=AT&refresh_token=RT&expires_at=999999&expires_in=3600&type=recovery", 1000).tokens.expires_at, 4600, "local clock + expires_in");
+  assert.equal(sessionFromHash("#access_token=AT&refresh_token=RT&expires_at=5000&type=recovery", 1000).tokens.expires_at, 5000);
 });
 test("sessionFromHash reports an expired/invalid link", () => {
   const r = sessionFromHash("#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired", 1000);
@@ -93,10 +110,20 @@ test("reasonText: Korean text for every reason, polite, no raw codes", () => {
   assert.equal(reasonText("NOT_CONFIGURED"), "로그인 서버가 아직 설정되지 않았어요 (관리자 설정 필요)");
 });
 
-test("importing the module touches no browser globals", () => {
-  // 이 파일 맨 위에서 이미 import 했다. window/localStorage/location 없이도 여기까지 왔다는 것이 증거.
-  assert.equal(typeof globalThis.window, "undefined");
-  assert.equal(typeof globalThis.document, "undefined");
+test("importing the module reads no browser global (getter trap on window/document/localStorage/sessionStorage/location/navigator)", async () => {
+  const names = ["window", "document", "localStorage", "sessionStorage", "location", "navigator", "history"];
+  const saved = new Map(names.map((n) => [n, Object.getOwnPropertyDescriptor(globalThis, n)]));
+  const touched = [];
+  for (const n of names) Object.defineProperty(globalThis, n, { configurable: true, get() { touched.push(n); throw new Error("touched " + n + " at import time"); } });
+  try {
+    const fresh = await import("../public/js/auth.js?trap=" + Date.now()); // 새로 평가된 모듈 (캐시된 것이 아님)
+    assert.equal(typeof fresh.nextUrl, "function");
+    assert.equal(fresh.needsRefresh({ expires_at: 1000 }, 950), true);
+    assert.equal(fresh.nextUrl("?next=%2Freport"), "/report"); // 순수 함수는 브라우저 없이 동작
+    assert.deepEqual(touched, []);
+  } finally {
+    for (const n of names) { const d = saved.get(n); if (d) Object.defineProperty(globalThis, n, d); else delete globalThis[n]; }
+  }
 });
 
 // ---- 브라우저 흉내 (Map 저장소, 가짜 location·fetch) ------------------------------------
@@ -222,6 +249,73 @@ test("session(): network failure on refresh keeps the stored session (null if al
   } finally { uninstall(); }
 });
 
+test("session(): refresh rejected because another tab already used the token → adopt that tab's session, do not drop it", async () => {
+  const env = install({ routes: [{ match: (u) => u.includes("grant_type=refresh_token"), reply: () => {
+    // 다른 탭이 먼저 같은 refresh token 으로 갱신해 저장해 둔 상태에서, 우리 요청은 "이미 쓴 토큰"으로 거부된다
+    env.ls.setItem("rw_session", JSON.stringify(tokens({ access_token: "AT7", refresh_token: "RT7", expires_at: nowSec() + 3000 })));
+    return json(400, { error_code: "refresh_token_already_used", msg: "Invalid Refresh Token: Already Used" });
+  } }] });
+  env.ls.setItem("rw_session", JSON.stringify(tokens({ expires_at: nowSec() + 5 })));
+  try {
+    const s = await session();
+    assert.equal(s.access_token, "AT7");
+    assert.equal(JSON.parse(env.ls.getItem("rw_session")).refresh_token, "RT7", "the other tab's session is kept");
+  } finally { uninstall(); }
+});
+
+test("session(): refresh rejected and the stored token is still the one we sent → session dropped", async () => {
+  const env = install({ routes: [{ match: (u) => u.includes("grant_type=refresh_token"), reply: () => json(400, { error_code: "refresh_token_already_used" }) }] });
+  env.ls.setItem("rw_session", JSON.stringify(tokens({ expires_at: nowSec() + 5 })));
+  try {
+    assert.equal(await session(), null);
+    assert.equal(env.ls.getItem("rw_session"), null);
+  } finally { uninstall(); }
+});
+
+test("session(): refresh runs inside navigator.locks 'rw_refresh' when available, and re-checks storage once it holds the lock", async () => {
+  const orig = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const lockCalls = [];
+  const env = install({ routes: [{ match: (u) => u.includes("grant_type=refresh_token"), reply: () => json(200, { access_token: "AT2", refresh_token: "RT2", expires_in: 3600, user: { id: "u1", email: "a@b.c" } }) }] });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { locks: { request: async (name, fn) => {
+    lockCalls.push(name);
+    // 잠금을 기다리는 사이 다른 탭이 이미 갱신해 저장했다
+    if (lockCalls.length === 2) env.ls.setItem("rw_session", JSON.stringify(tokens({ access_token: "AT5", refresh_token: "RT5", expires_at: nowSec() + 3000 })));
+    return fn();
+  } } } });
+  env.ls.setItem("rw_session", JSON.stringify(tokens({ expires_at: nowSec() + 5 })));
+  try {
+    assert.equal((await session()).access_token, "AT2");
+    assert.deepEqual(lockCalls, ["rw_refresh"]);
+    assert.equal(env.authCalls().length, 1);
+    // 두 번째: 잠금을 얻은 뒤 보니 다른 탭이 이미 갱신했다 → 요청 없이 그 세션을 쓴다
+    env.ls.setItem("rw_session", JSON.stringify(tokens({ access_token: "AT3", refresh_token: "RT3", expires_at: nowSec() + 5 })));
+    assert.equal((await session()).access_token, "AT5");
+    assert.deepEqual(lockCalls, ["rw_refresh", "rw_refresh"]);
+    assert.equal(env.authCalls().length, 1, "no second refresh request");
+  } finally { if (orig) Object.defineProperty(globalThis, "navigator", orig); else delete globalThis.navigator; uninstall(); }
+});
+
+test("signOut during an in-flight refresh: the late refresh result is not saved (no zombie login)", async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const env = install({ routes: [
+    { match: (u) => u === "/api/loc", reply: () => json(401, {}) },
+    { match: (u) => u.includes("grant_type=refresh_token"), reply: async () => { await gate; return json(200, { access_token: "AT2", refresh_token: "RT2", expires_in: 3600, user: { id: "u1", email: "a@b.c" } }); } },
+    { match: (u) => u.includes("/auth/v1/logout"), reply: () => json(204, null) },
+  ] });
+  env.ls.setItem("rw_session", JSON.stringify(tokens()));
+  try {
+    const pending = authFetch({ action: "me" }); // 401 → 갱신 시작 (응답을 붙잡아 둠)
+    for (let i = 0; i < 50 && !env.authCalls().some((c) => c.url.includes("refresh_token")); i++) await new Promise((r) => setTimeout(r, 5));
+    assert.ok(env.authCalls().some((c) => c.url.includes("refresh_token")), "refresh is in flight");
+    await signOut();
+    assert.equal(env.ls.getItem("rw_session"), null);
+    release();
+    await pending;
+    assert.equal(env.ls.getItem("rw_session"), null, "late refresh result must not bring the session back");
+  } finally { uninstall(); }
+});
+
 test("signIn: stores the session, returns ok; wrong password → INVALID_CREDENTIALS and nothing stored", async () => {
   let ok = true;
   const env = install({ routes: [{ match: (u) => u.includes("/auth/v1/token?grant_type=password"), reply: () => (ok ? json(200, { access_token: "AT", refresh_token: "RT", expires_in: 3600, user: { id: "u9", email: "x@y.z", identities: [{}] } }) : json(400, { error_code: "invalid_credentials", msg: "Invalid login credentials" })) }] });
@@ -256,11 +350,26 @@ test("signUp: ok stores session; existing email → EMAIL_EXISTS; short password
   } finally { uninstall(); }
 });
 
-test("auth calls without Supabase config → NOT_CONFIGURED; server unreachable → NETWORK", async () => {
+test("auth calls without Supabase config → NOT_CONFIGURED (no auth request)", async () => {
   const env = install({ config: { ai: {}, supabase: { url: null, anonKey: null } } });
   try {
     assert.deepEqual(await signIn("a@b.c", "secret1"), { ok: false, reason: "NOT_CONFIGURED" });
     assert.equal(env.authCalls().length, 0);
+  } finally { uninstall(); }
+});
+
+test("Supabase unreachable → NETWORK, request aborted → TIMEOUT, 5xx → SERVER (nothing stored)", async () => {
+  let fail;
+  const env = install({ routes: [{ match: (u) => u.includes("/auth/v1/"), reply: () => fail() }] });
+  try {
+    fail = () => { throw new TypeError("Failed to fetch"); };
+    assert.deepEqual(await signIn("a@b.c", "secret1"), { ok: false, reason: "NETWORK" });
+    assert.deepEqual(await signUp("a@b.c", "secret1"), { ok: false, reason: "NETWORK" });
+    fail = () => { const e = new Error("aborted"); e.name = "AbortError"; throw e; };
+    assert.deepEqual(await signIn("a@b.c", "secret1"), { ok: false, reason: "TIMEOUT" });
+    fail = () => json(502, {});
+    assert.deepEqual(await signIn("a@b.c", "secret1"), { ok: false, reason: "SERVER" });
+    assert.equal(env.ls.getItem("rw_session"), null);
   } finally { uninstall(); }
 });
 
@@ -386,6 +495,17 @@ test("authFetch: 401 but another tab already refreshed → retry with the stored
   try {
     assert.deepEqual(await authFetch({ action: "me" }), { ok: true, via: "AT9" });
     assert.equal(env.authCalls().length, 0);
+  } finally { uninstall(); }
+});
+
+test("authFetch: session() is null only because refresh failed transiently → NETWORK, no redirect, no API call", async () => {
+  const env = install({ routes: [{ match: (u) => u.includes("grant_type=refresh_token"), reply: () => { throw new TypeError("Failed to fetch"); } }] });
+  env.ls.setItem("rw_session", JSON.stringify(tokens({ expires_at: nowSec() - 10 }))); // 만료됨 + 갱신 불가
+  try {
+    assert.deepEqual(await authFetch({ action: "me" }), { ok: false, reason: "NETWORK" });
+    assert.equal(globalThis.location.href, "https://rw.example/report?x=1", "not sent to the login page");
+    assert.ok(env.ls.getItem("rw_session"), "session kept");
+    assert.equal(env.calls.filter((c) => c.url.startsWith("/api/loc")).length, 0);
   } finally { uninstall(); }
 });
 

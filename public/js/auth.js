@@ -33,16 +33,20 @@ export function nextUrl(search) {
     if (!raw || raw[0] !== "/" || raw[1] === "/" || /[\u0000-\u001f\u007f\\]/.test(raw)) return "/";
     const u = new URL(raw, "http://same.site");
     if (u.origin !== "http://same.site") return "/";
-    if (u.pathname === "/login" || u.pathname === "/login.html") return "/";
-    return u.pathname + u.search + u.hash;
+    if (/^\/login(\.html)?\/?$/i.test(u.pathname)) return "/"; // 점 경로(/a/../login)도 정리된 뒤의 경로로 본다
+    const out = u.pathname + u.search + u.hash;
+    // 마지막 방어선: "/.//evil.com", "/%2e//evil.com" 처럼 점 경로가 정리되면 "//evil.com" 이 되는 경우까지 막는다.
+    // 결과는 반드시 "/" 로 시작하고 그 다음이 "/" 나 "\" 가 아니어야 한다 (같은 사이트의 경로)
+    return /^\/(?![\/\\])/.test(out) ? out : "/";
   } catch { return "/"; }
 }
 
-/** Supabase 응답 → 저장용 세션 {access_token, refresh_token, expires_at, user:{id,email}}. 토큰이 없으면 null. expires_at 이 없으면 expires_in 으로 계산 */
+/** Supabase 응답 → 저장용 세션 {access_token, refresh_token, expires_at, user:{id,email}}. 토큰이 없으면 null.
+ *  만료 시각은 "이 기기의 지금 + expires_in" — 서버가 준 expires_at 은 기기 시계가 틀리면 어긋나므로 expires_in 이 없을 때만 쓴다 */
 export function toSession(d, now = nowSec(), prevUser = null) {
   if (!d || typeof d.access_token !== "string" || !d.access_token || typeof d.refresh_token !== "string" || !d.refresh_token) return null;
   const at = Number(d.expires_at), ei = Number(d.expires_in);
-  const expires_at = Number.isFinite(at) && at > 0 ? at : now + (ei > 0 ? ei : 3600);
+  const expires_at = ei > 0 ? now + ei : at > 0 ? at : now + 3600;
   const u = d.user?.id ? d.user : prevUser;
   return { access_token: d.access_token, refresh_token: d.refresh_token, expires_at, user: { id: u?.id ?? "", email: u?.email ?? "" } };
 }
@@ -58,7 +62,7 @@ export function sessionFromHash(hash, now = nowSec()) {
   const at = p.get("access_token"), rt = p.get("refresh_token");
   if (!at || !rt) return null;
   const ea = Number(p.get("expires_at")), ei = Number(p.get("expires_in"));
-  return { type: p.get("type") || "", tokens: { access_token: at, refresh_token: rt, expires_at: ea > 0 ? ea : now + (ei > 0 ? ei : 3600) } };
+  return { type: p.get("type") || "", tokens: { access_token: at, refresh_token: rt, expires_at: ei > 0 ? now + ei : ea > 0 ? ea : now + 3600 } };
 }
 
 /** Supabase Auth 오류(HTTP 상태 + 본문) → 우리 쪽 reason 코드 */
@@ -228,21 +232,31 @@ let refreshing = null; // 갱신은 한 번에 하나만 — refresh token 은 �
 // 서버가 "이 토큰은 안 된다"고 답한 것인가 (일시 장애·시간 초과·요청 과다는 제외)
 const isRejection = (status) => status >= 400 && status < 500 && status !== 408 && status !== 429;
 
+// 브라우저 탭끼리도 한 번에 하나만 (Web Locks). 지원하지 않으면 탭 안에서만 한 번에 하나
+const withRefreshLock = (fn) => { const l = globalThis.navigator?.locks; return l && typeof l.request === "function" ? l.request("rw_refresh", fn) : fn(); };
+
+async function doRefresh(stale) {
+  const cur = readSession();
+  if (!cur) return null;
+  if (cur.refresh_token !== stale.refresh_token && !needsRefresh(cur)) return publicSession(cur); // 기다리는 사이 다른 탭이 이미 갱신했다
+  const sent = cur.refresh_token;
+  const r = await gotrue("/token?grant_type=refresh_token", { body: { refresh_token: sent } });
+  // 네트워크를 기다리는 사이 저장소가 바뀌었는지 다시 본다
+  const now = readSession();
+  if (!now) return null; // 그 사이 로그아웃했다 — 늦게 온 응답으로 로그인이 되살아나면 안 된다
+  if (now.refresh_token !== sent) return publicSession(now); // 다른 탭(또는 새 로그인)이 이미 새 세션을 저장했다 — 우리 응답이나 거부는 무시하고 그 세션을 쓴다
+  if (r.ok) {
+    const s = toSession(r.data, nowSec(), cur.user);
+    if (s) { saveSession(s); return publicSession(s); }
+    return null;
+  }
+  if (isRejection(r.status)) { dropSession(); return null; } // 로그아웃됐거나 다른 기기에서 "모든 기기 로그아웃" — 다시 로그인해야 한다
+  return cur.expires_at > nowSec() ? publicSession(cur) : null; // 일시 장애: 세션은 지우지 않는다. 아직 유효하면 그대로 쓴다
+}
+
 function refreshSession(stale) {
   if (refreshing) return refreshing;
-  const p = (async () => {
-    const cur = readSession();
-    if (!cur) return null;
-    if (cur.refresh_token !== stale.refresh_token && !needsRefresh(cur)) return publicSession(cur); // 다른 탭이 이미 갱신했다
-    const r = await gotrue("/token?grant_type=refresh_token", { body: { refresh_token: cur.refresh_token } });
-    if (r.ok) {
-      const s = toSession(r.data, nowSec(), cur.user);
-      if (s) { saveSession(s); return publicSession(s); }
-      return null;
-    }
-    if (isRejection(r.status)) { dropSession(); return null; } // 로그아웃됐거나 다른 기기에서 "모든 기기 로그아웃" — 다시 로그인해야 한다
-    return cur.expires_at > nowSec() ? publicSession(cur) : null; // 일시 장애: 세션은 지우지 않는다. 아직 유효하면 그대로 쓴다
-  })();
+  const p = withRefreshLock(() => doRefresh(stale));
   refreshing = p;
   const done = () => { if (refreshing === p) refreshing = null; };
   p.then(done, done);
@@ -286,7 +300,10 @@ export async function authFetch(pathOrBody, maybeBody) {
   const body = hasPath ? maybeBody : pathOrBody;
 
   const s = await session();
-  if (!s) { requireLogin(); return { ok: false, reason: "NEED_LOGIN" }; }
+  if (!s) {
+    if (readSession()) return { ok: false, reason: "NETWORK" }; // 갱신이 일시적으로 안 된 것뿐 — 세션이 남아 있으니 로그인 화면으로 보내지 않는다
+    requireLogin(); return { ok: false, reason: "NEED_LOGIN" };
+  }
   const usedRefreshToken = readSession()?.refresh_token ?? ""; // 이 요청을 보낸 세션 (그 사이 다른 탭이 갱신했는지 알아보려고)
   let r = await postJson(url, body, s.access_token);
   if (r.status !== 401) return r.data;

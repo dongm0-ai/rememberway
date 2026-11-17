@@ -40,7 +40,7 @@
 <script type="module">
   import { $, el } from "/js/common.js";
   import { mountShell } from "/js/shell.js";
-  await mountShell({ tab: "live" });
+  mountShell({ tab: "live" });   // 기다리지 않는다 — 블루투스 연결 화면은 서버와 상관없이 바로 쓸 수 있게
   // hardware/necklace 와 같은 값
   const SERVICE = "7a1e0001-5c3b-4f7e-9a2d-525741590001";
   const BUZZ = "7a1e0002-5c3b-4f7e-9a2d-525741590001"; // 쓰기: 1=울림(멈출 때까지), 0=멈춤

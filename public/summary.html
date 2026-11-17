@@ -69,19 +69,21 @@
   import { loadMap, mapEngine, findPlaceLoose, findHome, createMap, findNearby, isGeneric, walkRoute, walkMatrix, tourOrderByPriority, EXACT_LIMIT, setHomeLabel, drawPrediction } from "/js/map.js";
   import { mountShell } from "/js/shell.js";
   import { authFetch } from "/js/auth.js";
-  const { elder } = await mountShell({ tab: "find" });
+  // 셸(로그인·사본 받기)은 기다리지 않고 시작만 — 단서(이 탭) 요약·복사·반경은 바로 그린다 (report.html 처럼). 어르신·지도·후보는 셸 뒤에
+  const shellReady = mountShell({ tab: "find" });
 
   const clue = store.sget(KEYS.clue);
   if (!clue) { location.replace("/report"); await new Promise(() => {}); }   // 단서가 없으면 이동만 하고 아래는 실행하지 않는다
   const mode = store.sget(KEYS.mode, { elapsedMin: 60, gait: "normal" });
-  const profile = store.get(KEYS.profile);
+  let profile = store.get(KEYS.profile);   // 이 폰의 마지막 사본 — 셸이 서버 값을 받으면 아래에서 다시 그린다
   if (mode.source === "mock") mockBanner({ mock: true });
   if (mode.source === "form") document.querySelector("main").prepend(el("div", { class: "notice", style: "margin-bottom:10px" }, "서식 입력으로 만든 요약입니다 (AI 미사용)."));
 
   // 요약문 (코드 조립)
-  const text = buildSummary(clue, profile, mode.elapsedMin);
+  let text = "";
   // 화면·복사 글 모두 아는 것만 번호 묶음 + 왼쪽 라벨로
-  {
+  function renderSummary() {
+    text = buildSummary(clue, profile, mode.elapsedMin);
     const box = $("#summary"); box.innerHTML = "";
     let n = 0;
     for (const g of summaryGroups(clue, profile, mode.elapsedMin)) {
@@ -92,6 +94,7 @@
         el("dl", {}, ...rows.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]))));
     }
   }
+  renderSummary();
   $("#copy").onclick = async () => { try { await navigator.clipboard.writeText(text); $("#copy").textContent = "복사됨 ✓"; } catch { prompt("길게 눌러 복사하세요", text); } };
   $("#share").onclick = async () => { if (navigator.share) { try { await navigator.share({ title: "실종 어르신 정리 내용", text }); } catch {} } else $("#copy").click(); };
 
@@ -100,6 +103,10 @@
   $("#rmax").textContent = fmtM(rMax); $("#elapsed").textContent = mode.elapsedMin; $("#speed").textContent = WALK_SPEED[mode.gait] ?? WALK_SPEED.normal;
   for (const [k, label] of [["memory", "추억 장소"], ["rising", "최근 자주 가기 시작한 곳"], ["frequent", "자주 가는 곳"], ["new", "새로운 곳"], ["guardian", "기타 보호자 입력"], ["intersection", "경로 위 갈림길(교차로)"], ["outOfRadius", "반경 밖"], ["basic", "집 근처 기본 장소 (말한 곳이 없을 때만)"]])
     $("#weights").append(el("tr", {}, el("td", {}, label), el("td", { class: "num" }, (WEIGHTS[k] > 0 ? "+" : "") + WEIGHTS[k])));
+
+  // 여기서부터는 셸(현재 어르신·서버 사본)이 필요 — 최대 몇 초. 그 사이 위의 요약·복사·112 는 이미 쓸 수 있다
+  const { elder } = await shellReady;
+  { const fresh = store.get(KEYS.profile); if (JSON.stringify(fresh) !== JSON.stringify(profile)) { profile = fresh; renderSummary(); } }
 
   // 후보 장소: 보호자가 말한 곳 + 등록·일지 장소. 오늘 목적지는 "이미 가 봤다"로 취급 (결정표)
   const places = clue.memory_places.map((p) => ({ ...p }));

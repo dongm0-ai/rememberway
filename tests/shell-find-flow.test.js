@@ -73,15 +73,31 @@ for (const path of ["/report", "/confirm", "/summary", "/record", "/report.html"
   });
 }
 
-test("처음 화면(/)은 지금처럼 어르신 등록 창이 자동으로 뜬다 (찾기 흐름이 아님)", async () => {
+test("처음 화면(/)도 찾기 흐름처럼: 어르신 0명이어도 창을 띄우지 않고 작은 버튼만 (🚨 카드·112를 가리지 않게)", async () => {
   const { browser, shell } = await mountOn("/");
   try {
-    let settled = false;
-    shell.mountShell({ tab: "find" }).then(() => { settled = true; });
+    const done = await Promise.race([shell.mountShell({ tab: "find" }), new Promise((r) => setTimeout(() => r("stuck"), 1500))]);
+    assert.notEqual(done, "stuck");
+    assert.equal(dialogs(browser.body).length, 0, "창이 떴다");
+    assert.equal(browser.body.querySelector("#shell-register-btn").textContent, "어르신 등록하기");
+  } finally { browser.restore(); }
+});
+
+test("/: 이 폰에 옛 등록 정보가 있으면 버튼은 '이 폰 정보 올리기', 누르면 뜨는 올리기 질문 창에 112 버튼이 있다", async () => {
+  const { browser, shell } = await mountOn("/");
+  try {
+    localStorage.setItem("rw_profile", JSON.stringify({ honorific: "어머니", gait: "normal", places: [] }));
+    await shell.mountShell({ tab: "find" });
+    assert.equal(dialogs(browser.body).length, 0, "자동으로 뜨면 안 된다");
+    const btn = browser.body.querySelector("#shell-register-btn");
+    assert.equal(btn.textContent, "이 폰 정보 올리기");
+    btn.onclick();
     await tick();
-    assert.equal(settled, false);
-    assert.equal(dialogs(browser.body).filter((d) => d.open).length, 1);
-    assert.equal(browser.body.querySelector("#shell-register-btn"), null);
+    const open = dialogs(browser.body).filter((d) => d.open);
+    assert.equal(open.length, 1);
+    assert.ok(open[0].textContent.includes("올릴까요"), "올리기 질문 창");
+    const call = open[0].querySelectorAll("a").find((a) => a.attrs.href === "tel:112");
+    assert.ok(call, "올리기 질문 창에 112 버튼이 없다");
   } finally { browser.restore(); }
 });
 
@@ -120,4 +136,76 @@ test("/record: 링크를 눌렀을 때만 어르신 등록 창이 열린다 (닫
     assert.equal(open.length, 1);
     assert.ok(open[0].textContent.includes("어르신 등록") && open[0].textContent.includes("닫기"));
   } finally { browser.restore(); }
+});
+
+// ---- 새로고침 안내: 찾기 흐름·적던 글이 있으면 자동으로 새로고침하지 않는다 ----
+async function mountedWithElder(pathname, tab) {
+  const browser = installFakeBrowser(pathname);
+  let reloads = 0;
+  globalThis.location.reload = () => { reloads++; };
+  const family = await import("../public/js/family.js");
+  const E = { id: "11111111-1111-4111-8111-111111111111", label: "아버지", role: "owner" };
+  family._setTransport(async (b) => (b?.action === "me" ? { ok: true, elders: [E] } : b?.action === "data.load" ? { ok: true, data: { profile: null, diary: [], incidents: [], updated_at: "t" } } : { ok: false, reason: "NETWORK" }));
+  const shell = await import("../public/js/shell.js?case=" + ++cases);
+  await shell.mountShell({ tab });
+  return { browser, shell, family, E, reloads: () => reloads };
+}
+const toastEl = (b) => b.querySelector(".toast");
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test("conflict on a normal screen with nothing typed → auto reload", async () => {
+  const m = await mountedWithElder("/profile", "memory");
+  try {
+    m.shell._onSyncEventForTest({ type: "conflict", key: "rw_profile" });
+    await wait(1700);
+    assert.equal(m.reloads(), 1);
+  } finally { m.browser.restore(); }
+});
+
+test("conflict while something is typed, or in the find flow → toast with [새로고침], no auto reload", async () => {
+  const m = await mountedWithElder("/profile", "memory");
+  try {
+    const ta = new FEl("textarea"); ta.value = "적던 글"; m.browser.main.append(ta);
+    m.shell._onSyncEventForTest({ type: "conflict", key: "rw_profile" });
+    await wait(1700);
+    assert.equal(m.reloads(), 0, "적던 글이 있으면 자동 새로고침하지 않는다");
+    const btn = toastEl(m.browser.body).querySelector("button");
+    assert.equal(btn?.textContent, "새로고침");
+    (btn.onclick ?? btn.listeners.click[0])(); assert.equal(m.reloads(), 1);
+  } finally { m.browser.restore(); }
+  const f = await mountedWithElder("/report", "find");
+  try {
+    f.shell._onSyncEventForTest({ type: "conflict", key: "rw_profile" });
+    await wait(1700);
+    assert.equal(f.reloads(), 0, "찾기 흐름에서는 자동 새로고침하지 않는다");
+    assert.ok(toastEl(f.browser.body).querySelector("button"));
+  } finally { f.browser.restore(); }
+});
+
+test("another tab switches rw_elder or account (storage event) → reload; same elder id → nothing", async () => {
+  const m = await mountedWithElder("/profile", "memory");
+  try {
+    m.shell.onStorage({ key: "rw_elder", oldValue: JSON.stringify(m.E), newValue: JSON.stringify({ ...m.E, label: "아빠" }) });
+    await wait(1700);
+    assert.equal(m.reloads(), 0, "같은 어르신(호칭만 바뀜)은 새로고침 안 함");
+    m.shell.onStorage({ key: "rw_elder", oldValue: JSON.stringify(m.E), newValue: JSON.stringify({ id: "22222222-2222-4222-8222-222222222222" }) });
+    await wait(1700);
+    assert.equal(m.reloads(), 1);
+  } finally { m.browser.restore(); }
+  const a = await mountedWithElder("/profile", "memory");
+  try {
+    a.shell.onStorage({ key: "rw_owner_user", oldValue: '"u1"', newValue: '"u2"' });
+    await wait(1700);
+    assert.equal(a.reloads(), 1);
+  } finally { a.browser.restore(); }
+});
+
+test("elder-changed from the store hook → toast and reload", async () => {
+  const m = await mountedWithElder("/profile", "memory");
+  try {
+    m.shell._onSyncEventForTest({ type: "elder-changed", elderId: "x", pinned: m.E.id });
+    assert.ok(toastEl(m.browser.body).textContent.includes("다른 창에서 어르신을 바꿨어요"));
+    await wait(1700);
+    assert.equal(m.reloads(), 1);
+  } finally { m.browser.restore(); }
 });

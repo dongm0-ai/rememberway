@@ -4,13 +4,16 @@
 //   - 로그인 정보는 있는데 서버가 안 됨 → 오프라인: 이 폰의 마지막 사본(현재 어르신)으로 계속. elder 가 null 일 수 있다
 //   - 어르신 0명 → 이 폰의 기존 등록 정보 올리기 질문 → 그래도 없으면 "어르신 등록"(호칭) 화면
 //   - 현재 어르신을 고른 뒤 pull() — 이 폰 사본이 있으면 WAIT_MS 까지만 기다리고 사본으로 먼저 그린다(서버 장애 때 찾기 흐름이 막히지 않게)
-// - 다른 가족이 먼저 고쳤으면(conflict) 안내 후 1.5초 뒤 새로고침 (화면이 들고 있는 옛 배열로 덮어쓰지 않게)
+// - 다른 가족이 먼저 고쳤으면(conflict) 안내 후 1.5초 뒤 새로고침 (화면이 들고 있는 옛 배열로 덮어쓰지 않게).
+//   단 찾기 흐름이거나 화면에 적던 글이 있으면 자동으로 새로고침하지 않고 [새로고침] 버튼이 달린 안내만 (적던 글을 잃지 않게)
+// - 다른 탭(창)에서 어르신을 바꾸거나 다른 계정으로 로그인하면(storage 이벤트, family.js 의 "elder-changed") 같은 방법으로 새로고침
 // - 어르신에 더 이상 접근할 수 없으면(gone) 안내 후 처음 화면으로
-// - 🚨 찾기 흐름 화면(/report /confirm /summary /record)에서는 "이 폰의 등록 정보를 올릴까요?"·"어르신 등록" 창을 자동으로 띄우지 않는다 (창이 신고·찾기를 가로막으면 안 됨).
-//   어르신이 한 분도 없으면 작은 링크 "어르신 등록하기"만 두고, 눌렀을 때만 창을 연다. 처음 화면·📍·📝·설정은 지금처럼 자동.
+// - 처음 화면(/)과 🚨 찾기 흐름 화면(/report /confirm /summary /record)에서는 "이 폰의 등록 정보를 올릴까요?"·"어르신 등록" 창을 자동으로 띄우지 않는다
+//   (창이 🚨 카드·112·신고·찾기를 가로막으면 안 됨). 어르신이 한 분도 없으면 작은 버튼 "어르신 등록하기"(이 폰에 옛 정보가 있으면 "이 폰 정보 올리기")만 두고,
+//   눌렀을 때만 창을 연다. 📍·📝·설정은 지금처럼 자동. 올리기 질문 창에도 112 버튼이 있다.
 import { el, $ } from "./common.js";
 import { session, storedSession, requireLogin, signOut, reasonText, authFetch } from "./auth.js";
-import { installSync, checkAccount, listElders, createElder, importLocalData, setCurrentElder, currentElder, pull, flush, onSync, CONFLICT_TEXT } from "./family.js";
+import { installSync, checkAccount, listElders, createElder, importLocalData, setCurrentElder, currentElder, pull, flush, onSync, CONFLICT_TEXT, pinElder, pinnedElder, scopeSession, takeBackupNotice } from "./family.js";
 
 export const TABS = [
   { id: "live", href: "/track", icon: "📍", label: "실시간 위치" },
@@ -23,7 +26,7 @@ const OFFLINE_TEXT = "오프라인 — 이 폰의 마지막 사본";
 const PENDING_TEXT = "아직 서버에 못 올린 변경이 있어요. 연결되면 다시 올려요.";
 const LABEL_CHIPS = ["아버지", "어머니", "할아버지", "할머니", "어르신"];
 const LABEL_MAX = 20;
-const FIND_FLOW = /^\/(report|confirm|summary|record)(\.html)?\/?$/;
+const FIND_FLOW = /^\/((report|confirm|summary|record|index)(\.html)?\/?)?$/;   // "/" (처음 화면, 🚨 카드)도 같은 취급
 const inFindFlow = (tab) => tab === "find" && typeof location !== "undefined" && FIND_FLOW.test(location.pathname);
 const SKIP_KEY = "rw_reg_skip";   // sessionStorage: 이번 방문에서는 "어르신 등록"을 건너뜀 (찾기 흐름·112 를 막지 않게). 고르기 창의 [+ 새 어르신 등록]으로 언제든
 const skipped = () => { try { return sessionStorage.getItem(SKIP_KEY) === "1"; } catch { return false; } };
@@ -43,25 +46,30 @@ const ERR = {
   ACCOUNT_CHANGED: "다른 계정으로 로그인돼서 멈췄어요. 화면을 새로고침해 주세요.",
 };
 /** 서버 reason → 화면 문구 (설정·초대 화면도 같이 쓴다) */
+const ELDER_CHANGED_TEXT = "다른 창에서 어르신을 바꿨어요. 이 화면의 변경은 저장하지 않았어요.";
+const ACCOUNT_CHANGED_TEXT = "다른 창에서 다른 계정으로 로그인했어요.";
+const BACKUP_TEXT = "이 폰에 있던 옛 정보는 따로 보관했어요 (설정에서 볼 수 있어요). 되살리지 않아도 돼요.";
 export const errText = (reason) => ERR[reason] ?? (/^HTTP_5\d\d$/.test(String(reason)) ? ERR.STORE_ERROR : reasonText(reason));
 
 // ---------------------------------------------------------------- 작은 UI 도우미
 let toastBox = null, toastTimer = null;
-/** 아래 탭 위에 잠깐 뜨는 한 줄 안내 */
-export function toast(text, ms = 4000) {
+/** 아래 탭 위에 잠깐 뜨는 한 줄 안내. action = {label, onClick} 이면 버튼을 단다 */
+export function toast(text, ms = 4000, action = null) {
   if (!toastBox) { toastBox = el("div", { class: "toast hidden", role: "status", "aria-live": "polite" }); document.body.append(toastBox); }
   toastBox.textContent = text;
+  if (action) toastBox.append(" ", el("button", { type: "button", class: "btn-secondary toast-act", style: "min-height:48px;margin-left:8px", onclick: action.onClick }, action.label));
   toastBox.classList.remove("hidden");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastBox.classList.add("hidden"), ms);
 }
 
 /** 확인 창 (큰 글씨·큰 버튼). → Promise<boolean>. 바깥 누르기·뒤로 가기(Esc)는 "아니요" */
-export function confirmDialog(text, { ok = "네", cancel = "아니요", danger = false, detail = "", cancellable = true } = {}) {
+export function confirmDialog(text, { ok = "네", cancel = "아니요", danger = false, detail = "", cancellable = true, top = null } = {}) {
   return new Promise((resolve) => {
     const dlg = el("dialog", { class: "shell-dialog", "aria-labelledby": "cd-title" });
     const done = (v) => { dlg.close(); dlg.remove(); resolve(v); };
     dlg.append(
+      top ? top() : "",
       el("p", { id: "cd-title", class: "q", style: "margin-top:0" }, text),
       detail ? el("p", { class: "muted", style: "margin:0 0 6px" }, detail) : "",
       el("div", { class: "stack", style: "margin-top:14px" },
@@ -79,7 +87,7 @@ const callBox = () => el("div", { class: "alert", style: "margin-bottom:14px" },
 export function registerElder({ required = false } = {}) {
   return new Promise((resolve) => {
     const dlg = el("dialog", { class: "shell-dialog shell-reg", "aria-labelledby": "reg-title" });
-    const input = el("input", { type: "text", id: "reg-label", maxlength: String(LABEL_MAX), placeholder: "예) 아버지", autocomplete: "off", autofocus: "" });   // 첫 포커스가 112 버튼에 가지 않게
+    const input = el("input", { type: "text", id: "reg-label", maxlength: String(LABEL_MAX * 2), placeholder: "예) 아버지", autocomplete: "off", autofocus: "" });   // 첫 포커스가 112 버튼에 가지 않게
     const chips = LABEL_CHIPS.map((t) => el("button", { type: "button", class: "chip", "aria-pressed": "false", onclick: () => { input.value = t; sync(); } }, t));
     const sync = () => chips.forEach((c) => c.setAttribute("aria-pressed", String(c.textContent === input.value.trim())));
     input.addEventListener("input", sync);
@@ -122,7 +130,7 @@ export function registerElder({ required = false } = {}) {
 }
 
 const askImport = (text) => confirmDialog(text, {
-  ok: "네, 올릴게요", cancel: "아니요",
+  ok: "네, 올릴게요", cancel: "아니요", top: callBox,   // 이 창이 떠 있어도 112 는 바로 누를 수 있게
   detail: "올리면 등록·일지·기록을 가족과 함께 볼 수 있어요. 집 주소는 이 폰에만 남아요. [아니요]를 고르면 이 폰에 따로 보관해요.",
   cancellable: false,
 });
@@ -138,10 +146,15 @@ async function offerImport(userId) {
   return false;
 }
 
-/** 🚨 찾기 흐름 화면용: 어르신이 한 분도 없을 때 창 대신 두는 작은 링크 (찾기·112는 그대로 쓸 수 있다). 눌렀을 때만 (올리기 질문 →) 등록 창을 연다 */
+/** 이 폰에 올릴 수 있는 옛 등록 정보가 있고 이 사용자에게 아직 묻지 않았는가 (family.js importLocalData 와 같은 조건) */
+function hasImportable(userId) {
+  try { return localStorage.getItem("rw_profile") !== null && JSON.parse(localStorage.getItem("rw_import_asked") || "null") !== userId; } catch { return false; }
+}
+
+/** 처음 화면·🚨 찾기 흐름 화면용: 어르신이 한 분도 없을 때 창 대신 두는 작은 버튼 (🚨·112·찾기는 그대로 쓸 수 있다). 눌렀을 때만 (올리기 질문 →) 등록 창을 연다 */
 function showRegisterLink(userId) {
   if (document.getElementById("shell-register")) return;
-  const btn = el("button", { type: "button", class: "btn-ghost", style: "min-height:48px", id: "shell-register-btn" }, "어르신 등록하기");
+  const btn = el("button", { type: "button", class: "btn-ghost", style: "min-height:48px", id: "shell-register-btn" }, hasImportable(userId) ? "이 폰 정보 올리기" : "어르신 등록하기");
   btn.onclick = async () => {
     btn.disabled = true;
     try {
@@ -228,11 +241,24 @@ function openSwitcher() {
   document.body.append(dlg); dlg.showModal();
 }
 
+/** 화면에 보호자가 적던 글이 있는가 (자동 새로고침으로 잃으면 안 됨) */
+const SKIP_INPUT = new Set(["checkbox", "radio", "hidden", "file", "button", "submit", "reset", "range", "color"]);
+export function hasTypedInput() {
+  const fields = [...document.querySelectorAll("textarea"), ...document.querySelectorAll("input")];
+  return fields.some((f) => !SKIP_INPUT.has(String(f.type ?? f.getAttribute?.("type") ?? "").toLowerCase()) && String(f.value ?? "").trim() !== "");
+}
+/** 새로고침이 필요할 때: 찾기 흐름이거나 적던 글이 있으면 [새로고침] 버튼만, 아니면 안내 뒤 자동으로 */
+function reloadSoon(text) {
+  if (reloading) return;
+  if (inFindFlow(currentTab) || hasTypedInput()) { toast(text, 60000, { label: "새로고침", onClick: () => location.reload() }); return; }
+  toast(text);
+  if (mounted) { reloading = true; setTimeout(() => location.reload(), RELOAD_MS); }
+}
+
 function onSyncEvent(e) {
-  if (e.type === "conflict") {
-    toast(CONFLICT_TEXT);
-    if (mounted && !reloading) { reloading = true; setTimeout(() => location.reload(), RELOAD_MS); }
-  } else if (e.type === "gone") {
+  if (e.type === "conflict") reloadSoon(CONFLICT_TEXT);
+  else if (e.type === "elder-changed") reloadSoon(ELDER_CHANGED_TEXT);
+  else if (e.type === "gone") {
     elders = elders.filter((x) => x.id !== e.elderId);
     if (quiet.has(e.elderId)) return;
     toast(e.homeRemoved ? `${GONE_TEXT}. ${HOME_GONE_TEXT}.` : GONE_TEXT, 6000);
@@ -243,6 +269,9 @@ function onSyncEvent(e) {
   else if (e.type === "saved") setBanner("shell-pending", "");
   else if (e.type === "error") toast("이 변경은 서버가 받지 않았어요. 이 폰에는 남아 있어요.", 6000);
 }
+
+/** 테스트용: 동기화 소식을 이 셸에 바로 넣기 */
+export const _onSyncEventForTest = (e) => onSyncEvent(e);
 
 let currentTab = null;
 /** 셸 붙이기. → Promise<{ elder: {id,label,role}|null, offline: boolean }> (한 화면에서 여러 번 불러도 한 번만 돈다) */
@@ -257,9 +286,21 @@ const resetBudget = () => { deadline = Date.now() + TOTAL_MS; };
 const left = () => Math.max(0, deadline - Date.now());
 const budget = (p, fallback) => within(p, Math.min(left(), WAIT_MS), fallback);
 
+/** 다른 탭(창)에서 어르신을 바꾸거나 다른 계정으로 로그인했을 때 (같은 탭의 쓰기는 storage 이벤트가 오지 않는다) */
+export function onStorage(ev) {
+  if (ev.key === "rw_elder") {
+    let id = null; try { id = JSON.parse(ev.newValue || "null")?.id ?? null; } catch {}
+    const mine = pinnedElder();
+    if (mine !== undefined && id !== mine) reloadSoon("다른 창에서 어르신을 바꿨어요.");
+  } else if (ev.key === "rw_owner_user" && ev.oldValue !== ev.newValue) reloadSoon(ACCOUNT_CHANGED_TEXT);
+}
+
 async function start(tab) {
   resetBudget();
   currentTab = tab ?? null;
+  pinElder(currentElder()?.id ?? null);   // 이 탭이 지금 보는 어르신 (다른 탭에서 바꾸면 이 탭의 쓰기를 막는다)
+  scopeSession(currentElder()?.id);       // 다른 어르신의 찾기 단서(sessionStorage)는 지운다 — 화면이 단서를 읽기 전에 (동기)
+  try { globalThis.addEventListener?.("storage", onStorage); } catch {}
   renderTabs(tab);
   renderBar(tab);
   onSync(onSyncEvent);
@@ -301,9 +342,13 @@ async function start(tab) {
   }
   renderBar(tab);
   if (res === "offline") setBanner("shell-offline", OFFLINE_TEXT);
+  showBackupNotice();
   mounted = true;
   return { elder: currentElder(), offline: res === "offline" };
 }
+
+/** 어르신을 처음 고르면서 이 폰의 옛 정보를 rw_backup_* 으로 옮겼으면 한 번 알린다 (초대 수락·첫 로그인 등) */
+function showBackupNotice() { if (takeBackupNotice()) setBanner("shell-backup", BACKUP_TEXT); }
 
 /** 내 어르신 목록. 서버가 지금 답했으면 ok:true. 목록이 비었으면 서버에 한 번 더 물어 "정말 0명"인지 확인한다
  *  (listElders 는 실패하면 이 폰의 마지막 목록을 돌려줘서, 빈 배열만으로는 "0명"과 "서버 장애"를 구분할 수 없다). 모두 남은 시간 예산(TOTAL_MS)까지만 기다린다 */
@@ -334,6 +379,7 @@ function finishOffline(tab) {
   if (!currentElder() && elders.length) setCurrentElder(elders[0]);
   renderBar(tab);
   setBanner("shell-offline", OFFLINE_TEXT);
+  showBackupNotice();
   mounted = true;
   return { elder: currentElder(), offline: true };
 }

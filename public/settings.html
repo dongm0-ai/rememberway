@@ -84,6 +84,7 @@
   import { listElders, setCurrentElder, flush, phoneBackups } from "/js/family.js";
 
   const QR_SRC = "https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js";
+  const QR_SRI = "sha384-mZT2gIty7ZDdOGkxfP6joZcYdMW1Jvj9dRlfpTmaJAKKXTqzygtB22k7FLe+KZC1";   // 그 파일 그대로인지 (cdnjs 가 공개한 sha512 와 같은 파일에서 계산, 2026-11-17)
   const TRACK_KEY = "rw_track";   // 현재 어르신 폰 연결 코드 (family.js 가 어르신별 사본에서 꺼내 둔다)
 
   const { elder, offline } = await mountShell({ tab: "settings" });
@@ -102,7 +103,7 @@
   function loadQr() {
     return (qrLib ??= new Promise((resolve) => {
       if (window.qrcode) return resolve(window.qrcode);
-      const s = el("script", { src: QR_SRC, crossorigin: "anonymous", referrerpolicy: "no-referrer" });
+      const s = el("script", { src: QR_SRC, integrity: QR_SRI, crossorigin: "anonymous", referrerpolicy: "no-referrer" });
       s.onload = () => resolve(window.qrcode ?? null);
       s.onerror = () => { qrLib = null; resolve(null); };
       document.head.append(s);

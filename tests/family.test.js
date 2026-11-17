@@ -633,6 +633,64 @@ test("importDevice failing at the re-tag rolls back so a retry works", async () 
   assert.equal(s.t.loc_events[0].dev, imp);
 });
 
+test("importDevice: re-tag committed but response lost → no rollback, events stay under the held+revoked state", async () => {
+  const s = setup();
+  const { elder, deviceCode } = await s.api.createElder(A, { label: "어머니" });
+  const old = deviceHashOf(deviceCode), imp = deviceHashOf("ABCDEFGHIJKLMNOP");
+  s.t.loc_events.push({ id: 1, dev: old });
+  let lose = true;
+  const flaky = familyApi({
+    db: async (m, path, body, prefer) => {
+      const out = await s.db(m, path, body, prefer);
+      if (lose && m === "PATCH" && path.startsWith("loc_events?")) { lose = false; throw Object.assign(new Error("timeout"), { reason: "STORE_ERROR" }); }
+      return out;
+    },
+  });
+  assert.deepEqual(await flaky.importDevice(A, elder.id, "ABCDEFGHIJKLMNOP"), { ok: true });
+  assert.equal(s.t.elders[0].device_hash, imp);   // h 는 이 어르신이 갖고 있음 (주인 없는 해시 아래 기록이 남지 않음)
+  assert.equal(s.t.loc_events[0].dev, imp);
+  assert.deepEqual(s.t.revoked_devices.map((r) => r.device_hash), [old]);
+});
+
+test("importDevice: re-tag fails AND rollback of elders fails → finishes forward instead of stranding the old hash", async () => {
+  const s = setup();
+  const { elder, deviceCode } = await s.api.createElder(A, { label: "어머니" });
+  const old = deviceHashOf(deviceCode), imp = deviceHashOf("ABCDEFGHIJKLMNOP");
+  s.t.loc_events.push({ id: 1, dev: old });
+  let retagBoom = true, restoreBoom = true;
+  const flaky = familyApi({
+    db: async (m, path, body, prefer) => {
+      if (retagBoom && m === "PATCH" && path.startsWith("loc_events?")) { retagBoom = false; throw Object.assign(new Error("x"), { reason: "STORE_ERROR" }); }
+      if (restoreBoom && m === "PATCH" && path.startsWith("elders?") && body?.device_hash === old) { restoreBoom = false; throw Object.assign(new Error("y"), { reason: "STORE_ERROR" }); }
+      return s.db(m, path, body, prefer);
+    },
+  });
+  assert.deepEqual(await flaky.importDevice(A, elder.id, "ABCDEFGHIJKLMNOP"), { ok: true });
+  assert.equal(s.t.elders[0].device_hash, imp);
+  assert.equal(s.t.loc_events[0].dev, imp);
+  assert.deepEqual(s.t.revoked_devices.map((r) => r.device_hash), [old]);
+});
+
+test("importDevice: rollback restores elders before un-revoking (un-revoke failure still lets a retry finish)", async () => {
+  const s = setup();
+  const { elder, deviceCode } = await s.api.createElder(A, { label: "어머니" });
+  const old = deviceHashOf(deviceCode), imp = deviceHashOf("ABCDEFGHIJKLMNOP");
+  s.t.loc_events.push({ id: 1, dev: old });
+  let retagBoom = true, unrevokeBoom = true;
+  const flaky = familyApi({
+    db: async (m, path, body, prefer) => {
+      if (retagBoom && m === "PATCH" && path.startsWith("loc_events?")) { retagBoom = false; throw Object.assign(new Error("x"), { reason: "STORE_ERROR" }); }
+      if (unrevokeBoom && m === "DELETE" && path.startsWith("revoked_devices?")) { unrevokeBoom = false; throw Object.assign(new Error("y"), { reason: "STORE_ERROR" }); }
+      return s.db(m, path, body, prefer);
+    },
+  });
+  await assert.rejects(flaky.importDevice(A, elder.id, "ABCDEFGHIJKLMNOP"));
+  assert.equal(s.t.elders[0].device_hash, old);
+  assert.deepEqual(await flaky.importDevice(A, elder.id, "ABCDEFGHIJKLMNOP"), { ok: true });
+  assert.equal(s.t.elders[0].device_hash, imp);
+  assert.equal(s.t.loc_events[0].dev, imp);
+});
+
 test("resetDevice: elders update committed but response lost → no undo, events stay with the new hash", async () => {
   const s = setup();
   const { elder, deviceCode } = await s.api.createElder(A, { label: "어머니" });

@@ -2,6 +2,31 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { userFromToken, bearer } from "../lib/auth.js";
 
+/** 테스트가 바꾸는 env 를 저장했다가 원래 값으로 (원래 없었으면 지움) — delete 로 남의 설정을 날리지 않게 */
+const saveEnv = (...keys) => Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+const restoreEnv = (saved) => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+
+test("SUPABASE_URL missing → falls back to NEXT_PUBLIC_SUPABASE_URL (same as lib/kv.js)", async () => {
+  const prev = saveEnv("SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL");
+  delete process.env.SUPABASE_URL;
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://pub.supabase.co/";
+  let url;
+  try {
+    await userFromToken("tok", async (u) => { url = u; return { ok: true, json: async () => ({ id: "u1" }) }; });
+  } finally { restoreEnv(prev); }
+  assert.equal(url, "https://pub.supabase.co/auth/v1/user");
+});
+
+test("env helpers restore a pre-existing value instead of deleting it", () => {
+  const outer = saveEnv("SUPABASE_URL");
+  process.env.SUPABASE_URL = "https://keep.example";
+  const prev = saveEnv("SUPABASE_URL");
+  process.env.SUPABASE_URL = "https://tmp.example";
+  restoreEnv(prev);
+  assert.equal(process.env.SUPABASE_URL, "https://keep.example");
+  restoreEnv(outer);
+});
+
 test("valid token → user", async () => {
   const f = async (url, o) => ({ ok: true, json: async () => ({ id: "u1", email: "a@b.c" }) });
   assert.deepEqual(await userFromToken("t", f), { id: "u1", email: "a@b.c" });
@@ -11,13 +36,12 @@ test("empty token → null without fetch", async () => assert.equal(await userFr
 test("bearer parses header", () => assert.equal(bearer({ headers: { authorization: "Bearer abc" } }), "abc"));
 
 test("calls Supabase /auth/v1/user with apikey and bearer token (env read at call time)", async () => {
+  const prev = saveEnv("SUPABASE_URL", "SUPABASE_ANON_KEY");
   process.env.SUPABASE_URL = "https://x.supabase.co/";
   process.env.SUPABASE_ANON_KEY = "anon-key";
   let seen;
   const f = async (url, o) => { seen = { url, o }; return { ok: true, json: async () => ({ id: "u1", email: "a@b.c" }) }; };
-  await userFromToken("tok", f);
-  delete process.env.SUPABASE_URL;
-  delete process.env.SUPABASE_ANON_KEY;
+  try { await userFromToken("tok", f); } finally { restoreEnv(prev); }
   assert.equal(seen.url, "https://x.supabase.co/auth/v1/user");
   assert.equal(seen.o.headers.apikey, "anon-key");
   assert.equal(seen.o.headers.Authorization, "Bearer tok");

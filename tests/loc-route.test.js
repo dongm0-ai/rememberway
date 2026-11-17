@@ -23,6 +23,8 @@ function fakeDb(rules = []) {
   db.calls = calls;
   return db;
 }
+/** 테스트가 바꾼 env 를 원래 값으로 (원래 없었으면 지움) */
+const restoreEnv = (k, v) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
 const throwingFam = new Proxy({}, { get: () => async () => { throw new Error("fam must not be called"); } });
 const membership = (role) => [
   ["GET", new RegExp(`^elder_members\\?elder_id=eq\\.${E1}&user_id=eq\\.${U1.id}`), [{ role }]],
@@ -118,7 +120,18 @@ test("member whose elder is gone → 404 GONE", async () => {
 });
 
 test("latest with key and logged-in elderId takes elderId path; malformed elderId → 400", async () => {
-  const r = await route({ action: "latest", elderId: "nope" }, { user: U1, db: fakeDb(), fam: throwingFam });
+  // key 와 유효한 elderId 를 같이 보내면 key 는 무시되고 member 확인 → 그 어르신 해시로 여러 개(limit 기본 200)
+  const OTHER = "QRSTUVWXYZ234567";
+  const db = fakeDb([...membership("member"), ["GET", /^loc_events\?/, [{ lat: 1, lng: 2 }]]]);
+  const ok = await route({ action: "latest", key: OTHER, elderId: E1 }, { user: U1, db, fam: throwingFam });
+  assert.equal(ok.status, 200);
+  assert.ok(db.calls.some((c) => c.path.startsWith(`elder_members?elder_id=eq.${E1}&user_id=eq.${U1.id}`)), "membership checked");
+  const get = db.calls.find((c) => c.method === "GET" && c.path.startsWith("loc_events?dev"));
+  assert.match(get.path, new RegExp(`dev=eq\\.${DEV}.*limit=200$`));
+  assert.ok(!db.calls.some((c) => c.path.includes(deviceHashOf(OTHER))), "key's hash never read");
+  // 로그인 안 했으면 key+elderId 도 key 흐름(마지막 1개)으로 가지 않는다 → 401
+  assert.equal((await route({ action: "latest", key: OTHER, elderId: E1 }, { db: fakeDb(), fam: throwingFam })).status, 401);
+  const r = await route({ action: "latest", key: KEY, elderId: "nope" }, { user: U1, db: fakeDb(), fam: throwingFam });
   assert.equal(r.status, 400);
   assert.equal(r.body.reason, "BAD_INPUT");
 });
@@ -242,6 +255,7 @@ test("account.withdraw: family withdraw then Auth delete; Auth failure → 503 a
 
 test("default Auth admin delete calls DELETE /auth/v1/admin/users/{id} with service_role", async () => {
   const { deleteAuthUser } = await import("../api/loc.js");
+  const prev = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY };
   process.env.SUPABASE_URL = "https://x.supabase.co/";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "srv";
   let seen;
@@ -254,7 +268,81 @@ test("default Auth admin delete calls DELETE /auth/v1/admin/users/{id} with serv
     await deleteAuthUser(U1.id, async () => ({ ok: false, status: 404 }));   // 이미 없음 → 성공 취급 (다시 시도 안전)
     await assert.rejects(deleteAuthUser(U1.id, async () => ({ ok: false, status: 500 })));
   } finally {
-    delete process.env.SUPABASE_URL;
-    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    restoreEnv("SUPABASE_URL", prev.url);
+    restoreEnv("SUPABASE_SERVICE_ROLE_KEY", prev.key);
   }
+});
+
+test("restoreEnv puts back a pre-existing value instead of deleting it", async () => {
+  const { deleteAuthUser } = await import("../api/loc.js");
+  const before = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY };
+  process.env.SUPABASE_URL = "https://keep.example/";
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "keep";
+  try {
+    // 위 테스트와 같은 save/restore 를 한 번 더 — 끝나면 원래 값이 남아 있어야 한다
+    const prev = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY };
+    process.env.SUPABASE_URL = "https://x.supabase.co/";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "srv";
+    try { await deleteAuthUser(U1.id, async () => ({ ok: true, status: 200 })); }
+    finally { restoreEnv("SUPABASE_URL", prev.url); restoreEnv("SUPABASE_SERVICE_ROLE_KEY", prev.key); }
+    assert.equal(process.env.SUPABASE_URL, "https://keep.example/");
+    assert.equal(process.env.SUPABASE_SERVICE_ROLE_KEY, "keep");
+  } finally {
+    restoreEnv("SUPABASE_URL", before.url);
+    restoreEnv("SUPABASE_SERVICE_ROLE_KEY", before.key);
+  }
+});
+
+// ---------------------------------------------------------------- handler: Origin 규칙 (가짜 req/res)
+// push 만 Origin 없이 받는다(앱은 브라우저가 아님). 나머지는 우리 앱 Origin 이 아니면 403. 호출량 제한이 먼저.
+function fakeReq(body, headers = {}) {
+  return { method: "POST", headers: { "x-forwarded-for": "10.0.0.1", ...headers }, body, socket: {} };
+}
+function fakeRes() {
+  const res = { statusCode: 0, headers: {}, body: undefined };
+  res.setHeader = (k, v) => { res.headers[k.toLowerCase()] = v; };
+  res.end = (s) => { res.body = JSON.parse(s); };
+  return res;
+}
+let ipN = 0;
+const freshIp = () => `10.1.${Math.floor(++ipN / 250)}.${ipN % 250}`;   // 테스트마다 다른 IP (분당 제한이 섞이지 않게)
+
+test("handler: push works without Origin (not 403)", async () => {
+  const { default: handler } = await import("../api/loc.js");
+  const res = fakeRes();
+  await handler(fakeReq({ action: "push", key: KEY, p: P }, { "x-forwarded-for": freshIp() }), res);
+  assert.notEqual(res.statusCode, 403);
+  assert.notEqual(res.body.reason, "FORBIDDEN");
+});
+
+test("handler: non-push actions without an allowed Origin → 403 FORBIDDEN", async () => {
+  const { default: handler } = await import("../api/loc.js");
+  for (const [body, headers] of [
+    [{ action: "me" }, {}],
+    [{ action: "latest", key: KEY }, {}],
+    [{ action: "device.import", elderId: E1, key: KEY }, { origin: "https://evil.example" }],
+    [{ action: "places", elderId: E1 }, { referer: "https://evil.example/x" }],
+  ]) {
+    const res = fakeRes();
+    await handler(fakeReq(body, { "x-forwarded-for": freshIp(), ...headers }), res);
+    assert.equal(res.statusCode, 403, JSON.stringify(body));
+    assert.equal(res.body.reason, "FORBIDDEN");
+  }
+  // 우리 앱 Origin 이면 통과 (토큰이 없으니 401 AUTH — Origin 검사 다음 단계까지 감)
+  const res = fakeRes();
+  await handler(fakeReq({ action: "me" }, { "x-forwarded-for": freshIp(), origin: "https://rememberway.vercel.app" }), res);
+  assert.equal(res.statusCode, 401);
+  assert.equal(res.body.reason, "AUTH");
+});
+
+test("handler: rate limit runs before the Origin check", async () => {
+  const { default: handler } = await import("../api/loc.js");
+  const ip = freshIp();
+  let last;
+  for (let i = 0; i < 25; i++) {   // 분당 20회 넘김
+    last = fakeRes();
+    await handler(fakeReq({ action: "me" }, { "x-forwarded-for": ip }), last);
+  }
+  assert.equal(last.statusCode, 429);
+  assert.equal(last.body.reason, "RATE_LIMIT");
 });

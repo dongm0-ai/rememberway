@@ -11,7 +11,7 @@
 <main>
   <div class="topbar"><a class="back" href="/report">← 다시 말하기</a><span class="step">화면 2 / 3 · 확인·되묻기</span></div>
   <h1>이렇게 정리했어요. 맞나요?</h1>
-  <p class="muted">보호자 말에서 정리한 것입니다. <span class="badge warn">⚠</span>는 말에서 확인되지 않은 값이니 꼭 봐 주세요. ✎로 고칠 수 있습니다.</p>
+  <p class="muted">보호자 말에서 정리한 것입니다. <span class="badge warn"><i data-icon="alert"></i></span>는 말에서 확인되지 않은 값이니 꼭 봐 주세요. <i data-icon="pencil"></i>로 고칠 수 있습니다.</p>
 
   <section id="ask" class="card hidden">
     <div class="small muted" id="ask-count"></div>
@@ -44,7 +44,7 @@
   </div></div>
 </main>
 <script type="module">
-  import { store, KEYS, api, $, $$, el, mockBanner } from "/js/common.js";
+  import { store, KEYS, api, $, $$, el, mockBanner, icon } from "/js/common.js";
   import { FIELD_LABELS, SOURCE_LABELS } from "/lib/schema.js";
   import { computeMissing, getPath, setPath } from "/lib/verify.js";
   import { buildAnswerInput } from "/js/answer-ui.js";
@@ -70,9 +70,9 @@
     const row = (k) => {
       const v = show(k), flagged = clue.flags?.[k];
       return el("div", { class: "field" },
-        el("div", { class: "k" }, FIELD_LABELS[k], flagged ? el("span", { class: "badge warn", title: "보호자 말에서 확인되지 않음" }, "⚠ 확인 필요") : ""),
+        el("div", { class: "k" }, FIELD_LABELS[k], flagged ? el("span", { class: "badge warn", title: "보호자 말에서 확인되지 않음" }, icon("alert"), " 확인 필요") : ""),
         el("div", { class: "v" + (v ? "" : " empty") }, v ?? "아직 모름"),
-        el("button", { class: "edit", onclick: () => edit(k) }, "✎"));
+        el("button", { class: "edit", "aria-label": "수정", title: "수정", onclick: () => edit(k) }, icon("pencil")));
     };
     known.forEach((k) => box.append(row(k)));
     if (!known.length) box.append(el("p", { class: "muted", style: "margin:0" }, "정리된 칸이 아직 없어요. 아래에서 아는 것을 채워 주세요."));
@@ -99,8 +99,8 @@
     const box = $("#places"); box.innerHTML = "";
     if (!clue.memory_places.length) box.append(el("p", { class: "muted small" }, "아직 없어요. 옛 동네, 단골 가게, 경로당처럼 가실 만한 곳을 추가하세요."));
     clue.memory_places.forEach((p, i) => box.append(el("div", { class: "field", style: "grid-template-columns:1fr auto auto" },
-      el("div", { class: "v" }, p.name, el("span", { class: "badge src" }, SOURCE_LABELS[p.source] ?? "보호자가 말한 곳"), clue.flags?.[`memory_places.${i}`] ? el("span", { class: "badge warn" }, "⚠") : ""),
-      el("button", { class: "edit", onclick: () => { const a = prompt("장소 이름", p.name); if (a === null) return; p.name = a.trim() || p.name; delete clue.flags?.[`memory_places.${i}`]; renderPlaces(); } }, "✎"),
+      el("div", { class: "v" }, p.name, el("span", { class: "badge src" }, SOURCE_LABELS[p.source] ?? "보호자가 말한 곳"), clue.flags?.[`memory_places.${i}`] ? el("span", { class: "badge warn", title: "보호자 말에서 확인되지 않음" }, icon("alert")) : ""),
+      el("button", { class: "edit", onclick: () => { const a = prompt("장소 이름", p.name); if (a === null) return; p.name = a.trim() || p.name; delete clue.flags?.[`memory_places.${i}`]; renderPlaces(); } }, icon("pencil")),
       el("button", { class: "edit", onclick: () => { clue.memory_places.splice(i, 1); renderPlaces(); } }, "삭제"))));
     save();
   }

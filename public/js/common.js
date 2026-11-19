@@ -1,4 +1,6 @@
 // 공통: 저장(localStorage/sessionStorage), API 호출(10초 타임아웃), 음성 입력, 작은 UI 도우미
+import { icon } from "./icons.js";   // 불러오기만 해도 화면의 <i data-icon> 이 선 아이콘으로 바뀐다
+export { icon, hydrateIcons } from "./icons.js";
 export const store = {
   get(key, fallback = null) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
   set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} try { onSet?.(key, value); } catch {} }, // 훅: family.js 가 서버로 올린다
@@ -140,7 +142,7 @@ export const fmtM = (m) => (typeof m !== "number" ? "거리 모름" : m >= 1000 
 export function mockBanner(res) {
   if (!res?.mock) return;
   if ($("#mock-banner")) return;
-  document.querySelector("main")?.prepend(el("div", { id: "mock-banner", class: "callout", style: "margin-bottom:10px" }, "⚠ 모의 응답(실제 AI 아님) — MOCK_AI=1 상태입니다. 시연 전에 끄세요."));
+  document.querySelector("main")?.prepend(el("div", { id: "mock-banner", class: "callout", style: "margin-bottom:10px" }, icon("alert"), " 모의 응답(실제 AI 아님) — MOCK_AI=1 상태입니다. 시연 전에 끄세요."));
 }
 
 /** PWA 서비스워커 등록 */
@@ -152,11 +154,11 @@ if ("serviceWorker" in navigator) {
 export function mountPushCard(container) {
   const REASONS = { UNSUPPORTED: "이 브라우저는 알림을 지원하지 않아요. 크롬이나 삼성 인터넷으로 열어 주세요.", SERVER_OFF: "알림 서버가 아직 준비되지 않았어요.", DENIED: "알림이 차단돼 있어요. 휴대폰 설정 → 이 앱(또는 브라우저) → 알림을 허용해 주세요.", NOT_SUBSCRIBED: "아직 알림이 켜져 있지 않아요." };
   const st = el("p", { class: "small", style: "margin:6px 0" });
-  const on = el("button", { class: "btn-primary" }, "🔔 저녁 알림 켜기");
+  const on = el("button", { class: "btn-primary" }, icon("bell"), " 저녁 알림 켜기");
   const test = el("button", { class: "btn-secondary hidden" }, "테스트 알림");
   const off = el("button", { class: "btn-ghost hidden", style: "margin-top:6px" }, "알림 끄기");
   container.append(
-    el("h3", { style: "margin-top:0" }, "🔔 일지 저녁 알림"),
+    el("h3", { style: "margin-top:0" }, "일지 저녁 알림"),
     el("p", { class: "small muted", style: "margin-top:0" }, "매일 저녁 6시에 오늘 일지를 안 썼으면 알려 드려요. 그래도 안 쓰면 9시에 한 번 더. 쓴 날은 오지 않아요."),
     st, el("div", { class: "row" }, on, test), off);
   const diaryDates = () => store.get(KEYS.diary, []).map((x) => x.date);
@@ -165,7 +167,7 @@ export function mountPushCard(container) {
     if (!pushSupported()) { st.textContent = isIOS && !isStandalone() ? "아이폰은 Safari 아래 공유 버튼 → '홈 화면에 추가' → 홈 화면의 아이콘으로 다시 열면 알림을 켤 수 있어요." : REASONS.UNSUPPORTED; on.disabled = true; return; }
     const sub = await currentPush().catch(() => null);
     const enabled = Boolean(sub) && Notification.permission === "granted";
-    st.textContent = enabled ? "✅ 알림이 켜져 있어요." : Notification.permission === "denied" ? REASONS.DENIED : "알림이 꺼져 있어요.";
+    st.textContent = enabled ? "알림이 켜져 있어요." : Notification.permission === "denied" ? REASONS.DENIED : "알림이 꺼져 있어요.";
     on.classList.toggle("hidden", enabled); test.classList.toggle("hidden", !enabled); off.classList.toggle("hidden", !enabled);
   }
   on.onclick = async () => {
@@ -230,7 +232,7 @@ export function homeSetup(onDone, opts = {}) {
         else { msg.textContent = "주소를 찾지 못했어요. 도로명이나 건물명으로 검색해 주세요."; result.classList.add("hidden"); }
       } catch { msg.textContent = "인터넷 연결을 확인해 주세요."; }
     }, (e) => { msg.textContent = e.code === 1 ? "위치 권한이 꺼져 있어요. 주소로 검색해 주세요." : "위치를 찾지 못했어요. 주소로 검색해 주세요."; }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
-  } }, "📍 현재 위치로 설정 (지금 집이면)");
+  } }, icon("pin"), " 현재 위치로 설정 (지금 집이면)");
   const search = async () => {
     const q = inp.value.trim(); if (!q) return inp.focus();
     msg.textContent = "찾는 중…"; result.classList.add("hidden");
@@ -256,10 +258,10 @@ export function homeSetup(onDone, opts = {}) {
 /** "📍 석교동 행정복지센터 ▾" — 누르면 집 주소 설정 카드를 dialog로 연다. onChange(home) */
 export function homeChip(onChange) {
   const h = getHome();
-  const chip = el("button", { class: "home-chip", "aria-label": "어르신 집 주소 바꾸기", title: h ? [h.road, h.jibun].filter(Boolean).join(" / ") : "" }, `📍 ${h ? homeShort(h) : "집 주소 설정"}`, el("span", { "aria-hidden": "true" }, " ▾"));
+  const chip = el("button", { class: "home-chip", "aria-label": "어르신 집 주소 바꾸기", title: h ? [h.road, h.jibun].filter(Boolean).join(" / ") : "" }, icon("pin"), el("span", { class: "home-chip-t" }, ` ${h ? homeShort(h) : "집 주소 설정"}`), el("span", { "aria-hidden": "true" }, " ▾"));
   chip.onclick = () => {
     const dlg = el("dialog", {});
-    dlg.append(homeSetup((nh) => { dlg.close(); dlg.remove(); chip.firstChild.textContent = `📍 ${homeShort(nh)}`; onChange?.(nh); }, { title: "어르신 집 주소" }),
+    dlg.append(homeSetup((nh) => { dlg.close(); dlg.remove(); chip.querySelector(".home-chip-t").textContent = ` ${homeShort(nh)}`; onChange?.(nh); }, { title: "어르신 집 주소" }),
       el("button", { class: "btn-ghost small", style: "margin-top:6px", onclick: () => { dlg.close(); dlg.remove(); } }, "닫기"));
     document.body.append(dlg); dlg.showModal();
   };

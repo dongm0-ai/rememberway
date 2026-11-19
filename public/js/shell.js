@@ -11,14 +11,14 @@
 // - 처음 화면(/)과 🚨 찾기 흐름 화면(/report /confirm /summary /record)에서는 "이 폰의 등록 정보를 올릴까요?"·"어르신 등록" 창을 자동으로 띄우지 않는다
 //   (창이 🚨 카드·112·신고·찾기를 가로막으면 안 됨). 어르신이 한 분도 없으면 작은 버튼 "어르신 등록하기"(이 폰에 옛 정보가 있으면 "이 폰 정보 올리기")만 두고,
 //   눌렀을 때만 창을 연다. 📍·📝·설정은 지금처럼 자동. 올리기 질문 창에도 112 버튼이 있다.
-import { el, $ } from "./common.js";
+import { el, $, icon } from "./common.js";
 import { session, storedSession, requireLogin, signOut, reasonText, authFetch } from "./auth.js";
 import { installSync, checkAccount, listElders, createElder, importLocalData, setCurrentElder, currentElder, pull, flush, onSync, CONFLICT_TEXT, pinElder, pinnedElder, scopeSession, takeBackupNotice } from "./family.js";
 
 export const TABS = [
-  { id: "live", href: "/track", icon: "📍", label: "실시간 위치" },
-  { id: "find", href: "/report", icon: "🚨", label: "실종자 찾기" },
-  { id: "memory", href: "/profile", icon: "📝", label: "추억의 장소" },
+  { id: "live", href: "/track", icon: "pin", label: "실시간 위치" },
+  { id: "find", href: "/report", icon: "siren", label: "실종자 찾기" },
+  { id: "memory", href: "/profile", icon: "notebook", label: "추억의 장소" },
 ];
 export const GONE_TEXT = "이 어르신 정보에 더 이상 접근할 수 없어요";
 const HOME_GONE_TEXT = "집 주소도 이 폰에서 지웠어요";
@@ -81,7 +81,7 @@ export function confirmDialog(text, { ok = "네", cancel = "아니요", danger =
 }
 
 const callBox = () => el("div", { class: "alert", style: "margin-bottom:14px" }, "치매 어르신은 즉시 신고 대상입니다.", el("br"), "먼저 112에 전화하세요.",
-  el("a", { class: "btn btn-danger btn-xl call112", href: "tel:112" }, "📞 112 전화하기"));
+  el("a", { class: "btn btn-danger btn-xl call112", href: "tel:112" }, icon("phone"), " 112 전화하기"));
 
 /** "어르신 등록" (호칭만). required 면 닫을 수 없다(어르신이 한 분도 없을 때). → Promise<{id,label,role}|null> */
 export function registerElder({ required = false } = {}) {
@@ -97,7 +97,7 @@ export function registerElder({ required = false } = {}) {
     const findNow = el("a", { class: "btn btn-secondary", href: "/report", onclick: (ev) => {
       setSkipped();
       if (location.pathname === "/report") { ev.preventDefault(); dlg.close(); dlg.remove(); resolve(null); }   // 이미 찾기 화면이면 창만 닫는다
-    } }, "🚨 등록 없이 지금 찾기");
+    } }, "등록 없이 지금 찾기");
     const form = el("form", { novalidate: "" },
       el("label", { for: "reg-label" }, `어르신을 부르는 호칭 (${LABEL_MAX}자까지)`),
       el("div", { class: "chips", style: "margin:6px 0 10px" }, chips), input, msg,
@@ -110,7 +110,7 @@ export function registerElder({ required = false } = {}) {
       go.disabled = true; go.textContent = "등록하는 중…"; msg.textContent = "";
       const r = await createElder(label).catch(() => ({ ok: false, reason: "NETWORK" }));
       go.disabled = false; go.textContent = "등록하기";
-      if (!r.ok) { msg.textContent = errText(r.reason); return; }   // [지금은 건너뛰기]·[🚨 등록 없이 지금 찾기]는 처음부터 보인다
+      if (!r.ok) { msg.textContent = errText(r.reason); return; }   // [지금은 건너뛰기]·[등록 없이 지금 찾기]는 처음부터 보인다
       dlg.close(); dlg.remove();
       resolve({ id: r.elder.id, label: r.elder.label ?? label, role: r.elder.role ?? "owner" });
     });
@@ -192,7 +192,7 @@ function renderTabs(tab) {
   if ($(".tabbar")) return;
   const nav = el("nav", { class: "tabbar", "aria-label": "주요 화면" },
     el("div", { class: "inner" }, TABS.map((t) => el("a", { href: t.href, class: `tab-${t.id}`, "aria-current": t.id === tab ? "page" : null },
-      el("span", { class: "ic", "aria-hidden": "true" }, t.icon), el("span", { class: "lb" }, t.label)))));
+      el("span", { class: "ic", "aria-hidden": "true" }, icon(t.icon)), el("span", { class: "lb" }, t.label)))));
   document.body.append(nav);
 }
 
@@ -207,8 +207,11 @@ function renderBar(tab) {
   const cur = currentElder();
   const pick = el("button", { class: "elder-pick", type: "button", "aria-haspopup": "dialog", onclick: openSwitcher },
     el("span", { class: "muted" }, "어르신:"), " ", el("b", {}, cur ? cur.label || "어르신" : "고르기"), el("span", { "aria-hidden": "true" }, " ▾"));
-  const gear = el("a", { class: "gear", href: "/settings", "aria-label": "설정", "aria-current": tab === "settings" ? "page" : null }, "⚙");
-  bar.append(pick, gear);
+  // 처음 화면(/) — 아래 탭 3개는 /track·/report·/profile 로 가서, 이 버튼이 없으면 처음 화면으로 돌아갈 길이 없다
+  const atHome = /^\/(index(\.html)?)?$/.test(location.pathname);
+  const home = el("a", { class: "home", href: "/", "aria-label": "처음 화면", title: "처음 화면", "aria-current": atHome ? "page" : null }, icon("home"));
+  const gear = el("a", { class: "gear", href: "/settings", "aria-label": "설정", "aria-current": tab === "settings" ? "page" : null }, icon("settings"));
+  bar.append(home, pick, gear);
 }
 
 function openSwitcher() {

@@ -14,7 +14,7 @@
   <h1>어떻게 찾으셨어요?</h1>
   <p class="muted" id="inc-note"></p>
   <div class="card">
-    <button class="mic" id="mic" aria-pressed="false" aria-label="말로 입력">🎙️</button>
+    <button class="mic" id="mic" aria-pressed="false" aria-label="말로 입력"><i data-icon="mic"></i></button>
     <p class="small muted" id="interim" style="text-align:center;min-height:1.2em"></p>
     <textarea id="narr" placeholder="예) 세 시간 만에 옛날 살던 삼성동 쪽 버스 정류장에서 경찰이 찾았어요. 시장 가려다 버스를 잘못 타신 것 같아요."></textarea>
     <button class="btn-primary" id="go" style="margin-top:10px">정리하고 예방 계획 만들기</button>
@@ -36,7 +36,7 @@
   <div class="card" id="history"></div>
 </main>
 <script type="module">
-  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner } from "/js/common.js";
+  import { store, KEYS, api, createSpeech, $, $$, el, mockBanner, icon } from "/js/common.js";
   import { mountShell } from "/js/shell.js";
   await mountShell({ tab: "find" });
   const profile = store.get(KEYS.profile);
@@ -59,7 +59,7 @@
   function render() {
     $("#result").classList.remove("hidden");
     const box = $("#rec"); box.innerHTML = "";
-    const f = (label, v, flag) => box.append(el("div", { class: "field" }, el("div", { class: "k" }, label, flag ? el("span", { class: "badge warn" }, "⚠ 확인 필요") : ""), el("div", { class: "v" + (v ? "" : " empty") }, v ?? "모름")));
+    const f = (label, v, flag) => box.append(el("div", { class: "field" }, el("div", { class: "k" }, label, flag ? el("span", { class: "badge warn" }, icon("alert"), " 확인 필요") : ""), el("div", { class: "v" + (v ? "" : " empty") }, v ?? "모름")));
     f("발견된 곳", rec.found_place, rec.flags?.found_place); f("누가 찾았나", rec.found_by); f("가려던 곳·방향", rec.went_toward, rec.flags?.went_toward); if (rec.elapsed_note) f("시간", rec.elapsed_note);
     $("#prev").innerHTML = ""; if (!rec.prevention.length) $("#prev").append(el("li", { class: "muted" }, "제안 없음"));
     rec.prevention.forEach((p) => $("#prev").append(el("li", {}, el("b", {}, p.action), p.because ? el("div", { class: "small muted" }, p.because) : "")));

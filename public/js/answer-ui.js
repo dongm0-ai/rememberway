@@ -1,6 +1,6 @@
 // 되묻기·✎ 수정·서식 답변 입력기: 말로 하거나 글로 쓴다. 선택지 없음 (2026-10-29 지도교사 결정: 고르는 것도 부담).
 // 답은 자연어 그대로 저장되고, 소지품(휴대전화·지갑·지팡이)만 "있/없" 말을 코드가 true/false로 바꾼다.
-import { el, createSpeech } from "/js/common.js";
+import { el, createSpeech, icon } from "/js/common.js";
 
 const HINTS = {
   honorific: "예) 아버지 / 어머니 / 할머니 (이름은 적지 않아요)",
@@ -39,8 +39,8 @@ export function buildAnswerInput(key, container, initial = null) {
   const input = el("textarea", { placeholder: HINTS[key] ?? "말로 하거나 적어 주세요", rows: "2", style: "flex:1;min-height:56px" });
   if (typeof initial === "string") input.value = initial;
   else if (initial === true) input.value = "있어요"; else if (initial === false) input.value = "없어요";
-  const mic = el("button", { type: "button", class: "btn-secondary", style: "flex:0 0 56px;width:56px;height:56px;padding:0;border-radius:50%;font-size:24px;align-self:center", "aria-label": "말로 답하기", title: "말로 답하기" }, "🎙️");
-  const hint = el("div", { class: "small muted", style: "min-height:1.2em;margin-top:4px" }, "🎙️를 누르고 말하거나, 적어 주세요");
+  const mic = el("button", { type: "button", class: "btn-secondary", style: "flex:0 0 56px;width:56px;height:56px;padding:0;border-radius:50%;font-size:24px;align-self:center", "aria-label": "말로 답하기", title: "말로 답하기" }, icon("mic"));
+  const hint = el("div", { class: "small muted", style: "min-height:1.2em;margin-top:4px" }, "마이크를 누르고 말하거나, 적어 주세요");
   const speech = createSpeech({
     onText: (fin, interim) => { input.value = fin; hint.textContent = interim ? "…" + interim : (fin ? "들었어요. 맞으면 [답하기]" : "듣고 있어요…"); },
     onState: (on) => { mic.setAttribute("aria-pressed", String(on)); mic.style.background = on ? "var(--alert)" : ""; mic.style.color = on ? "#fff" : ""; },

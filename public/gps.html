@@ -15,11 +15,11 @@
 
   <div class="card">
     <h3 style="margin-top:0">기록 가져오기</h3>
-    <button class="btn-primary" id="server">📍 서버에 모인 목걸이 위치 (최근 30일)</button>
+    <button class="btn-primary" id="server">서버에 모인 목걸이 위치 (최근 30일)</button>
     <p class="small muted" id="server-note" style="margin:6px 0 0"></p>
     <details style="margin-top:10px"><summary class="small">다른 방법: 목걸이 USB · 파일 · 붙여 넣기</summary>
-      <button class="btn-secondary" id="serial" style="margin-top:8px">🔌 목걸이에서 바로 (노트북 크롬 + USB 선)</button>
-      <label class="btn btn-secondary" style="cursor:pointer;margin-top:8px">📂 기록 파일 (CSV · GPX)<input type="file" id="file" accept=".csv,.gpx,.txt,text/csv,application/gpx+xml" class="hidden"></label>
+      <button class="btn-secondary" id="serial" style="margin-top:8px">목걸이에서 바로 (노트북 크롬 + USB 선)</button>
+      <label class="btn btn-secondary" style="cursor:pointer;margin-top:8px">기록 파일 (CSV · GPX)<input type="file" id="file" accept=".csv,.gpx,.txt,text/csv,application/gpx+xml" class="hidden"></label>
       <textarea id="paste" style="min-height:70px;margin-top:8px" placeholder="time,lat,lon&#10;2026-11-15T01:03:00Z,36.31,127.43"></textarea>
       <button class="btn-secondary" id="paste-go" style="margin-top:6px">붙여 넣은 글로 계산</button>
     </details>
@@ -50,7 +50,7 @@
     <ul class="plain small muted">
       <li>원본 기록(점)은 이 화면에 저장하지 않습니다. 서버 기록은 30일이 지나면 자동으로 지워집니다.</li>
       <li>AI에는 좌표 없이 동 이름과 날 수·시간대만 보냅니다. 장소 이름을 찾을 때만 좌표가 네이버 주소 변환에 쓰입니다(저장 안 함).</li>
-      <li>이 화면은 지난 기록을 세는 것이고, 어르신이 지금 어디 계신지는 알려 주지 않습니다. 여기서 확인한 곳은 📍 실시간 위치·🚨 실종자 찾기의 예상 후보지를 만들 때 후보로 쓰입니다.</li>
+      <li>이 화면은 지난 기록을 세는 것이고, 어르신이 지금 어디 계신지는 알려 주지 않습니다. 여기서 확인한 곳은 실시간 위치·실종자 찾기의 예상 후보지를 만들 때 후보로 쓰입니다.</li>
     </ul>
   </div>
 </main>
@@ -115,7 +115,7 @@
     places = all.filter((p) => !p.home && p.days.length >= 1);
     const r0 = rules?.[rules.length - 1];
     $("#rules").textContent = r0 ? `이번 기록에서 계산된 기준 예 (${r0.day}): 멈춤 속력 ${r0.speed_mps ?? "-"} m/s · 방위각 편차 ${r0.bearing_rad ?? "-"} rad 초과 · 실내 판정 끊김 ${r0.gap_s}초 넘음, 거리 ${r0.gap_m}m 미만` : "";
-    $("#msg").textContent = `${from}: ${tr.from} ~ ${tr.to}, 위치 ${tr.points}개${isMock ? " · ⚠ 모의 기록(가짜 데이터)" : ""}`;
+    $("#msg").textContent = `${from}: ${tr.from} ~ ${tr.to}, 위치 ${tr.points}개${isMock ? " · 모의 기록(가짜 데이터)" : ""}`;
     $("#result").classList.remove("hidden");
     $("#stat").textContent = `· 기록 ${tr.days}일 · ${places.length}곳 (집 제외)`;
     $("#low").classList.toggle("hidden", tr.days >= 7);
@@ -144,7 +144,7 @@
     for (const p of places) {
       const name = el("input", { type: "text", value: p.name, placeholder: "이곳 이름 (예: 석교동 경로당)", oninput: (e) => (p.name = e.target.value.trim()) });
       const chips = el("div", { class: "chips", style: "margin-top:8px" });
-      for (const [k, t] of [["liked", "❤ 좋아하시는(추억의) 곳"], ["often", "📍 그냥 자주 가는 곳"], ["skip", "✕ 빼기"]])
+      for (const [k, t] of [["liked", "좋아하시는(추억의) 곳"], ["often", "그냥 자주 가는 곳"], ["skip", "✕ 빼기"]])
         chips.append(el("button", { class: "chip", "aria-pressed": String(p.choice === k), onclick: () => { p.choice = k; render(); } }, t));
       box.append(el("div", { class: "card" },
         el("div", { class: "small muted" }, `${p.days.length}일 · 평균 ${p.avg_min}분${p.weekdays.length ? ` · 주로 ${p.weekdays.join("·")}요일` : ""}${p.hour_band ? ` ${p.hour_band}` : ""} · ${p.first_date.slice(5)}~${p.last_date.slice(5)}`),
@@ -156,7 +156,7 @@
 
   $("#save").onclick = () => {
     const chosen = places.filter((p) => p.choice && p.choice !== "skip");
-    if (!chosen.length) { $("#saved").textContent = "확인한 곳이 없어요. 장소마다 ❤ 또는 📍를 골라 주세요."; return; }
+    if (!chosen.length) { $("#saved").textContent = "확인한 곳이 없어요. 장소마다 둘 중 하나를 골라 주세요."; return; }
     if (!getHome()) { $("#saved").textContent = "먼저 위에서 집 주소를 넣어 주세요."; return; }
     if (chosen.some((p) => !p.name)) { $("#saved").textContent = "고른 곳의 이름을 적어 주세요."; return; }
     if (chosen.some((p) => addressLike(p.name))) { $("#saved").textContent = "도로명·번지 같은 주소 대신 '석교동 경로당'처럼 이름으로 적어 주세요."; return; }

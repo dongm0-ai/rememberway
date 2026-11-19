@@ -7,6 +7,7 @@ import { lastMotion, projectPath, reachM, candidateFeatures, fallbackOrder, moti
 import { fmtDist, fmtElapsed } from "../lib/verify.js";
 import { WALK_SPEED, BASIC_KINDS, addressLike } from "../lib/schema.js";
 import { distM } from "../lib/gps.js";
+import { icon } from "./icons.js";
 
 const num = (v) => typeof v === "number" && Number.isFinite(v);
 const hasCoord = (p) => !!p && num(p.lat) && num(p.lng) && !(p.lat === 0 && p.lng === 0);
@@ -247,7 +248,7 @@ export function refreshHeadline(box, result, nowMs) {
 /** 카드 그리기. box 안을 비우고 다시 채운다. el = common.js 의 el (글은 textContent 로만 들어간다) */
 export function renderCandidates(box, result, { el, nowMs = Date.now(), loading = false, message = "" } = {}) {
   box.replaceChildren();
-  const card = el("div", { class: "card", id: "cand-card" }, el("h2", { style: "margin:0 0 4px" }, "📍 예상 후보지"));
+  const card = el("div", { class: "card", id: "cand-card" }, el("h2", { style: "margin:0 0 4px" }, "예상 후보지"));
   box.append(card);
   if (result?.status === "live" && !loading && !message) { card.append(el("p", { class: "cand-sub", style: "margin:0;font-size:18px" }, liveLine(result.motion, nowMs))); return; }
   if (loading || message || !result || result.status !== "ok") {
@@ -275,7 +276,7 @@ export function renderCandidates(box, result, { el, nowMs = Date.now(), loading 
         el("div", { class: "nm", style: "font-size:18px;font-weight:800" }, c.name, el("span", { class: "badge src" }, sourceBadge(c.source))),
         chips,
         el("div", { class: "reason", style: "font-size:18px;line-height:1.5" }, c.reason,
-          c.warn ? el("span", { class: "badge warn", title: "이유에 나온 숫자가 계산값과 맞지 않아요" }, "⚠ 숫자 확인") : "")),
+          c.warn ? el("span", { class: "badge warn", title: "이유에 나온 숫자가 계산값과 맞지 않아요" }, icon("alert"), " 숫자 확인") : "")),
       el("div", { class: "acts" }, nav)));
   });
   card.append(ol);

@@ -10,7 +10,7 @@
 <body>
 <main>
   <div class="topbar"><a class="back" href="/confirm">← 단서 수정</a><span class="step">화면 3 / 3 · 요약·지도</span></div>
-  <div class="alert">아직 신고 전이면 지금 112에 전화하세요.<a class="btn btn-danger btn-xl call112" href="tel:112">📞 112 전화하기</a></div>
+  <div class="alert">아직 신고 전이면 지금 112에 전화하세요.<a class="btn btn-danger btn-xl call112" href="tel:112"><i data-icon="phone"></i> 112 전화하기</a></div>
 
   <div class="cols">
   <div class="col-text">
@@ -50,12 +50,12 @@
   <div class="col-map">
     <h2 class="map-title">지도</h2>
     <div class="map-tools" id="ride-tools"><span class="small"><b>탈 수 있는 것</b></span>
-      <button class="chip" aria-pressed="true" disabled title="걸어서 원은 늘 보입니다">🚶 걸어서</button>
-      <button class="chip" id="ride-bus" aria-pressed="false">🚌 버스·지하철</button>
-      <button class="chip" id="ride-taxi" aria-pressed="false">🚕 택시</button></div>
+      <button class="chip" aria-pressed="true" disabled title="걸어서 원은 늘 보입니다">걸어서</button>
+      <button class="chip" id="ride-bus" aria-pressed="false">버스·지하철</button>
+      <button class="chip" id="ride-taxi" aria-pressed="false">택시</button></div>
     <p class="small muted" id="ride-note" style="margin:0 0 8px"></p>
     <div id="map">지도 불러오는 중…</div>
-    <div class="map-tools"><button class="btn btn-secondary" id="me-btn" style="width:auto;padding:10px 18px">📍 내 위치 켜기</button><span class="small muted" id="me-note">찾으러 다닐 때 켜세요. 위치는 저장하지 않아요.</span></div>
+    <div class="map-tools"><button class="btn btn-secondary" id="me-btn" style="width:auto;padding:10px 18px">내 위치 켜기</button><span class="small muted" id="me-note">찾으러 다닐 때 켜세요. 위치는 저장하지 않아요.</span></div>
     <p class="small muted" id="map-note"></p>
   </div>
   </div>
@@ -188,7 +188,7 @@
     // 3) 택시
     const km = Math.round((mode.elapsedMin || 60) / 60 * RIDE_SPEED_KMH.taxi);
     box.append(el("h3", {}, "③ 택시를 탔다면"),
-      el("p", { class: "small", style: "margin-top:0" }, `${mode.elapsedMin || 60}분이면 도심에서도 약 ${km}km 넘게 갈 수 있어 지도의 원으로 좁힐 수 없어요 (평균 시속 ${RIDE_SPEED_KMH.taxi}km로 가정한 참고값, 지도 위 [🚕 택시]를 누르면 점선 원으로 보여요). 그래서 기록을 확인하는 게 가장 빨라요.`));
+      el("p", { class: "small", style: "margin-top:0" }, `${mode.elapsedMin || 60}분이면 도심에서도 약 ${km}km 넘게 갈 수 있어 지도의 원으로 좁힐 수 없어요 (평균 시속 ${RIDE_SPEED_KMH.taxi}km로 가정한 참고값, 지도 위 [택시]를 누르면 점선 원으로 보여요). 그래서 기록을 확인하는 게 가장 빨라요.`));
     // 4) 확인할 기록
     box.append(el("h3", {}, "④ 확인할 기록"), el("ul", { class: "plain small" },
       el("li", {}, "교통카드·신용카드: 가족이 카드사 앱에서 사용 내역(시각·장소)을 볼 수 있으면 바로 확인하세요. 볼 수 없으면 경찰에 카드 종류를 알리고 확인을 요청하세요."),
@@ -222,14 +222,14 @@
   // ---------- 내 위치 (보호자가 찾으러 다닐 때) — 이 기기에서만, 저장·전송 없음 ----------
   let watchId = null, mePos = null, prompted = new Set(), arriveBox = null;
   $("#me-btn").onclick = () => {
-    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; mePos = null; view?.setMe(null); closeArrive(); $("#me-btn").textContent = "📍 내 위치 켜기"; $("#me-note").textContent = "내 위치를 껐어요."; return; }
+    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; mePos = null; view?.setMe(null); closeArrive(); $("#me-btn").textContent = "내 위치 켜기"; $("#me-note").textContent = "내 위치를 껐어요."; return; }
     if (!navigator.geolocation) { $("#me-note").textContent = "이 브라우저는 위치를 지원하지 않아요."; return; }
     $("#me-note").textContent = "위치를 찾는 중… (권한을 물으면 '허용')";
     let first = true;
     watchId = navigator.geolocation.watchPosition((p) => {
       mePos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) };
       view?.setMe(mePos); if (first) { view?.centerOn(mePos); first = false; }
-      $("#me-btn").textContent = "📍 내 위치 끄기";
+      $("#me-btn").textContent = "내 위치 끄기";
       const near = nearestOpen(mePos);
       $("#me-note").textContent = `내 위치 정확도 약 ${fmtM(mePos.acc)}${mePos.acc > 100 ? " (낮음 — 건물 밖에서 다시 보세요)" : ""}. ${near ? `가장 가까운 후보: ${tourNames.includes(near.c.name) ? tourNames.indexOf(near.c.name) + 1 + "번 " : ""}${near.c.name} ${fmtM(near.d)}` : "남은 후보가 없어요."}`;
       checkArrive(near);

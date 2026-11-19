@@ -112,8 +112,9 @@ function setup() {
   const f = fakeDb();
   let clock = Date.parse("2026-11-17T00:00:00.000Z");
   let n = 0;
-  const api = familyApi({ db: f.db, now: () => new Date(clock), randomToken: () => "tok" + ++n });
-  return { ...f, api, tick: (ms) => (clock += ms) };
+  const now = () => new Date(clock);   // 래퍼 API(racing·flaky)도 같은 고정 시계를 쓰게 — 실제 시계를 쓰면 날짜가 지나며 초대가 만료돼 테스트가 깨짐
+  const api = familyApi({ db: f.db, now, randomToken: () => "tok" + ++n });
+  return { ...f, api, now, tick: (ms) => (clock += ms) };
 }
 const A = { id: "11111111-1111-4111-8111-111111111111", email: "a@x.kr" };
 const B = { id: "22222222-2222-4222-8222-222222222222", email: "b@x.kr" };
@@ -487,6 +488,7 @@ test("resetDevice failing at the elders update is retry-safe (events go back, re
   s.t.loc_events.push({ id: 1, dev: old });
   let boom = true;
   const flaky = familyApi({
+    now: s.now,
     db: async (m, path, body, prefer) => {
       if (boom && m === "PATCH" && path.startsWith("elders?") && body?.device_hash) { boom = false; throw Object.assign(new Error("x"), { reason: "STORE_ERROR" }); }
       return s.db(m, path, body, prefer);
@@ -522,6 +524,7 @@ test("removeMember racing owner's leave → remaining member still gets owner", 
   const id = s.elder.id;
   // A 가 B 를 내보내는 사이 A 의 leave 가 먼저 끝나 B 가 owner 가 된 상태
   const racing = familyApi({
+    now: s.now,
     db: async (m, path, body, prefer) => {
       if (m === "DELETE" && path.startsWith(`elder_members?elder_id=eq.${id}&user_id=eq.${B.id}`)) {
         s.t.elder_members = s.t.elder_members.filter((x) => x.user_id !== A.id);
@@ -539,6 +542,7 @@ test("leave racing removeMember → remaining member still gets owner", async ()
   const id = s.elder.id;
   // A(owner) 가 빠지는 사이, 목록을 읽은 뒤에 B 가 내보내짐 → leave 가 다시 읽어 C 를 owner 로
   const racing = familyApi({
+    now: s.now,
     db: async (m, path, body, prefer) => {
       if (m === "DELETE" && path.startsWith(`elder_members?elder_id=eq.${id}&user_id=eq.${A.id}`)) {
         s.t.elder_members = s.t.elder_members.filter((x) => x.user_id !== B.id);
@@ -557,6 +561,7 @@ test("inviteAccept racing deleteElder fails closed (no member row for a deleted 
     const { elder } = await s.api.createElder(A, { label: "어머니" });
     const inv = await s.api.inviteCreate(A, elder.id);
     const racing = familyApi({
+      now: s.now,
       db: async (m, path, body, prefer) => {
         if (m === "POST" && path === "elder_members") await s.api.deleteElder(A, elder.id);
         return s.db(m, path, body, prefer);
@@ -573,6 +578,7 @@ test("inviteAccept racing deleteElder fails closed (no member row for a deleted 
     const { elder } = await s.api.createElder(A, { label: "어머니" });
     const inv = await s.api.inviteCreate(A, elder.id);
     const racing = familyApi({
+      now: s.now,
       db: async (m, path, body, prefer) => {
         if (m === "PATCH" && path.startsWith("invites?")) await s.api.deleteElder(A, elder.id);
         return s.db(m, path, body, prefer);
@@ -594,6 +600,7 @@ test("importDevice race: both pass the check, loser hits unique → DEVICE_TAKEN
   // B 의 DEVICE_TAKEN 확인이 끝난 직후 A 의 가져오기가 먼저 끝남
   let fired = false;
   const racing = familyApi({
+    now: s.now,
     db: async (m, path, body, prefer) => {
       const out = await s.db(m, path, body, prefer);
       if (!fired && m === "GET" && path.startsWith(`elders?device_hash=eq.${imp}`)) {
@@ -629,6 +636,7 @@ test("importDevice failing at the re-tag rolls back so a retry works", async () 
   s.t.loc_events.push({ id: 1, dev: old });
   let boom = true;
   const flaky = familyApi({
+    now: s.now,
     db: async (m, path, body, prefer) => {
       if (boom && m === "PATCH" && path.startsWith("loc_events?")) { boom = false; throw Object.assign(new Error("x"), { reason: "STORE_ERROR" }); }
       return s.db(m, path, body, prefer);
@@ -648,6 +656,7 @@ test("importDevice: re-tag committed but response lost → no rollback, events s
   s.t.loc_events.push({ id: 1, dev: old });
   let lose = true;
   const flaky = familyApi({
+    now: s.now,
     db: async (m, path, body, prefer) => {
       const out = await s.db(m, path, body, prefer);
       if (lose && m === "PATCH" && path.startsWith("loc_events?")) { lose = false; throw Object.assign(new Error("timeout"), { reason: "STORE_ERROR" }); }
@@ -667,6 +676,7 @@ test("importDevice: re-tag fails AND rollback of elders fails → finishes forwa
   s.t.loc_events.push({ id: 1, dev: old });
   let retagBoom = true, restoreBoom = true;
   const flaky = familyApi({
+    now: s.now,
     db: async (m, path, body, prefer) => {
       if (retagBoom && m === "PATCH" && path.startsWith("loc_events?")) { retagBoom = false; throw Object.assign(new Error("x"), { reason: "STORE_ERROR" }); }
       if (restoreBoom && m === "PATCH" && path.startsWith("elders?") && body?.device_hash === old) { restoreBoom = false; throw Object.assign(new Error("y"), { reason: "STORE_ERROR" }); }
@@ -686,6 +696,7 @@ test("importDevice: rollback restores elders before un-revoking (un-revoke failu
   s.t.loc_events.push({ id: 1, dev: old });
   let retagBoom = true, unrevokeBoom = true;
   const flaky = familyApi({
+    now: s.now,
     db: async (m, path, body, prefer) => {
       if (retagBoom && m === "PATCH" && path.startsWith("loc_events?")) { retagBoom = false; throw Object.assign(new Error("x"), { reason: "STORE_ERROR" }); }
       if (unrevokeBoom && m === "DELETE" && path.startsWith("revoked_devices?")) { unrevokeBoom = false; throw Object.assign(new Error("y"), { reason: "STORE_ERROR" }); }
@@ -706,6 +717,7 @@ test("resetDevice: elders update committed but response lost → no undo, events
   s.t.loc_events.push({ id: 1, dev: old });
   let lose = true;
   const flaky = familyApi({
+    now: s.now,
     db: async (m, path, body, prefer) => {
       const out = await s.db(m, path, body, prefer);
       if (lose && m === "PATCH" && path.startsWith("elders?") && body?.device_hash) { lose = false; throw Object.assign(new Error("timeout"), { reason: "STORE_ERROR" }); }
@@ -726,6 +738,7 @@ test("removeMember after a concurrent owner hand-off that leaves nobody → elde
   s.t.loc_events.push({ id: 1, dev: h });
   // A 가 빠지면서 B 를 owner 로 넘긴 직후, A 의 removeMember(B) 가 B 를 지움 → 아무도 없음
   const racing = familyApi({
+    now: s.now,
     db: async (m, path, body, prefer) => {
       if (m === "DELETE" && path.startsWith(`elder_members?elder_id=eq.${id}&user_id=eq.${B.id}`)) {
         s.t.elder_members = s.t.elder_members.filter((x) => x.user_id !== A.id);

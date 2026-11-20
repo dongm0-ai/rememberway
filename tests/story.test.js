@@ -1,7 +1,13 @@
 // 오늘 GPS 기록 → 보호자가 고쳐 쓸 문장 (public/lib/story.js). 코드 규칙만, AI 없음.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { lastTrip, storyPoints, storyText, shortPlace, koTime } from "../public/lib/story.js";
+import { lastTrip, storyPoints, storyText, shortPlace, dongOf, koTime } from "../public/lib/story.js";
+
+test("dongOf: 역지오코딩 label → 동 이름만", () => {
+  assert.equal(dongOf({ label: "대전광역시 중구 부사동" }), "부사동");
+  assert.equal(dongOf({ label: "" }), null);
+  assert.equal(dongOf(null), null);
+});
 
 const HOME = { lat: 36.30846, lng: 127.43884 };
 const T0 = new Date(2026, 10, 22, 15, 4, 0).getTime();

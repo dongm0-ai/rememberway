@@ -62,7 +62,7 @@ export function koTime(ms) {
 }
 
 /** 역지오코딩 결과 → "부사동" (동 이름만) */
-export function dongOf(g) { const d = typeof g?.label === "string" ? g.label.trim().split(/s+/).pop() : ""; return d || null; }
+export function dongOf(g) { const d = typeof g?.label === "string" ? g.label.trim().split(/\s+/).pop() : ""; return d || null; }
 
 /** 역지오코딩 결과 → "부사동 보문로47번길" 처럼 동·길까지 (시·구와 번지는 뺌) */
 export function shortPlace(g) {

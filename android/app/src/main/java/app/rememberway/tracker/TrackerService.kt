@@ -33,7 +33,9 @@ class TrackerService : Service(), TrackerBleClient.Listener {
         private const val POLL_MS = 10_000L
         /** 상태가 그대로여도 이 간격으로는 서버에 알린다 (보호자 화면이 "소식이 끊김"을 알 수 있게) */
         private const val REPORT_EVERY_MS = 5 * 60_000L
-        private val RETRY_MS = longArrayOf(15_000, 30_000, 60_000)
+        /** 통신이 안 될 때 다시 해 보는 간격. 가장 긴 것도 부저 명령 만료(60초)의 절반 — 통신이 돌아오면 만료 전에 명령을 가져올 수 있게 */
+        private val RETRY_MS = longArrayOf(10_000, 20_000, 30_000)
+        private const val WAITING_TEXT = "인터넷 연결을 기다리는 중"
 
         @Volatile var instance: TrackerService? = null
             private set
@@ -222,14 +224,17 @@ class TrackerService : Service(), TrackerBleClient.Listener {
         if (!failed) {
             if (!commands.flushReports()) failed = true
             if (!running) return 0
-            if (!failed && !report(force = false)) failed = true
+            // 상태 알림이 실패해도 부저 명령을 묻는 간격은 늘리지 않는다 (다음 번에 다시 알린다)
+            if (!failed) report(force = false)
         }
 
         if (failed) {
-            TrackerState.update { it.copy(lastUpload = "인터넷 연결을 기다리는 중") }
+            TrackerState.update { it.copy(lastUpload = WAITING_TEXT) }
             return RETRY_MS[minOf(failures++, RETRY_MS.size - 1)]
         }
         failures = 0
+        // 다시 통하면 "기다리는 중" 글을 지운다 (GPS 좌표가 없는 동안에는 위치를 보내지 않아 이 글이 그대로 남았다)
+        TrackerState.update { if (it.lastUpload == WAITING_TEXT) it.copy(lastUpload = "서버와 연결됨") else it }
         return POLL_MS
     }
 

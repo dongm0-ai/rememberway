@@ -34,8 +34,8 @@ test("storyText: 시각·방향·끊긴 곳, 집 주소는 쓰지 않음", () =>
 });
 
 test("storyText: 멈춘 뒤 끊김", () => {
-  const pts = Array.from({ length: 30 }, (_, i) => ({ t: T0 + i * 10000, lat: 36.31, lng: 127.44 }));
-  pts.unshift({ t: T0 - 60000, lat: 36.309, lng: 127.439 });
+  const pts = Array.from({ length: 30 }, (_, i) => ({ t: T0 + i * 10000, lat: 36.3125, lng: 127.4425 }));
+  pts.unshift({ t: T0 - 60000, lat: 36.312, lng: 127.442 });
   const s = storyText(storyPoints(pts, { home: HOME }), { end: "부사동 보문로" });
   assert.match(s, /부사동 보문로 근처에 머무신 뒤/);
 });
@@ -54,4 +54,16 @@ test("shortPlace: 시·구·번지는 빼고 동·길까지", () => {
 test("koTime", () => {
   assert.equal(koTime(new Date(2026, 0, 1, 15, 4).getTime()), "오후 3시 4분");
   assert.equal(koTime(new Date(2026, 0, 1, 0, 0).getTime()), "오전 12시");
+});
+
+test("집에서 가까운 지나간 곳·끊긴 곳은 도로명을 쓰지 않는다 (집 도로명이 AI로 가지 않게)", () => {
+  const near = walk(T0, 20, HOME, 0.00001, 0.00001);   // 집 앞 20m 안에서만 움직임
+  const sp = storyPoints(near, { home: HOME });
+  assert.equal(sp.mid, null);
+  assert.equal(sp.endNearHome, true);
+  const s = storyText(sp, { end: "석교동 사득로54번길" });
+  assert.doesNotMatch(s, /사득로54번길/);
+  assert.match(s, /집 근처/);
+  const far = storyPoints(walk(T0, 80), { home: HOME });   // 약 700m 걸음 → 가운데 점은 집에서 300m 넘음
+  assert.ok(far.mid);
 });

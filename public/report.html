@@ -113,7 +113,7 @@
     const places = [...(profile?.places ?? []), ...known].filter((x) => Number.isFinite(x?.lat) && Number.isFinite(x?.lng));
     const sp = storyPoints(pointsToday(raw, Date.now()), { home: getHome(), places });
     if (sp) {
-      const [gs, gm, ge] = await Promise.all([sp.startNearHome ? null : rev(sp.start), rev(sp.mid), rev(sp.end)]);
+      const [gs, gm, ge] = await Promise.all([sp.startNearHome ? null : rev(sp.start), sp.mid ? rev(sp.mid) : null, sp.endNearHome ? null : rev(sp.end)]);
       const story = storyText(sp, { start: shortPlace(gs), mid: shortPlace(gm), end: shortPlace(ge) });
       const filled = !ta.value.trim();
       if (filled) ta.value = story;

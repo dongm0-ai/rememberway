@@ -8,6 +8,7 @@ import { distM } from "./gps.js";
 const MIN = 60000;
 export const TRIP_GAP_MS = 5 * MIN;   // 이보다 오래 기록이 비면 다른 나들이로 본다
 export const HOME_NEAR_M = 150;       // 출발점이 집에서 이 안이면 "집 근처"
+export const MID_AWAY_M = 300;        // "지나간 곳"은 집에서 이보다 먼 점만 (집 도로명이 문장에 들어가지 않게)
 export const TOWARD_DEG = 30;         // 가던 방향 ±이 각도 안의 등록 장소를 "○○ 쪽"으로 적는다
 export const TOWARD_MAX_M = 1500;
 
@@ -35,9 +36,12 @@ export function lastTrip(points) {
 export function storyPoints(points, { home = null, places = [] } = {}) {
   const trip = lastTrip(points);
   if (trip.length < 2) return null;
-  const start = trip[0], end = trip[trip.length - 1], mid = trip[Math.floor(trip.length / 2)];
+  const start = trip[0], end = trip[trip.length - 1];
   const motion = lastMotion(trip);
-  const startNearHome = !!home && num(home.lat) && num(home.lng) && distM(start, home) <= HOME_NEAR_M;
+  const hasHome = !!home && num(home.lat) && num(home.lng);
+  const startNearHome = hasHome && distM(start, home) <= HOME_NEAR_M;
+  // 지나간 곳: 길 가운데쯤. 집에서 MID_AWAY_M 안이면 집 도로명이 문장(→ AI)에 들어가므로 더 뒤의 점, 그래도 가까우면 쓰지 않는다
+  const mid = [0.5, 0.75].map((f) => trip[Math.floor((trip.length - 1) * f)]).find((p) => !hasHome || distM(p, home) > MID_AWAY_M) ?? null;
   let toward = null;
   if (motion.state === "moving_lost" && num(motion.bearingDeg)) {
     const hit = (Array.isArray(places) ? places : [])
@@ -47,7 +51,8 @@ export function storyPoints(points, { home = null, places = [] } = {}) {
       .sort((a, b) => a.a - b.a || a.d - b.d)[0];
     toward = hit?.name ?? null;
   }
-  return { start, mid, end, motion, startNearHome, toward };
+  const endNearHome = hasHome && distM(end, home) <= MID_AWAY_M;   // 끊긴 곳이 집 가까이면 그 도로명도 쓰지 않고 "집 근처"
+  return { start, mid, end, motion, startNearHome, endNearHome, toward };
 }
 
 /** "오후 3시 4분" */
@@ -75,7 +80,7 @@ export function storyText(sp, labels = {}) {
   const { start, end, motion, startNearHome, toward } = sp;
   const from = startNearHome ? "집 근처" : labels.start || "어느 곳";
   const via = labels.mid && labels.mid !== labels.end && labels.mid !== labels.start ? `${labels.mid} 쪽을 지나 ` : "";
-  const at = labels.end ? `${labels.end} 근처` : "마지막 위치";
+  const at = sp.endNearHome ? "집 근처" : labels.end ? `${labels.end} 근처` : "마지막 위치";
   if (motion.state === "moving_lost") {
     const dir = direction8(motion.bearingDeg);
     const kmh = num(motion.speedMps) ? Math.round(motion.speedMps * 3.6) : null;

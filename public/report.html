@@ -111,17 +111,6 @@
       " ", el("a", { href: "/track" }, "지도 보기")));
   })();
 
-  const outQ = new URLSearchParams(location.search).get("out");
-  if (/^\d{1,2}:\d{2}$/.test(outQ ?? "")) {
-    const [h, m] = outQ.split(":").map(Number), t = new Date(); t.setHours(h, m, 0, 0);
-    if (t.getTime() > Date.now()) t.setDate(t.getDate() - 1); // 자정을 넘긴 경우
-    const mins = Math.max(1, Math.round((Date.now() - t.getTime()) / 60000));
-    const chip = el("button", { class: "chip", "data-min": String(mins) }, `알림 기준 ${mins}분`);
-    $("#elapsed").prepend(chip); pickChip("#elapsed .chip"); $$("#elapsed .chip").forEach((c) => c.setAttribute("aria-pressed", String(c === chip)));
-    if (!ta.value) ta.value = `${h < 12 ? "오전" : "오후"} ${((h + 11) % 12) + 1}시${m ? ` ${m}분` : ""}쯤 혼자 현관으로 나가신 것 같아요 (현관 수신기 알림). `;
-    $("#talk").prepend(el("div", { class: "notice", style: "margin-bottom:10px" }, `현관 수신기 알림: ${outQ} 문이 열릴 때 현관에서 목걸이 신호 감지 (약 ${mins}분 전). 실제로 나가신 시각과 다르면 고쳐 주세요.`));
-  }
-
   // 서식 모드
   const formKeys = ["last_seen.time", "last_seen.place", "today_destination", "route", "clothing.top", "clothing.bottom", "clothing.shoes", "clothing.hat", "gait", "meds", "dementia_signs", "prior_incidents"];
   const boolKeys = ["items.phone", "items.wallet", "items.cane"];

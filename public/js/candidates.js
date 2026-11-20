@@ -135,7 +135,9 @@ export function mergeRanked(ranked, features, motion, n = 3) {
   const byId = new Map((features ?? []).map((f) => [f.id, f])), used = new Set(), out = [];
   for (const r of Array.isArray(ranked) ? ranked : []) {
     const f = byId.get(r?.id);
-    if (!f || used.has(f.id) || out.length >= n || typeof r.reason !== "string" || !r.reason.trim()) continue;
+    if (!f || used.has(f.id) || out.length >= n) continue;
+    if (r.leak === true) { used.add(f.id); out.push({ ...f, reason: codeReason(f, motion), warn: false, by: "ai" }); continue; }   // AI 순서, 이유는 코드 문장 (이름표가 섞인 이유는 서버가 비움)
+    if (typeof r.reason !== "string" || !r.reason.trim()) continue;
     used.add(f.id); out.push({ ...f, reason: r.reason.trim(), warn: r.warn === true, by: "ai" });
   }
   for (const f of fallbackOrder(features)) {
@@ -187,7 +189,8 @@ export async function computeCandidates(deps) {
     const v = hasCoord(f) ? { lat: f.lat, lng: f.lng } : null; cache.set(name, v); return v;
   };
   let motion = lastMotion(points);
-  if (motion.state === "moving_lost" && nowMs - motion.t < LIVE_MS) return { status: "live", motion };
+  const trail = (Array.isArray(points) ? points : []).filter(hasCoord).sort((a, b) => a.t - b.t);   // 오늘 걸은 GPS 길 — 지도에 실선으로 (끊긴 곳이 어디인지 보이게)
+  if (motion.state === "moving_lost" && nowMs - motion.t < LIVE_MS) return { status: "live", motion, trail };
   if (motion.state === "none") {
     if (!clue || !hasCoord(home)) return { status: "nodata" };
     const dest = clue.today_destination && parseDirection(clue.direction) === null ? await geo(String(clue.today_destination), home) : null;
@@ -214,7 +217,7 @@ export async function computeCandidates(deps) {
 
   const places = buildPlaces({ memory, frequent, basic, home });
   const features = candidateFeatures(motion, nowMs, places);
-  if (!features.length) return { status: "empty", motion, path, reach, top: [] };
+  if (!features.length) return { status: "empty", motion, path, reach, top: [], trail };
   const sent = forAI(features);
   // AI 순서는 마지막 위치와 후보 묶음이 같으면 다시 쓰고(성공한 답만 기억), 바뀌었을 때만 다시 묻는다
   const aiCache = deps.aiCache, aiKey = /* id+이름: 다른 곳이 같은 id(b1)를 받을 수 있어 이름까지 */ `${motion.state}|${motion.t}|${sent.map((c) => `${c.id}=${c.name}`).sort().join(",")}`;
@@ -230,7 +233,7 @@ export async function computeCandidates(deps) {
   }
   const ranked = res?.ok && Array.isArray(res.ranked) ? res.ranked : [];
   const top = mergeRanked(ranked, sent, motion);
-  return { status: "ok", motion, path, reach, top, ai: top.some((c) => c.by === "ai"), aiReason: res?.ok ? (ranked.length ? null : "EMPTY") : res?.reason ?? "ERROR", mock: !!res?.mock };
+  return { status: "ok", motion, path, reach, top, trail, ai: top.some((c) => c.by === "ai"), aiReason: res?.ok ? (ranked.length ? null : "EMPTY") : res?.reason ?? "ERROR", mock: !!res?.mock };
 }
 
 /** 아직 움직이는 중일 때 한 줄 */

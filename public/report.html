@@ -94,20 +94,45 @@
   else $("#mic").onclick = () => (speech.listening ? speech.stop() : speech.start(ta.value));
 
   // 집 수신기(문 센서 + 목걸이 신호)의 텔레그램 알림 링크: /report?out=14:03 → 외출 시각·지난 시간을 미리 채운다 (보호자가 고칠 수 있음)
-  // 목걸이 GPS 마지막 위치 (현재 어르신 폰이 위치를 보낸 경우): GPS가 꺼졌거나 두고 나가셨을 때 "마지막 본 곳" 단서로 쓴다
+  // 목걸이 GPS (현재 어르신 폰이 위치를 보낸 경우). GPS를 정답으로 쓰지 않는다:
+  //  - 오늘 기록이 있으면 "몇 시에 어디서 나가 어디를 지나 어느 쪽으로 가다 어디서 끊겼는지"를 코드가 문장으로 써서(public/lib/story.js)
+  //    입력칸이 비어 있을 때 미리 적어 둔다. 보호자는 그 위에 고치고 덧붙여 말한다 (집 주소는 쓰지 않고 "집 근처")
+  //  - 오늘 기록이 없으면 마지막 위치 한 줄만 [단서에 넣기]로
   (async () => {
     const { elder } = await shell;
     if (!elder?.id) return;
-    const r = await authFetch({ action: "latest", elderId: elder.id, limit: 1 }).catch(() => null);
-    const p = r?.ok && r.points?.[0]; if (!p) return;
+    const r = await authFetch({ action: "latest", elderId: elder.id, limit: 400 }).catch(() => null);
+    const raw = r?.ok && Array.isArray(r.points) ? r.points : [];
+    const p = raw[0]; if (!p) return;
+    const rev = async (q) => { try { const g = await (await fetch(`/api/geocode?lat=${q.lat}&lng=${q.lng}`)).json(); return g.ok ? g : null; } catch { return null; } };
     const t = new Date(p.gps_time || p.received_at), mins = Math.round((Date.now() - t) / 60000);
-    let label = `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`;
-    try { const g = await (await fetch(`/api/geocode?lat=${p.lat}&lng=${p.lng}`)).json(); if (g.ok) label = g.building ? `${g.road || g.label} ${g.building}` : g.road || g.jibun || g.label; } catch {}
+    const ago = mins < 60 ? `${mins}분` : `${Math.round(mins / 60)}시간`;
+    const { pointsToday } = await import("/js/candidates.js");
+    const { storyPoints, storyText, shortPlace } = await import("/lib/story.js");
+    const { profile, known } = registeredNow();
+    const places = [...(profile?.places ?? []), ...known].filter((x) => Number.isFinite(x?.lat) && Number.isFinite(x?.lng));
+    const sp = storyPoints(pointsToday(raw, Date.now()), { home: getHome(), places });
+    if (sp) {
+      const [gs, gm, ge] = await Promise.all([sp.startNearHome ? null : rev(sp.start), rev(sp.mid), rev(sp.end)]);
+      const story = storyText(sp, { start: shortPlace(gs), mid: shortPlace(gm), end: shortPlace(ge) });
+      const filled = !ta.value.trim();
+      if (filled) ta.value = story;
+      const note = el("div", { class: "notice", style: "margin-bottom:10px" },
+        el("b", {}, "오늘 GPS 기록으로 첫 문장을 적어 두었어요. "),
+        "GPS는 틀릴 수 있어요 (목걸이를 두고 나가셨거나 실내·버스). 아래 글을 고치고, 나가실 때 하신 말씀·옷차림·평소 가시던 곳을 덧붙여 주세요. ",
+        el("a", { href: "/track" }, "지도 보기"));
+      if (!filled) note.append(" ", el("button", { class: "btn-ghost", style: "padding:4px 10px", onclick: (e) => { if (!ta.value.includes(story)) ta.value = story + ta.value; e.target.textContent = "넣었어요"; } }, "GPS 문장 넣기"));
+      else note.append(" ", el("button", { class: "btn-ghost", style: "padding:4px 10px", onclick: (e) => { if (ta.value.startsWith(story)) ta.value = ta.value.slice(story.length); e.target.remove(); } }, "GPS 문장 지우기"));
+      $("#talk").prepend(note);
+      return;
+    }
+    const g = await rev(p);
+    const label = (g && (g.building ? `${g.road || g.label} ${g.building}` : g.road || g.jibun || g.label)) || `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`;
     const hh = t.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
     const line = `목걸이 GPS 마지막 위치는 ${label} 근처, ${hh}입니다. `;
     $("#talk").prepend(el("div", { class: "notice", style: "margin-bottom:10px" },
-      `목걸이 GPS 마지막 위치: ${label} 근처 · ${hh} (${mins < 60 ? `${mins}분` : `${Math.round(mins / 60)}시간`} 전). `,
-      el("button", { class: "btn-ghost", style: "padding:4px 10px", onclick: (e) => { if (!ta.value.includes(line)) ta.value = line + ta.value; e.target.textContent = "넣었어요 ✓"; } }, "단서에 넣기"),
+      `목걸이 GPS 마지막 위치: ${label} 근처 · ${hh} (${ago} 전). `,
+      el("button", { class: "btn-ghost", style: "padding:4px 10px", onclick: (e) => { if (!ta.value.includes(line)) ta.value = line + ta.value; e.target.textContent = "넣었어요"; } }, "단서에 넣기"),
       " ", el("a", { href: "/track" }, "지도 보기")));
   })();
 

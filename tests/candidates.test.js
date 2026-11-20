@@ -380,3 +380,10 @@ test("/api/diary: gps / memory / default paths still work next to candidates", (
   const d = await post({ spoken: "오늘은 약국에 다녀오셨어요", knownPlaces: [], date: "2026-11-17" });
   assert.equal(d.extracted.new_places[0].name, "약국");
 }));
+
+// 2026-11-20: AI 이유에 입력 이름표(reachable·bearing_diff_deg …)가 섞이면 보호자가 읽을 수 없다 → 순서는 두고 이유만 코드 문장으로
+test("reason with input field names → kept in order, reason emptied, leak true", () => {
+  const out = verifyCandidates({ ranked: [{ id: "a", reason: "북동 방향과 3도 차이이며 reachable입니다." }, { id: "b", reason: "bearing_diff_deg 38로 두 번째입니다." }, { id: "c", reason: "GS25 편의점은 지금 걸어서 닿을 수 있는 곳입니다." }] }, [{ id: "a" }, { id: "b" }, { id: "c" }], {});
+  assert.deepEqual(out.map((r) => [r.id, r.leak === true, r.reason === ""]), [["a", true, true], ["b", true, true], ["c", false, false]]);
+});
+test("prompt tells AI not to put field names in reasons", () => assert.match(SYSTEM_CANDIDATES, /reachable/));

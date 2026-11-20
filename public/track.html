@@ -129,7 +129,7 @@
       lastRes = res;
       overlay?.clear(); overlay = null;
       if (res.status === "live") { fitted = false; predFit = false; }   // 다시 끊기면 그때 한 번 화면을 맞춘다
-      else if (nv && map && res.motion) { overlay = drawPrediction(nv, map, { from: res.motion, path: res.path, reachM: res.reach, pins: res.top ?? [], fit: !fitted }); if (!fitted) predFit = true; fitted = true; }
+      else if (nv && map && res.motion) { overlay = drawPrediction(nv, map, { from: res.motion, path: res.path, reachM: res.reach, pins: res.top ?? [], trail: res.trail ?? [], fit: !fitted }); if (!fitted) predFit = true; fitted = true; }
     } catch { candLast = 0; candMod.renderCandidates(box, null, { el, message: "예상 후보지를 계산하지 못했어요. 위 지도의 마지막 위치부터 확인해 주세요." }); }
     finally { candBusy = false; }
   }

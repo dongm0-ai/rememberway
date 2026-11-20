@@ -242,6 +242,8 @@ function supported(tok, factSets) {
  * @param {object} motion AI에 보낸 요약 {state, minutes_since, speed_kmh, direction_8}
  * @returns {{id:string, reason:string, warn:boolean}[]}
  */
+/** 후보 이유에 섞이면 안 되는 입력 이름표·영어 값 (snake_case 낱말 전부 + 아래 낱말). 장소 이름의 GS25·CU 같은 영문은 걸리지 않는다 */
+export const CAND_FIELD_LEAK = /[A-Za-z]+_[A-Za-z0-9_]+|\b(reachable|moving_lost|stayed|state|source|evidence|memory|frequent|basic|true|false|null|undefined)\b/i;
 export function verifyCandidates(raw, candidates, motion) {
   const byId = new Map();
   for (const c of Array.isArray(candidates) ? candidates : []) if (typeof c?.id === "string" && !byId.has(c.id)) byId.set(c.id, c);
@@ -251,6 +253,8 @@ export function verifyCandidates(raw, candidates, motion) {
     const id = r?.id, reason = typeof r?.reason === "string" ? r.reason.trim() : "";
     if (typeof id !== "string" || !byId.has(id) || seen.has(id) || !reason || reason.length > CAND_REASON_MAX) continue;
     seen.add(id);
+    // 입력 이름표(reachable·bearing_diff_deg …)가 이유에 섞이면 보호자가 읽을 수 없다 → 순서는 AI 것을 두고 이유만 화면이 코드 문장(codeReason)으로 바꾼다
+    if (CAND_FIELD_LEAK.test(reason)) { out.push({ id, reason: "", warn: false, leak: true }); if (out.length === CAND_MAX) break; continue; }
     const own = inputNumbers(byId.get(id));
     out.push({ id, reason, warn: !numUnits(reason).every((t) => supported(t, [motionFacts, own])) });
     if (out.length === CAND_MAX) break;

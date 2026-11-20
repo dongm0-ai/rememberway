@@ -286,3 +286,10 @@ test("refreshHeadline: 부제만 새 시각으로 (네트워크 없음)", () => 
   assert.match(p.textContent, /마지막 위치 30초 전/);
   assert.equal(refreshHeadline({ querySelector: () => null }, { status: "ok", motion: MOVING }, NOON), false);
 });
+
+test("mergeRanked: 이름표가 섞여 서버가 비운 이유(leak) → AI 순서는 두고 이유는 코드 문장", () => {
+  const out = mergeRanked([{ id: "c", reason: "", leak: true }], F, MOVING);
+  assert.equal(out[0].id, "c");
+  assert.equal(out[0].by, "ai");
+  assert.equal(out[0].reason, codeReason(F.find((f) => f.id === "c"), MOVING));
+});

@@ -377,12 +377,22 @@ export const candPinHtml = (n, name) => `<div title="${escapeHtml(name)}" style=
 /**
  * naver = loadMap 결과(window.naver), map = naver.maps.Map. from = 마지막 위치(또는 집), path = projectPath 결과(마지막 위치 제외),
  * reachM = 걸어서 닿는 반경(m), pins = [{lat,lng,name}] (순서대로 1·2·3), fit = 한 번 화면 맞춤. → { clear() }
+ * trail = 오늘 걸은 GPS 점 [{t,lat,lng}] — 빨간 실선. from 이 GPS 마지막 위치면(fromClue 아님) 그 자리에 "GPS 끊김 HH:MM" 표시
  */
-export function drawPrediction(naver, map, { from, path = [], reachM = 0, pins = [], fit = false } = {}) {
+export const GPS_COLOR = "#d92d20";
+export const cutLabelHtml = (text) => `<div style="transform:translate(-50%,-100%);margin-top:-14px;white-space:nowrap;background:${GPS_COLOR};color:#fff;font-weight:800;font-size:14px;padding:4px 10px;border-radius:999px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${escapeHtml(text)}</div>`;
+export function drawPrediction(naver, map, { from, path = [], reachM = 0, pins = [], fit = false, trail = [] } = {}) {
   const M = naver?.maps, ok = (p) => !!p && Number.isFinite(p.lat) && Number.isFinite(p.lng);
   if (!M || !map || !ok(from)) return { clear() {} };
   const objs = [], ll = (p) => new M.LatLng(p.lat, p.lng);
   if (reachM > 0) objs.push(new M.Circle({ map, center: ll(from), radius: reachM, strokeColor: PRED_COLOR, strokeWeight: 2, strokeOpacity: .8, strokeStyle: "shortdash", fillColor: PRED_COLOR, fillOpacity: .05, clickable: false }));
+  const walked = (Array.isArray(trail) ? trail : []).filter(ok);
+  if (walked.length >= 2) objs.push(new M.Polyline({ map, path: walked.map(ll), strokeColor: GPS_COLOR, strokeWeight: 5, strokeOpacity: .85, clickable: false }));
+  if (!from.fromClue && Number.isFinite(from.t)) {
+    const d = new Date(from.t), hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    objs.push(new M.Marker({ map, position: ll(from), icon: { content: `<div style="width:18px;height:18px;border-radius:50%;background:${GPS_COLOR};border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)"></div>`, anchor: new M.Point(9, 9) }, title: `GPS 마지막 위치 ${hm}`, zIndex: 130 }));
+    objs.push(new M.Marker({ map, position: ll(from), icon: { content: cutLabelHtml(`${from.state === "moving_lost" ? "GPS 끊김" : "GPS 마지막"} ${hm}`), anchor: new M.Point(0, 0) }, clickable: false, zIndex: 131 }));
+  }
   const line = [from, ...path].filter(ok);
   if (line.length >= 2) objs.push(new M.Polyline({ map, path: line.map(ll), strokeColor: PRED_COLOR, strokeWeight: 5, strokeOpacity: .9, strokeStyle: "shortdash", clickable: false }));
   pins.filter(ok).forEach((c, i) => objs.push(new M.Marker({ map, position: ll(c), icon: { content: candPinHtml(String(i + 1), c.name), anchor: new M.Point(15, 15) }, title: `후보 ${i + 1}. ${c.name ?? ""}`, zIndex: 120 })));

@@ -40,6 +40,7 @@
     <h2>어르신 폰 연결 코드</h2>
     <p class="muted" style="margin-top:0">목걸이 위치는 어르신 휴대폰의 위치 앱을 거쳐 와요. 이 코드를 어르신 폰 앱에 넣어 주세요.</p>
     <div id="device"></div>
+    <p class="small muted" id="device-linked"></p>
     <p class="msg-err" id="device-msg" role="alert"></p>
   </section>
 
@@ -217,6 +218,15 @@
     });
     renderDevice();
   }
+  // 어르신 폰 앱이 연동해 서버에 알린 위치 단말 (등록은 앱에서 한다 — 여기서는 보여 주기만)
+  async function showLinkedDevice() {
+    const r = await authFetch({ action: "device.status", elderId: elder.id }).catch(() => null);
+    if (!r?.ok) return;
+    const d = r.device;
+    $("#device-linked").textContent = d
+      ? `등록된 위치 단말: ${d.tracker_name || "목걸이"}${d.tracker_id ? ` (${d.tracker_id})` : ""} · 마지막 소식 ${new Date(d.reported_at).toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
+      : "아직 등록된 위치 단말이 없어요. 어르신 폰 앱에 이 코드를 넣고 목걸이를 연동하면 여기에 나타나요.";
+  }
 
   // ---------------------------------------------------------------- 로그아웃
   async function logout(everywhere, btn) {
@@ -333,6 +343,7 @@
     $("#btn-delete").classList.toggle("hidden", !isOwner);
     renderMembers();
     renderDevice();
+    showLinkedDevice();
   }
   renderBackups();
 </script>

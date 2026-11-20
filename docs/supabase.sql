@@ -85,3 +85,33 @@ alter table elder_members   enable row level security;
 alter table elder_data      enable row level security;
 alter table invites         enable row level security;
 alter table revoked_devices enable row level security;
+
+-- ---------------------------------------------------------------- 원격 부저·위치 단말 등록 (2026-11-20, 다시 Run 해도 안전)
+-- 보호자 웹 [소리 울리기] → 여기에 명령 저장 → 어르신 휴대폰 앱이 가져가 블루투스로 추적기에 전달 → 결과를 다시 여기에.
+-- 저장하는 것: 연결 코드 해시(dev)·명령 종류·시각·누른 가족의 계정 id. 이름·주소·위치는 넣지 않는다.
+-- 명령은 60초 안에 전달되지 않으면 만료로 보고, 기록은 하루 뒤 서버가 지운다 (진행 표시용일 뿐).
+create table if not exists device_commands (
+  id          uuid primary key default gen_random_uuid(),
+  dev         text not null,                   -- 어르신 폰 연결 코드의 해시
+  command     text not null check (command in ('BUZZER_FIND','BUZZER_ON','BUZZER_OFF')),
+  status      text not null default 'pending' check (status in ('pending','delivered','accepted','failed','expired')),
+  response    text,                            -- 추적기가 돌려준 글자(ACK_FIND 등) 또는 실패 이유
+  created_by  uuid,                            -- 누른 가족 (Supabase Auth 사용자 id)
+  created_at  timestamptz default now(),
+  expires_at  timestamptz not null,
+  updated_at  timestamptz default now()
+);
+create index if not exists device_commands_dev_time on device_commands (dev, created_at desc);
+-- 어르신 휴대폰 앱이 연동한 추적기와 마지막으로 알린 상태 (연결 코드 하나에 한 줄). 블루투스 주소·사람 정보는 받지 않는다.
+create table if not exists device_status (
+  dev          text primary key,               -- 어르신 폰 연결 코드의 해시
+  tracker_name text,                           -- 추적기 블루투스 이름 (예: GPS-TRACKER-001)
+  tracker_id   text,                           -- 추적기 펌웨어가 붙인 id (예: tracker-001)
+  fw           text,
+  ble_state    text,                           -- connected · connecting · disconnected · bluetooth_off · stopped
+  gps_state    text,                           -- valid · waiting · unknown
+  app_version  text,
+  reported_at  timestamptz default now()
+);
+alter table device_commands enable row level security;
+alter table device_status   enable row level security;

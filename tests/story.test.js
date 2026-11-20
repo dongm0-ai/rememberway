@@ -67,3 +67,8 @@ test("집에서 가까운 지나간 곳·끊긴 곳은 도로명을 쓰지 않�
   const far = storyPoints(walk(T0, 80), { home: HOME });   // 약 700m 걸음 → 가운데 점은 집에서 300m 넘음
   assert.ok(far.mid);
 });
+
+test("집 가까이서 끊기면 동 이름까지만 (endDong)", () => {
+  const sp = storyPoints(walk(T0, 20, HOME, 0.00001, 0.00001), { home: HOME });
+  assert.match(storyText(sp, { endDong: "부사동" }), /오후 3시 \d+분 부사동 근처에서/);
+});

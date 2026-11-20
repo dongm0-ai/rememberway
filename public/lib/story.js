@@ -61,6 +61,9 @@ export function koTime(ms) {
   return `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}시${m ? ` ${m}분` : ""}`;
 }
 
+/** 역지오코딩 결과 → "부사동" (동 이름만) */
+export function dongOf(g) { const d = typeof g?.label === "string" ? g.label.trim().split(/s+/).pop() : ""; return d || null; }
+
 /** 역지오코딩 결과 → "부사동 보문로47번길" 처럼 동·길까지 (시·구와 번지는 뺌) */
 export function shortPlace(g) {
   if (!g || typeof g !== "object") return null;
@@ -80,7 +83,8 @@ export function storyText(sp, labels = {}) {
   const { start, end, motion, startNearHome, toward } = sp;
   const from = startNearHome ? "집 근처" : labels.start || "어느 곳";
   const via = labels.mid && labels.mid !== labels.end && labels.mid !== labels.start ? `${labels.mid} 쪽을 지나 ` : "";
-  const at = sp.endNearHome ? "집 근처" : labels.end ? `${labels.end} 근처` : "마지막 위치";
+  // 집 가까이서 끊겼으면 도로명 대신 동 이름까지만 (집은 AI에 동까지만 보내는 규칙)
+  const at = sp.endNearHome ? (labels.endDong ? `${labels.endDong} 근처` : "집 근처") : labels.end ? `${labels.end} 근처` : "마지막 위치";
   if (motion.state === "moving_lost") {
     const dir = direction8(motion.bearingDeg);
     const kmh = num(motion.speedMps) ? Math.round(motion.speedMps * 3.6) : null;

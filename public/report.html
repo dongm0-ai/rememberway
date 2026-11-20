@@ -108,13 +108,13 @@
     const t = new Date(p.gps_time || p.received_at), mins = Math.round((Date.now() - t) / 60000);
     const ago = mins < 60 ? `${mins}분` : `${Math.round(mins / 60)}시간`;
     const { pointsToday } = await import("/js/candidates.js");
-    const { storyPoints, storyText, shortPlace } = await import("/lib/story.js");
+    const { storyPoints, storyText, shortPlace, dongOf } = await import("/lib/story.js");
     const { profile, known } = registeredNow();
     const places = [...(profile?.places ?? []), ...known].filter((x) => Number.isFinite(x?.lat) && Number.isFinite(x?.lng));
     const sp = storyPoints(pointsToday(raw, Date.now()), { home: getHome(), places });
     if (sp) {
-      const [gs, gm, ge] = await Promise.all([sp.startNearHome ? null : rev(sp.start), sp.mid ? rev(sp.mid) : null, sp.endNearHome ? null : rev(sp.end)]);
-      const story = storyText(sp, { start: shortPlace(gs), mid: shortPlace(gm), end: shortPlace(ge) });
+      const [gs, gm, ge] = await Promise.all([sp.startNearHome ? null : rev(sp.start), sp.mid ? rev(sp.mid) : null, rev(sp.end)]);
+      const story = storyText(sp, { start: shortPlace(gs), mid: shortPlace(gm), end: sp.endNearHome ? null : shortPlace(ge), endDong: dongOf(ge) });
       const filled = !ta.value.trim();
       if (filled) ta.value = story;
       const note = el("div", { class: "notice", style: "margin-bottom:10px" },

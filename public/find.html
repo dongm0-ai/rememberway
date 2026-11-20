@@ -9,7 +9,8 @@
   <style>
     .sig { text-align:center; padding:22px 12px; border-radius:18px; background:var(--line); margin:12px 0; }
     .sig b { display:block; font-size:24px; margin-bottom:4px; }
-    .sig.on { background:#e7f6ee; } .sig.lost { background:#fdecec; } .sig.wait { background:#eef3fd; }
+    /* 배경은 테마 색(app.css)으로 — 고정된 밝은 색을 쓰면 어두운 화면에서 흰 바탕에 흰 글씨가 된다 */
+    .sig.on { background:var(--ok-bg); } .sig.lost { background:var(--alert-bg); } .sig.wait { background:var(--accent-soft); }
   </style>
 </head>
 <body>

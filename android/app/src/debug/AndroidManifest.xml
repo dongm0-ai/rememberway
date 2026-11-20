@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 디버그 빌드만: PC에서 시험할 때(USB + adb reverse) 이 휴대폰의 127.0.0.1 로 가는 http 를 허용한다. 다른 주소는 계속 https 만. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>

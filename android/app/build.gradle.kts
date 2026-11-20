@@ -12,8 +12,20 @@ android {
         applicationId = "app.rememberway.tracker"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.2.2"
+    }
+    // 시제품(디버그) 빌드를 늘 같은 키로 서명한다. 안드로이드는 서명이 같아야 덮어 설치를 받아 주는데,
+    // GitHub Actions 는 빌드할 때마다 임시 키를 새로 만들어서 새 판이 나올 때마다 어르신 폰에서 앱을 지우고 다시 깔아야 했다(연결 코드도 다시 입력).
+    // debug.keystore 는 저장소에 둔다 — 비밀번호 android 는 안드로이드 디버그 키의 공개된 기본값이고, 이 키는 비밀이 아니다.
+    // 저장소를 볼 수 있는 사람은 같은 서명의 APK 를 만들 수 있으므로, 실제로 배포할 때는 저장소에 없는 키로 서명한 release 빌드로 바꾼다.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
     buildTypes {
         debug { buildConfigField("String", "ENDPOINT", "\"$debugEndpoint\"") }

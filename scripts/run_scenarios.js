@@ -1,5 +1,5 @@
 // 꾸민 사례(data/scenarios_dongmyeong.json) 20개를 실제 코드에 넣어 "확인할 곳 3곳"이 어떻게 나오는지 세어 본다.
-//   node scripts/run_scenarios.js            → docs/시나리오_동명중_결과.md 를 다시 쓴다
+//   node scripts/run_scenarios.js            → docs/시나리오_동명중_결과.md 와 public/data/scenario_results.json(화면 /scenarios 용)을 다시 쓴다
 //   node scripts/run_scenarios.js --json     → 결과를 JSON 으로 출력만 (파일을 쓰지 않음)
 //
 // 실제 코드 그대로: public/js/candidates.js 의 computeCandidates (화면 📍 예상 후보지 카드와 같은 함수).
@@ -24,6 +24,8 @@ process.env.TZ = "Asia/Seoul";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_PATH = path.join(root, "data", "scenarios_dongmyeong.json");
 export const DOC_PATH = path.join(root, "docs", "시나리오_동명중_결과.md");
+/** 사이트 화면 /scenarios 가 읽는 결과 (public/ 아래라야 배포된다) */
+export const PUBLIC_PATH = path.join(root, "public", "data", "scenario_results.json");
 
 /** 발견 장소에서 이 거리 안의 후보는 "같은 곳"으로 센다 (건물 하나·교차로 하나 크기) */
 export const NEAR_M = 150;
@@ -268,6 +270,52 @@ export function renderDoc(data, rows, sum) {
   return L.join("\n");
 }
 
+// ---------------------------------------------------------------- 화면(/scenarios)이 읽는 자료
+const SOURCE_KO = { memory: "추억의 장소", frequent: "자주 가는 곳", guardian: "보호자가 말한 곳", basic: "기본 장소" };
+/** public/data/scenario_results.json 에 쓸 내용. 화면 글이라 존댓말. 기본 장소 풀·도보 경로 좌표 같은 큰 자료는 넣지 않는다 */
+export function publicJson(data, rows, sum) {
+  const regd = sum.by_registered["발견 장소가 등록된 곳"], unreg = sum.by_registered["발견 장소가 등록 안 된 곳"], tC = sum.by_type.C;
+  const noGps = sum.by_gps["GPS 없음 (보호자 말만)"];
+  const moving = rows.filter((r) => r.heading_off_target_deg !== null), bent = moving.filter((r) => r.heading_off_target_deg > 30);
+  const insights = [];
+  if (regd && unreg) insights.push(`발견 장소를 미리 등록해 둔 사례는 ${regd.n}개 중 ${regd.hit3}개가 3곳 안에 들었고, 등록해 두지 않은 사례는 ${unreg.n}개 중 ${unreg.hit3}개였습니다. 코드는 등록된 곳과 그 근처의 기본 장소만 확인할 곳으로 올립니다.`);
+  if (noGps) insights.push(`목걸이·휴대폰을 두고 나가셔서 보호자의 말만 있는 사례는 ${noGps.n}개 중 ${noGps.hit3}개가 3곳 안이었습니다.`);
+  if (tC) insights.push(`GPS가 끊긴 뒤 방향을 바꾼 사례는 ${tC.n}개 중 ${tC.hit3}개가 3곳 안이었습니다. 코드는 마지막 방향으로 계속 간다고 두고 계산합니다.`);
+  insights.push(`길을 따라 걷다 끊긴 사례 ${moving.length}개 중 ${bent.length}개는 끊긴 순간의 길 방향이 가던 목적지 방향과 30° 넘게 달랐습니다. 길은 곧지 않아서, 곧게 뻗은 예상 경로가 목적지를 비껴갈 수 있습니다.`);
+  const group = (obj, labelOf = (k) => k) => Object.entries(obj).map(([k, v]) => ({ label: labelOf(k), n: v.n, hit1: v.hit1, hit3: v.hit3 }));
+  return {
+    title: "동명중학교를 집으로 둔 꾸민 사례 20개",
+    made_up: true,
+    note: "사람·사건·보호자의 말은 모두 지어낸 것입니다. 장소와 걷는 길만 실제 지도에서 가져왔습니다. 발견 장소는 사례를 만든 사람이 정했으므로, 이 숫자는 실제 실종에서의 성능이 아닙니다.",
+    how: ["화면의 예상 후보지 카드가 쓰는 코드를 그대로 돌렸습니다. 생성형 AI는 부르지 않아 순서와 이유는 모두 코드가 정했습니다.",
+      "목걸이 GPS 동선은 집에서 목적지까지의 실제 도보 경로를 따라 10초마다 한 점씩 만들었습니다.",
+      `확인할 곳이 발견 장소에서 ${NEAR_M}m 안이면 같은 곳으로 셌습니다.`,
+      "보호자의 말에서 단서를 뽑는 일은 하지 않고, 사람이 적은 단서를 넣었습니다."],
+    source: `지도 자료: ${data.source.map}, ${data.source.fetched} 조회. 걷는 길: Valhalla 보행자 경로. 경로당은 지도 자료에 없어 기본 장소에서 빠져 있습니다.`,
+    near_m: NEAR_M,
+    total: { n: sum.all.n, hit1: sum.all.hit1, hit3: sum.all.hit3, in_reach: sum.all.in_reach, median_nearest_m: sum.all.median_nearest_m },
+    groups: [
+      { title: "상황별", rows: group(sum.by_type, (k) => `${k}. ${data.types[k]}`) },
+      { title: "목걸이 GPS가 있었나", rows: group(sum.by_gps) },
+      { title: "발견 장소가 등록된 곳이었나", rows: group(sum.by_registered) },
+    ],
+    insights,
+    types: data.types,
+    cases: data.scenarios.map((s) => {
+      const r = rows.find((x) => x.id === s.id);
+      return {
+        id: s.id, type: s.type, title: s.title, design: s.design, utterance: s.utterance,
+        registered: s.registered.map((x) => `${x.name} (${SOURCE_KO[x.source] ?? x.source})`),
+        gps: s.gps ? `${s.gps.legs.map((l) => (l.stay_min ? `${l.stay_min}분 머묾` : `${l.toward} 가는 길을 따라 시속 ${l.kmh}km로 걸음`)).join(" → ")} → 집에서 직선 ${fmt(r.cut_from_home_m)} 지점에서 끊김, 그 뒤 ${s.gps.since_cut_min}분 지남` : `없음 (나가신 지 ${s.elapsed_min}분)`,
+        headline: r.headline,
+        top: r.top.map((c) => ({ name: c.name, source: SOURCE_KO[c.source] ?? c.source, reason: c.reason, to_found: fmt(c.to_found_m), near: c.to_found_m <= NEAR_M })),
+        found: r.found, found_registered: r.found_registered, hit1: r.hit1, hit3: r.hit3,
+        found_detail: `마지막 위치에서 ${fmt(r.last_to_found_m)} · 걸어서 닿을 수 있는 범위(${fmt(r.reach_m)}) ${r.found_in_reach ? "안" : "밖"}`,
+      };
+    }),
+  };
+}
+
 // ---------------------------------------------------------------- 실행
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const data = loadData();
@@ -276,6 +324,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (process.argv.includes("--json")) console.log(JSON.stringify({ summary: sum, rows }, null, 1));
   else {
     fs.writeFileSync(DOC_PATH, renderDoc(data, rows, sum));
+    fs.mkdirSync(path.dirname(PUBLIC_PATH), { recursive: true });
+    fs.writeFileSync(PUBLIC_PATH, JSON.stringify(publicJson(data, rows, sum), null, 1) + "\n");
     const a = sum.all;
     console.log(`사례 ${a.n}개 · 첫째 ${a.hit1} · 3곳 안 ${a.hit3} · 전체 목록 안 ${a.in_list} · 닿을 수 있는 범위 안 ${a.in_reach}`);
     console.log(`문서: ${path.relative(root, DOC_PATH)}`);

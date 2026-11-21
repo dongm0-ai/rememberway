@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { loadData, runAll, summarize, renderDoc, publicJson, buildTrail, walkBetween, searchWalk, nearestFirst, searchSummary, DOC_PATH, PUBLIC_PATH, NEAR_M, GUARDIAN_MPS, LOOK_MIN, DETOUR } from "../scripts/run_scenarios.js";
+import { loadData, runAll, summarize, renderDoc, publicJson, buildTrail, walkBetween, searchWalk, nearestFirst, searchSummary, foundSummary, hm, DOC_PATH, PUBLIC_PATH, NEAR_M, GUARDIAN_MPS, LOOK_MIN, DETOUR } from "../scripts/run_scenarios.js";
 import { distM } from "../public/lib/gps.js";
 
 const data = loadData();
@@ -157,4 +157,29 @@ test("search time per case is consistent with the ranking results", () => {
   assert.equal(ss.top3.found_n + ss.top3.miss_n, rows.length);
   assert.equal(ss.list.code_faster.length + ss.list.same.length + ss.list.near_faster.length, ss.list.found_n);
   assert.equal(ss.estimated_pairs, 0);
+});
+
+test("made-up time to found: every case has one, labelled as invented, and it fits the case's own timeline", () => {
+  const f = foundSummary(rows);
+  for (const s of data.scenarios) {
+    const r = rows.find((x) => x.id === s.id);
+    assert.ok(["보호자", "시민 제보", "경찰"].includes(s.found.by), `${s.id} by`);
+    assert.ok(s.found.how.length > 10, `${s.id} how`);
+    for (const banned of ["확률", "예측", "AI가 추천"]) assert.ok(!s.found.how.includes(banned), `${s.id} ${banned}`);
+    // 찾기 시작하기도 전에 발견될 수는 없다
+    assert.ok(s.found.after_min >= r.left_ago_min, `${s.id}: found before the search started`);
+    // 보호자가 3곳을 돌아 찾은 사례는, 집에서 걸어가는 시간(계산)보다 빨리 찾을 수 없다
+    if (r.hit3 && s.found.by === "보호자") assert.ok(s.found.after_min >= r.left_ago_min + r.search_top3.minutes, `${s.id}: faster than walking there`);
+  }
+  assert.equal(f.within_60 + f.within_120 + f.over_120, rows.length);
+  assert.equal(Object.values(f.by_who).reduce((n, v) => n + v.n, 0), rows.length);
+  assert.equal(Object.values(f.by_hit3).reduce((n, v) => n + v.n, 0), rows.length);
+  // 화면과 문서는 이 값이 지어낸 것이고 앱의 효과가 아니라고 밝힌다
+  const pub = publicJson(data, rows, summarize(rows));
+  assert.match(pub.found_time.note, /지어내/);
+  assert.match(pub.found_time.caveat, /앱의 효과를 잰 것이 아닙니다/);
+  assert.match(renderDoc(data, rows, summarize(rows)), /발견까지 걸린 시간 \(사례에서 정한 값 — 지어낸 것\)/);
+  assert.equal(hm(95), "1시간 35분");
+  assert.equal(hm(120), "2시간");
+  assert.equal(hm(45), "45분");
 });

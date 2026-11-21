@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { loadData, runAll, summarize, renderDoc, buildTrail, DOC_PATH, NEAR_M } from "../scripts/run_scenarios.js";
+import { loadData, runAll, summarize, renderDoc, publicJson, buildTrail, DOC_PATH, PUBLIC_PATH, NEAR_M } from "../scripts/run_scenarios.js";
 import { distM } from "../public/lib/gps.js";
 
 const data = loadData();
@@ -95,4 +95,28 @@ test("the groups add up to the total", () => {
 test("docs/시나리오_동명중_결과.md is what the script produces now (rerun the script after editing cases)", () => {
   const norm = (s) => s.replace(/\r\n/g, "\n");
   assert.equal(norm(fs.readFileSync(DOC_PATH, "utf8")), norm(renderDoc(data, rows, summarize(rows))));
+});
+
+test("public/data/scenario_results.json (read by /scenarios) is what the script produces now", () => {
+  const sum = summarize(rows);
+  const now = JSON.parse(JSON.stringify(publicJson(data, rows, sum)));
+  assert.deepEqual(JSON.parse(fs.readFileSync(PUBLIC_PATH, "utf8")), now);
+  // 화면에 그대로 나가는 자료: 지어낸 사례라는 말이 있고, 금지어·큰 원자료(기본 장소 풀·경로 좌표)는 없다
+  assert.equal(now.made_up, true);
+  assert.match(now.note, /지어낸/);
+  assert.match(now.note, /성능이 아닙니다/);
+  const text = JSON.stringify(now);
+  for (const banned of ["확률", "예측", "AI가 추천"]) assert.ok(!text.includes(banned), banned);
+  assert.ok(!("basic_pool" in now) && !("routes" in now));
+  assert.equal(now.cases.length, 20);
+  assert.equal(now.cases.filter((c) => c.hit3).length, now.total.hit3);
+});
+
+test("the /scenarios page says up front that the cases are made up and never injects data as HTML", () => {
+  const html = fs.readFileSync(new URL("../public/scenarios.html", import.meta.url), "utf8");
+  assert.match(html, /지어낸 사례입니다/);
+  assert.match(html, /보여 주는 숫자가 아닙니다/);
+  assert.ok(!/innerHTML|insertAdjacentHTML|document\.write/.test(html), "data goes in through textContent only");
+  assert.ok(!/background:\s*#|[^-]color:\s*#/.test(html.replace(/<meta[^>]*>/g, "")), "colors come from the theme variables");
+  for (const banned of ["확률", "예측", "AI가 추천"]) assert.ok(!html.includes(banned), banned);
 });

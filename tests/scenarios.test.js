@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { loadData, runAll, summarize, renderDoc, publicJson, buildTrail, DOC_PATH, PUBLIC_PATH, NEAR_M } from "../scripts/run_scenarios.js";
+import { loadData, runAll, summarize, renderDoc, publicJson, buildTrail, walkBetween, searchWalk, nearestFirst, searchSummary, DOC_PATH, PUBLIC_PATH, NEAR_M, GUARDIAN_MPS, LOOK_MIN, DETOUR } from "../scripts/run_scenarios.js";
 import { distM } from "../public/lib/gps.js";
 
 const data = loadData();
@@ -119,4 +119,42 @@ test("the /scenarios page says up front that the cases are made up and never inj
   assert.ok(!/innerHTML|insertAdjacentHTML|document\.write/.test(html), "data goes in through textContent only");
   assert.ok(!/background:\s*#|[^-]color:\s*#/.test(html.replace(/<meta[^>]*>/g, "")), "colors come from the theme variables");
   for (const banned of ["확률", "예측", "AI가 추천"]) assert.ok(!html.includes(banned), banned);
+});
+
+test("search time: walking distances come from the real table, and the walk stops at the found place", () => {
+  const market = { name: "문창시장", ...data.places["문창시장"] }, hospital = { name: "대전성모병원", ...data.places["대전성모병원"] };
+  const w = walkBetween(data, data.home, market);
+  assert.equal(w.estimated, false);
+  assert.equal(w.m, data.routes["문창시장"].m, "table agrees with the route fetched from the same server");
+  assert.ok(w.m > distM(data.home, market), "walking is longer than the straight line");
+  // 표에 없는 점은 직선 × DETOUR 로 대신하고 그렇다고 알린다
+  const off = walkBetween(data, data.home, { lat: 36.3, lng: 127.44 });
+  assert.equal(off.estimated, true);
+  assert.equal(off.m, Math.round(distM(data.home, { lat: 36.3, lng: 127.44 }) * DETOUR));
+
+  const first = searchWalk(data, [market, hospital], market);
+  assert.deepEqual([first.found, first.stops], [true, 1]);
+  assert.equal(first.minutes, Math.round(w.m / GUARDIAN_MPS / 60), "no look-around time is added at the place where the elder is found");
+  const second = searchWalk(data, [hospital, market], market);
+  assert.equal(second.stops, 2);
+  assert.equal(second.minutes, Math.round(walkBetween(data, data.home, hospital).m / GUARDIAN_MPS / 60 + LOOK_MIN + walkBetween(data, hospital, market).m / GUARDIAN_MPS / 60));
+  const none = searchWalk(data, [hospital], market);
+  assert.equal(none.found, false);
+  // 가까운 곳부터: 집에서 더 가까운 시장이 먼저
+  assert.deepEqual(nearestFirst(data, [hospital, market]).map((p) => p.name), ["문창시장", "대전성모병원"]);
+});
+
+test("search time per case is consistent with the ranking results", () => {
+  const ss = searchSummary(rows);
+  for (const r of rows) {
+    assert.equal(r.search_top3.found, r.hit3, r.id);
+    assert.equal(r.search_code.found, r.rank !== null, r.id);
+    assert.equal(r.search_near.found, r.search_code.found, `${r.id}: same places, different order`);
+    if (r.hit3) assert.equal(r.search_top3.stops, r.rank, r.id);
+    assert.ok(r.left_ago_min > 0, r.id);
+    assert.equal(r.search_top3.estimated + r.search_code.estimated + r.search_near.estimated, 0, `${r.id}: every leg is in the walking table`);
+  }
+  assert.equal(ss.top3.found_n + ss.top3.miss_n, rows.length);
+  assert.equal(ss.list.code_faster.length + ss.list.same.length + ss.list.near_faster.length, ss.list.found_n);
+  assert.equal(ss.estimated_pairs, 0);
 });

@@ -100,6 +100,31 @@
   "GPS가 끊긴 뒤 방향을 바꾼 사례는 3개 중 1개가 3곳 안이었습니다. 코드는 마지막 방향으로 계속 간다고 두고 계산합니다.",
   "길을 따라 걷다 끊긴 사례 13개 중 3개는 끊긴 순간의 길 방향이 가던 목적지 방향과 30° 넘게 달랐습니다. 길은 곧지 않아서, 곧게 뻗은 예상 경로가 목적지를 비껴갈 수 있습니다."
  ],
+ "search": {
+  "assumptions": [
+   "보호자 한 분이 찾기 시작한 때 집에서 출발해, 확인할 곳을 차례로 걸어서 돈다고 두었습니다 (시속 4.3km).",
+   "곳마다 2분 둘러보고, 발견 장소에서 150m 안의 곳에 도착하면 찾은 것으로 셌습니다.",
+   "걷는 거리는 직선이 아니라 실제 도보 거리입니다.",
+   "어르신은 발견 장소에 그대로 계신다고 두었습니다. 여럿이 나눠 찾거나 차를 타는 경우는 넣지 않았습니다. 실제로는 112 신고가 먼저입니다."
+  ],
+  "top3": {
+   "found_n": 9,
+   "median_min": 22,
+   "max_min": 65,
+   "median_total_min": 90,
+   "miss_n": 11,
+   "median_spent_min": 52
+  },
+  "list": {
+   "found_n": 10,
+   "code_median_min": 24,
+   "near_median_min": 30,
+   "code_faster": 3,
+   "same": 2,
+   "near_faster": 5
+  },
+  "note": "코드 순서는 가던 방향의 예상 경로에 가까운 곳을 앞에 둡니다. 발견 장소가 그 방향에 있으면 빨라지고, 길이 굽어 방향이 어긋났거나 어르신이 방향을 바꾸셨으면 먼 곳부터 들르게 되어 느려집니다."
+ },
  "types": {
   "A": "가려던 곳 쪽으로 걷다가 목걸이 GPS가 끊김",
   "B": "간다는 말은 없었지만 추억의 장소 쪽으로 감",
@@ -149,7 +174,9 @@
    "found_registered": false,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 658m · 걸어서 닿을 수 있는 범위(1.9km) 안"
+   "found_detail": "마지막 위치에서 658m · 걸어서 닿을 수 있는 범위(1.9km) 안",
+   "search": "나가신 지 48분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 48분을 쓰고도 찾지 못함",
+   "search_min": null
   },
   {
    "id": "S02",
@@ -191,7 +218,9 @@
    "found_registered": true,
    "hit1": true,
    "hit3": true,
-   "found_detail": "마지막 위치에서 557m · 걸어서 닿을 수 있는 범위(1.2km) 안"
+   "found_detail": "마지막 위치에서 557m · 걸어서 닿을 수 있는 범위(1.2km) 안",
+   "search": "나가신 지 35분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 17분 뒤 1곳째에서 발견",
+   "search_min": 17
   },
   {
    "id": "S03",
@@ -233,7 +262,9 @@
    "found_registered": false,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 580m · 걸어서 닿을 수 있는 범위(2.3km) 안"
+   "found_detail": "마지막 위치에서 580m · 걸어서 닿을 수 있는 범위(2.3km) 안",
+   "search": "나가신 지 60분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 70분을 쓰고도 찾지 못함",
+   "search_min": null
   },
   {
    "id": "S04",
@@ -274,7 +305,9 @@
    "found_registered": true,
    "hit1": false,
    "hit3": true,
-   "found_detail": "마지막 위치에서 870m · 걸어서 닿을 수 있는 범위(1.7km) 안"
+   "found_detail": "마지막 위치에서 870m · 걸어서 닿을 수 있는 범위(1.7km) 안",
+   "search": "나가신 지 44분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 54분 뒤 3곳째에서 발견",
+   "search_min": 54
   },
   {
    "id": "S05",
@@ -316,7 +349,9 @@
    "found_registered": true,
    "hit1": true,
    "hit3": true,
-   "found_detail": "마지막 위치에서 677m · 걸어서 닿을 수 있는 범위(1.4km) 안"
+   "found_detail": "마지막 위치에서 677m · 걸어서 닿을 수 있는 범위(1.4km) 안",
+   "search": "나가신 지 42분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 21분 뒤 1곳째에서 발견",
+   "search_min": 21
   },
   {
    "id": "S06",
@@ -358,7 +393,9 @@
    "found_registered": true,
    "hit1": false,
    "hit3": true,
-   "found_detail": "마지막 위치에서 693m · 걸어서 닿을 수 있는 범위(2.2km) 안"
+   "found_detail": "마지막 위치에서 693m · 걸어서 닿을 수 있는 범위(2.2km) 안",
+   "search": "나가신 지 55분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 65분 뒤 2곳째에서 발견",
+   "search_min": 65
   },
   {
    "id": "S07",
@@ -400,7 +437,9 @@
    "found_registered": false,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 519m · 걸어서 닿을 수 있는 범위(960m) 안"
+   "found_detail": "마지막 위치에서 519m · 걸어서 닿을 수 있는 범위(960m) 안",
+   "search": "나가신 지 29분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 55분을 쓰고도 찾지 못함",
+   "search_min": null
   },
   {
    "id": "S08",
@@ -442,7 +481,9 @@
    "found_registered": true,
    "hit1": true,
    "hit3": true,
-   "found_detail": "마지막 위치에서 869m · 걸어서 닿을 수 있는 범위(2.4km) 안"
+   "found_detail": "마지막 위치에서 869m · 걸어서 닿을 수 있는 범위(2.4km) 안",
+   "search": "나가신 지 64분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 26분 뒤 1곳째에서 발견",
+   "search_min": 26
   },
   {
    "id": "S09",
@@ -484,7 +525,9 @@
    "found_registered": false,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 1.0km · 걸어서 닿을 수 있는 범위(2.2km) 안"
+   "found_detail": "마지막 위치에서 1.0km · 걸어서 닿을 수 있는 범위(2.2km) 안",
+   "search": "나가신 지 53분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 53분을 쓰고도 찾지 못함",
+   "search_min": null
   },
   {
    "id": "S10",
@@ -526,7 +569,9 @@
    "found_registered": false,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 379m · 걸어서 닿을 수 있는 범위(1.4km) 안"
+   "found_detail": "마지막 위치에서 379m · 걸어서 닿을 수 있는 범위(1.4km) 안",
+   "search": "나가신 지 40분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 38분을 쓰고도 찾지 못함",
+   "search_min": null
   },
   {
    "id": "S11",
@@ -568,7 +613,9 @@
    "found_registered": true,
    "hit1": false,
    "hit3": true,
-   "found_detail": "마지막 위치에서 1.2km · 걸어서 닿을 수 있는 범위(2.9km) 안"
+   "found_detail": "마지막 위치에서 1.2km · 걸어서 닿을 수 있는 범위(2.9km) 안",
+   "search": "나가신 지 67분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 61분 뒤 3곳째에서 발견",
+   "search_min": 61
   },
   {
    "id": "S12",
@@ -609,7 +656,9 @@
    "found_registered": true,
    "hit1": true,
    "hit3": true,
-   "found_detail": "마지막 위치에서 10m · 걸어서 닿을 수 있는 범위(960m) 안"
+   "found_detail": "마지막 위치에서 10m · 걸어서 닿을 수 있는 범위(960m) 안",
+   "search": "나가신 지 50분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 14분 뒤 1곳째에서 발견",
+   "search_min": 14
   },
   {
    "id": "S13",
@@ -650,7 +699,9 @@
    "found_registered": true,
    "hit1": false,
    "hit3": true,
-   "found_detail": "마지막 위치에서 262m · 걸어서 닿을 수 있는 범위(1.2km) 안"
+   "found_detail": "마지막 위치에서 262m · 걸어서 닿을 수 있는 범위(1.2km) 안",
+   "search": "나가신 지 71분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 22분 뒤 3곳째에서 발견",
+   "search_min": 22
   },
   {
    "id": "S14",
@@ -691,7 +742,9 @@
    "found_registered": false,
    "hit1": true,
    "hit3": true,
-   "found_detail": "마지막 위치에서 13m · 걸어서 닿을 수 있는 범위(1.4km) 안"
+   "found_detail": "마지막 위치에서 13m · 걸어서 닿을 수 있는 범위(1.4km) 안",
+   "search": "나가신 지 66분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 14분 뒤 1곳째에서 발견",
+   "search_min": 14
   },
   {
    "id": "S15",
@@ -733,7 +786,9 @@
    "found_registered": false,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 860m · 걸어서 닿을 수 있는 범위(2.4km) 안"
+   "found_detail": "마지막 위치에서 860m · 걸어서 닿을 수 있는 범위(2.4km) 안",
+   "search": "나가신 지 50분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 75분을 쓰고도 찾지 못함",
+   "search_min": null
   },
   {
    "id": "S16",
@@ -774,7 +829,9 @@
    "found_registered": false,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 640m · 걸어서 닿을 수 있는 범위(1.9km) 안"
+   "found_detail": "마지막 위치에서 640m · 걸어서 닿을 수 있는 범위(1.9km) 안",
+   "search": "나가신 지 40분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 36분을 쓰고도 찾지 못함",
+   "search_min": null
   },
   {
    "id": "S17",
@@ -816,7 +873,9 @@
    "found_registered": false,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 878m · 걸어서 닿을 수 있는 범위(3.4km) 안"
+   "found_detail": "마지막 위치에서 878m · 걸어서 닿을 수 있는 범위(3.4km) 안",
+   "search": "나가신 지 70분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 31분을 쓰고도 찾지 못함",
+   "search_min": null
   },
   {
    "id": "S18",
@@ -858,7 +917,9 @@
    "found_registered": true,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 951m · 걸어서 닿을 수 있는 범위(2.9km) 안"
+   "found_detail": "마지막 위치에서 951m · 걸어서 닿을 수 있는 범위(2.9km) 안",
+   "search": "나가신 지 60분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 62분을 쓰고도 찾지 못함",
+   "search_min": null
   },
   {
    "id": "S19",
@@ -892,7 +953,9 @@
    "found_registered": false,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 852m · 걸어서 닿을 수 있는 범위(5.8km) 안"
+   "found_detail": "마지막 위치에서 852m · 걸어서 닿을 수 있는 범위(5.8km) 안",
+   "search": "나가신 지 135분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 27분을 쓰고도 찾지 못함",
+   "search_min": null
   },
   {
    "id": "S20",
@@ -934,7 +997,9 @@
    "found_registered": false,
    "hit1": false,
    "hit3": false,
-   "found_detail": "마지막 위치에서 1.2km · 걸어서 닿을 수 있는 범위(4.3km) 안"
+   "found_detail": "마지막 위치에서 1.2km · 걸어서 닿을 수 있는 범위(4.3km) 안",
+   "search": "나가신 지 98분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 52분을 쓰고도 찾지 못함",
+   "search_min": null
   }
  ]
 }

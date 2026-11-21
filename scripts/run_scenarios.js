@@ -9,6 +9,7 @@
 //   - 생성형 AI: 부르지 않는다 → 순서와 이유는 전부 코드(fallbackOrder·codeReason). AI가 순서를 바꾸는 경우는 여기 없다.
 //   - 서버의 "자주 머문 곳"(30일 GPS): 없음. 사례의 등록 장소만 쓴다.
 // 목걸이 GPS 동선은 사례 파일의 routes(집 → 목적지 실제 도보 경로, Valhalla 보행자)를 따라 10초마다 한 점씩 만든다.
+// 찾는 데 걸리는 시간은 사례 파일의 walk(장소 사이 실제 도보 거리표)로 계산한다 — 실제로 잰 시간이 아니다.
 // 발견 장소는 사례를 만든 사람이 정했다. 그러니 여기 숫자는 실제 실종에서의 성능이 아니라 "이 사례들에서 코드가 어떻게 움직였나"이다.
 import fs from "node:fs";
 import path from "node:path";
@@ -41,6 +42,51 @@ function destination(p, brg, d) {
 }
 
 export function loadData(file = DATA_PATH) { return JSON.parse(fs.readFileSync(file, "utf8")); }
+
+// ---------------------------------------------------------------- 찾는 데 걸리는 시간 (계산)
+// 보호자 한 사람이 집에서 출발해 확인할 곳을 차례로 걸어서 돈다고 두고, 발견 장소에 닿을 때까지의 시간을 센다.
+// 정한 값 (근거 있는 숫자가 아니라 계산을 위한 가정 — 문서와 화면에 그대로 적는다):
+/** 보호자의 걸음: schema.js 의 "빠름"(1.2m/s, 시속 4.3km) */
+export const GUARDIAN_MPS = WALK_SPEED.fast;
+/** 한 곳에 도착해 둘러보는 시간(분). 발견 장소에서는 세지 않는다 */
+export const LOOK_MIN = 2;
+/** 도보 거리표에 없는 쌍은 직선거리에 이 값을 곱해 대신한다 (받아 둔 도보 경로 13개의 길이 ÷ 직선거리의 가운데 값) */
+export const DETOUR = 1.45;
+
+const walkCache = new WeakMap();
+/** 두 점 사이 걷는 거리(m). 사례 파일의 walk(Valhalla 보행자 거리표)에서 찾고, 없으면 직선 × DETOUR. 반환 { m, estimated } */
+export function walkBetween(data, a, b) {
+  let idx = walkCache.get(data);
+  if (!idx) { idx = new Map((data.walk?.points ?? []).map((p, i) => [`${p.lat.toFixed(6)},${p.lng.toFixed(6)}`, i])); walkCache.set(data, idx); }
+  const i = idx.get(`${a.lat.toFixed(6)},${a.lng.toFixed(6)}`), j = idx.get(`${b.lat.toFixed(6)},${b.lng.toFixed(6)}`);
+  const v = i !== undefined && j !== undefined ? data.walk.m[i][j] : null;
+  return v === null || v === undefined ? { m: Math.round(distM(a, b) * DETOUR), estimated: true } : { m: v, estimated: false };
+}
+/**
+ * 집에서 출발해 order 순서로 돈다. 발견 장소에서 NEAR_M 안의 곳에 도착하면 찾은 것.
+ * @returns {{found:boolean, minutes:number, stops:number, estimated:number}} minutes = 찾을 때까지(못 찾으면 다 돌 때까지), stops = 들른 곳 수
+ */
+export function searchWalk(data, order, found) {
+  let pos = data.home, min = 0, estimated = 0;
+  for (let k = 0; k < order.length; k++) {
+    const w = walkBetween(data, pos, order[k]);
+    if (w.estimated) estimated++;
+    min += w.m / GUARDIAN_MPS / 60;
+    if (distM(order[k], found) <= NEAR_M) return { found: true, minutes: Math.round(min), stops: k + 1, estimated };
+    min += LOOK_MIN; pos = order[k];
+  }
+  return { found: false, minutes: Math.round(min), stops: order.length, estimated };
+}
+/** 같은 곳들을 "지금 있는 곳에서 가장 가까운 곳부터" 도는 순서 (걷는 거리 기준) */
+export function nearestFirst(data, places) {
+  const left = [...places], out = []; let pos = data.home;
+  while (left.length) {
+    let best = 0, bd = Infinity;
+    left.forEach((p, k) => { const d = walkBetween(data, pos, p).m; if (d < bd) { bd = d; best = k; } });
+    pos = left.splice(best, 1)[0]; out.push(pos);
+  }
+  return out;
+}
 
 /** 꺾은선 shape([[lat,lng],...])를 처음부터 d(m)만큼 따라간 점. 끝을 넘으면 { ...끝점, arrived:true } */
 export function alongRoute(shape, d) {
@@ -127,7 +173,16 @@ export async function runScenario(s, data) {
     id: s.id, type: s.type, title: s.title, has_gps: !!s.gps, minutes: sinceMin,
     status: res.status, state: res.motion?.state ?? "none", headline: res.motion ? headline(res.motion, nowMs) : "",
     found: found.name, found_registered: s.registered.some((p) => p.name === found.name),
+    // 사례의 끝 — 지어낸 값: 나가신 뒤 몇 분 만에, 누가, 어떻게 찾았나
+    found_after_min: s.found.after_min, found_by: s.found.by, found_how: s.found.how,
     top, order_names: order.map((c) => c.name),
+    order_points: order.map((c) => ({ name: c.name, lat: c.lat, lng: c.lng })), found_point: { name: found.name, lat: found.lat, lng: found.lng },
+    // 찾는 데 걸리는 시간(계산): 화면에 나온 3곳을 그 순서로 / 코드가 본 모든 곳을 코드 순서로 / 같은 곳들을 가까운 곳부터
+    search_top3: searchWalk(data, order.slice(0, 3), found),
+    search_code: searchWalk(data, order, found),
+    search_near: searchWalk(data, nearestFirst(data, order), found),
+    // 어르신이 나가신 뒤 보호자가 찾기 시작할 때까지 지난 시간(분)
+    left_ago_min: s.gps ? Math.round((nowMs - (points[0]?.t ?? nowMs)) / 60000) : s.elapsed_min,
     hit1: top.length > 0 && top[0].to_found_m <= NEAR_M,
     hit3: top.some((c) => c.to_found_m <= NEAR_M),
     rank: rankIdx < 0 ? null : rankIdx + 1, list_size: order.length,
@@ -170,6 +225,48 @@ export function summarize(rows) {
     by_gps: by((r) => (r.has_gps ? "목걸이 GPS 있음" : "GPS 없음 (보호자 말만)")),
     by_registered: by((r) => (r.found_registered ? "발견 장소가 등록된 곳" : "발견 장소가 등록 안 된 곳")),
     by_state: by((r) => ({ moving_lost: "움직이다 끊김", stayed: "한곳에 머묾", none: "방향 모름" }[r.state] ?? r.state)),
+  };
+}
+
+/** 찾는 데 걸리는 시간 묶음 */
+export function searchSummary(rows) {
+  const hit = rows.filter((r) => r.search_top3.found), miss = rows.filter((r) => !r.search_top3.found);
+  const inList = rows.filter((r) => r.search_code.found);
+  const mins = (list, key) => list.map((r) => r[key].minutes);
+  return {
+    top3: {
+      found_n: hit.length, median_min: median(mins(hit, "search_top3")), max_min: hit.length ? Math.max(...mins(hit, "search_top3")) : null,
+      median_total_min: median(hit.map((r) => r.left_ago_min + r.search_top3.minutes)),
+      miss_n: miss.length, median_spent_min: median(mins(miss, "search_top3")),
+    },
+    list: {
+      found_n: inList.length, code_median_min: median(mins(inList, "search_code")), near_median_min: median(mins(inList, "search_near")),
+      code_faster: inList.filter((r) => r.search_code.minutes < r.search_near.minutes).map((r) => r.id),
+      same: inList.filter((r) => r.search_code.minutes === r.search_near.minutes).map((r) => r.id),
+      near_faster: inList.filter((r) => r.search_code.minutes > r.search_near.minutes).map((r) => r.id),
+    },
+    estimated_pairs: rows.reduce((n, r) => n + r.search_top3.estimated + r.search_code.estimated + r.search_near.estimated, 0),
+  };
+}
+const kmh = (GUARDIAN_MPS * 3.6).toFixed(1);
+
+/** "95분" → "1시간 35분" */
+export const hm = (min) => (min === null || min === undefined ? "–" : min < 60 ? `${min}분` : `${Math.floor(min / 60)}시간${min % 60 ? ` ${min % 60}분` : ""}`);
+/**
+ * 사례에서 정한 발견 시간(지어낸 값)을 센 것. 재거나 계산한 것이 아니라 사례를 만든 사람이 적은 숫자다 —
+ * 그러니 이것은 "사례 20개가 어떻게 꾸며져 있나"의 요약이지 실제 실종의 통계가 아니다.
+ */
+export function foundSummary(rows) {
+  const part = (list) => ({ n: list.length, median_min: median(list.map((r) => r.found_after_min)), min_min: list.length ? Math.min(...list.map((r) => r.found_after_min)) : null, max_min: list.length ? Math.max(...list.map((r) => r.found_after_min)) : null });
+  const by = (key, order) => Object.fromEntries((order ?? [...new Set(rows.map(key))].sort()).map((k) => [k, part(rows.filter((r) => key(r) === k))]).filter(([, v]) => v.n));
+  return {
+    all: part(rows),
+    within_60: rows.filter((r) => r.found_after_min <= 60).length,
+    within_120: rows.filter((r) => r.found_after_min > 60 && r.found_after_min <= 120).length,
+    over_120: rows.filter((r) => r.found_after_min > 120).length,
+    by_who: by((r) => r.found_by, ["보호자", "시민 제보", "경찰"]),
+    by_type: by((r) => r.type),
+    by_hit3: by((r) => (r.hit3 ? "확인할 곳 3곳 안에 발견 장소가 있던 사례" : "3곳 안에 없던 사례"), ["확인할 곳 3곳 안에 발견 장소가 있던 사례", "3곳 안에 없던 사례"]),
   };
 }
 
@@ -234,13 +331,74 @@ export function renderDoc(data, rows, sum) {
   p(`- 발견 장소가 \"걸어서 닿을 수 있는 범위\" 밖이었던 사례는 ${out.length}개${out.length ? ` (${out.map((r) => r.id).join(", ")})` : ""}다.`);
   p("- 이 숫자들은 사례를 어떻게 꾸미느냐에 따라 달라진다. 등록된 곳에서 발견되는 사례를 늘리면 올라가고, 줄이면 내려간다. 그래서 비율이 아니라 **어떤 상황에서 맞고 어떤 상황에서 틀리는지**를 보는 자료로 쓴다.");
   p();
+  const fs_ = foundSummary(rows);
+  p("## 발견까지 걸린 시간 (사례에서 정한 값 — 지어낸 것)");
+  p();
+  p("사례마다 \"나가신 뒤 몇 분 만에, 누가 찾았다\"를 **지어내 적었다.** 재거나 계산한 값이 아니다. 아래 표는 사례 20개가 어떻게 꾸며져 있는지의 요약이고, 실제 실종의 통계가 아니다.");
+  p();
+  p("| 무엇 | 사례에서 정한 값 |");
+  p("|---|---|");
+  p(`| 나가신 뒤 발견까지 (가운데 값) | **${hm(fs_.all.median_min)}** (가장 짧은 사례 ${hm(fs_.all.min_min)}, 가장 긴 사례 ${hm(fs_.all.max_min)}) |`);
+  p(`| 1시간 안에 발견 | ${rows.length}개 중 ${fs_.within_60}개 |`);
+  p(`| 1시간 넘고 2시간 안에 발견 | ${rows.length}개 중 ${fs_.within_120}개 |`);
+  p(`| 2시간 넘어 발견 | ${rows.length}개 중 ${fs_.over_120}개 |`);
+  p();
+  const ftable = (title, obj, labelOf = (k) => k) => {
+    p(`### ${title}`);
+    p();
+    p("| 묶음 | 사례 | 발견까지 (가운데 값) | 가장 짧은 ~ 가장 긴 |");
+    p("|---|---|---|---|");
+    for (const [k, v] of Object.entries(obj)) p(`| ${labelOf(k)} | ${v.n} | ${hm(v.median_min)} | ${hm(v.min_min)} ~ ${hm(v.max_min)} |`);
+    p();
+  };
+  ftable("누가 찾았나", fs_.by_who);
+  ftable("확인할 곳 3곳 안에 발견 장소가 있었나", fs_.by_hit3);
+  ftable("상황별", fs_.by_type, (k) => `${k}. ${data.types[k]}`);
+  p("- 3곳 안에 발견 장소가 있던 사례는 \"보호자가 그 순서대로 돌아 찾았다\"로, 없던 사례는 \"더 지나 시민 제보나 경찰이 찾았다\"로 꾸몄다. 그래서 두 묶음의 시간 차이는 **사례를 그렇게 썼기 때문**이지 앱의 효과를 잰 것이 아니다.");
+  p("- 보호자가 찾은 사례의 시간은 아래 \"계산\"보다 짧지 않게 맞췄다 (집에서 걸어가는 시간보다 빨리 찾을 수는 없으므로).");
+  p();
+  const ss = searchSummary(rows);
+  p("## 찾는 데 걸리는 시간 (계산)");
+  p();
+  p("실제로 잰 시간이 아니라 **계산한 시간**이다. 이렇게 두었다:");
+  p();
+  p(`- 보호자 **한 사람**이 찾기 시작한 때 **집에서 출발**해, 확인할 곳을 차례로 **걸어서** 돈다. 걸음은 시속 ${kmh}km (\`schema.js\` 의 \"빠름\").`);
+  p(`- 곳마다 **${LOOK_MIN}분** 둘러본다. 발견 장소에서 ${NEAR_M}m 안의 곳에 도착하면 찾은 것으로 센다.`);
+  p("- 걷는 거리는 직선이 아니라 **실제 도보 거리**다 (앱의 걷는 거리 계산과 같은 Valhalla 보행자 거리표).");
+  p("- 어르신은 발견 장소에 **그대로 계신다**고 둔다. 경찰·가족 여럿이 나눠 찾거나 차를 타는 경우는 넣지 않았다. 실제로는 112 신고가 먼저다.");
+  p();
+  p("### 화면에 나온 3곳을 그 순서대로 돌았을 때");
+  p();
+  p("| 무엇 | 결과 |");
+  p("|---|---|");
+  p(`| 3곳 안에서 찾은 사례 | ${rows.length}개 중 ${ss.top3.found_n}개 |`);
+  p(`| 그 사례들에서 찾기 시작한 뒤 발견까지 (가운데 값) | **${ss.top3.median_min}분** (가장 오래 걸린 사례 ${ss.top3.max_min}분) |`);
+  p(`| 어르신이 나가신 때부터 발견까지 (가운데 값) | ${ss.top3.median_total_min}분 |`);
+  p(`| 3곳을 다 돌고도 못 찾은 사례 | ${ss.top3.miss_n}개 — 3곳을 도는 데 가운데 값 ${ss.top3.median_spent_min}분을 썼다 |`);
+  p();
+  p("### 코드 순서와 \"가까운 곳부터\"를 견주면");
+  p();
+  p(`코드가 본 모든 곳(등록한 곳 + 기본 장소) 안에 발견 장소가 있던 ${ss.list.found_n}개 사례에서, 같은 곳들을 **코드 순서**로 돌 때와 **지금 있는 곳에서 가장 가까운 곳부터** 돌 때를 견주었다.`);
+  p();
+  p("| 도는 순서 | 발견까지 (가운데 값) |");
+  p("|---|---|");
+  p(`| 코드 순서 | ${ss.list.code_median_min}분 |`);
+  p(`| 가까운 곳부터 | ${ss.list.near_median_min}분 |`);
+  p();
+  p(`- 코드 순서가 더 빨랐던 사례: ${ss.list.code_faster.length}개${ss.list.code_faster.length ? ` (${ss.list.code_faster.join(", ")})` : ""}`);
+  p(`- 같았던 사례: ${ss.list.same.length}개${ss.list.same.length ? ` (${ss.list.same.join(", ")})` : ""}`);
+  p(`- 가까운 곳부터가 더 빨랐던 사례: ${ss.list.near_faster.length}개${ss.list.near_faster.length ? ` (${ss.list.near_faster.join(", ")})` : ""}`);
+  p("- 코드 순서는 \"가던 방향의 예상 경로에 가까운 곳\"을 앞에 둔다. 발견 장소가 그 방향에 있으면 빨라지고, 길이 굽어 방향이 어긋났거나 어르신이 방향을 바꿨으면 먼 곳부터 들르게 되어 느려진다.");
+  if (ss.estimated_pairs) p(`- 도보 거리표에 없어 직선거리 × ${DETOUR}로 대신한 구간이 ${ss.estimated_pairs}개 있다.`);
+  p();
   p("## 사례별 결과");
   p();
-  p("| 사례 | 상황 | 코드가 본 움직임 | 확인할 곳 3곳 (발견 장소까지) | 발견 장소 | 등록 | 첫째 | 3곳 | 목록 순서 |");
-  p("|---|---|---|---|---|---|---|---|---|");
+  p("| 사례 | 상황 | 코드가 본 움직임 | 확인할 곳 3곳 (발견 장소까지) | 발견 장소 | 등록 | 첫째 | 3곳 | 목록 순서 | 3곳 순서대로 | 코드 순서 | 가까운 곳부터 |");
+  p("|---|---|---|---|---|---|---|---|---|---|---|---|");
+  const st = (x) => (x.found ? `${x.minutes}분 (${x.stops}곳째)` : `못 찾음 (${x.minutes}분 씀)`);
   for (const r of rows) {
     const tops = r.top.map((c, i) => `${i + 1}. ${c.name} (${fmt(c.to_found_m)})`).join("<br>") || "–";
-    p(`| ${r.id} | ${r.type} | ${r.headline || "–"} | ${tops} | ${r.found} | ${yn(r.found_registered)} | ${yn(r.hit1)} | ${yn(r.hit3)} | ${r.rank === null ? "없음" : `${r.rank}/${r.list_size}`} |`);
+    p(`| ${r.id} | ${r.type} | ${r.headline || "–"} | ${tops} | ${r.found} | ${yn(r.found_registered)} | ${yn(r.hit1)} | ${yn(r.hit3)} | ${r.rank === null ? "없음" : `${r.rank}/${r.list_size}`} | ${st(r.search_top3)} | ${st(r.search_code)} | ${st(r.search_near)} |`);
   }
   p();
   p("## 사례 20개 (보호자의 말은 꾸민 것)");
@@ -257,6 +415,8 @@ export function renderDoc(data, rows, sum) {
     p(`- **확인할 곳 3곳:** ${r.top.map((c, i) => `${i + 1}) ${c.name} — ${c.reason}`).join(" / ") || "없음"}`);
     p(`- **발견 장소:** ${r.found} — 마지막 위치에서 ${fmt(r.last_to_found_m)}, 닿을 수 있는 범위(${fmt(r.reach_m)}) ${r.found_in_reach ? "안" : "밖"}${r.found_bearing_diff_deg !== null ? `, 가던 방향과 ${r.found_bearing_diff_deg}° 차이` : ""}${r.found_path_dist_m !== null ? `, 예상 경로에서 ${fmt(r.found_path_dist_m)}` : ""}`);
     p(`- **결과:** 첫째 ${yn(r.hit1)} · 3곳 안 ${yn(r.hit3)} · 가장 가까운 확인할 곳까지 ${fmt(r.nearest_top_m)}`);
+    p(`- **사례의 끝 (지어낸 것):** 나가신 뒤 ${hm(r.found_after_min)} 만에 발견 — ${r.found_by}: ${r.found_how}`);
+    p(`- **찾는 데 걸리는 시간(계산):** 나가신 지 ${r.left_ago_min}분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 ${r.search_top3.found ? `${r.search_top3.minutes}분 뒤 ${r.search_top3.stops}곳째에서 발견` : `${r.search_top3.minutes}분을 쓰고도 못 찾음`}`);
     p();
   }
   p("## 사례에 쓴 실제 장소");
@@ -265,7 +425,7 @@ export function renderDoc(data, rows, sum) {
   p("|---|---|---|---|");
   for (const [name, v] of Object.entries(data.places).sort((x, y) => x[1].from_home_m - y[1].from_home_m)) p(`| ${name} | ${v.kind} | ${fmt(v.from_home_m)} | ${data.routes[name] ? fmt(data.routes[name].m) : "–"} |`);
   p();
-  p(`지도 자료: ${data.source.map}. ${data.source.routes}. ${data.source.missing}.`);
+  p(`지도 자료: ${data.source.map}. ${data.source.routes}. ${data.source.walk}. ${data.source.missing}.`);
   p();
   return L.join("\n");
 }
@@ -282,11 +442,12 @@ export function publicJson(data, rows, sum) {
   if (noGps) insights.push(`목걸이·휴대폰을 두고 나가셔서 보호자의 말만 있는 사례는 ${noGps.n}개 중 ${noGps.hit3}개가 3곳 안이었습니다.`);
   if (tC) insights.push(`GPS가 끊긴 뒤 방향을 바꾼 사례는 ${tC.n}개 중 ${tC.hit3}개가 3곳 안이었습니다. 코드는 마지막 방향으로 계속 간다고 두고 계산합니다.`);
   insights.push(`길을 따라 걷다 끊긴 사례 ${moving.length}개 중 ${bent.length}개는 끊긴 순간의 길 방향이 가던 목적지 방향과 30° 넘게 달랐습니다. 길은 곧지 않아서, 곧게 뻗은 예상 경로가 목적지를 비껴갈 수 있습니다.`);
+  const ss = searchSummary(rows);
   const group = (obj, labelOf = (k) => k) => Object.entries(obj).map(([k, v]) => ({ label: labelOf(k), n: v.n, hit1: v.hit1, hit3: v.hit3 }));
   return {
     title: "동명중학교를 집으로 둔 꾸민 사례 20개",
     made_up: true,
-    note: "사람·사건·보호자의 말은 모두 지어낸 것입니다. 장소와 걷는 길만 실제 지도에서 가져왔습니다. 발견 장소는 사례를 만든 사람이 정했으므로, 이 숫자는 실제 실종에서의 성능이 아닙니다.",
+    note: "사람·사건·보호자의 말은 모두 지어낸 것입니다. 장소와 걷는 길만 실제 지도에서 가져왔습니다. 발견 장소와 발견까지 걸린 시간도 사례를 만든 사람이 정했으므로, 이 숫자는 실제 실종에서의 성능이 아닙니다.",
     how: ["화면의 예상 후보지 카드가 쓰는 코드를 그대로 돌렸습니다. 생성형 AI는 부르지 않아 순서와 이유는 모두 코드가 정했습니다.",
       "목걸이 GPS 동선은 집에서 목적지까지의 실제 도보 경로를 따라 10초마다 한 점씩 만들었습니다.",
       `확인할 곳이 발견 장소에서 ${NEAR_M}m 안이면 같은 곳으로 셌습니다.`,
@@ -300,6 +461,33 @@ export function publicJson(data, rows, sum) {
       { title: "발견 장소가 등록된 곳이었나", rows: group(sum.by_registered) },
     ],
     insights,
+    found_time: (() => {
+      const f = foundSummary(rows);
+      const rowsOf = (obj, labelOf = (k) => k) => Object.entries(obj).map(([k, v]) => ({ label: labelOf(k), n: v.n, median: hm(v.median_min), range: `${hm(v.min_min)} ~ ${hm(v.max_min)}`, median_min: v.median_min }));
+      return {
+        note: "사례마다 \"나가신 뒤 몇 분 만에, 누가 찾았다\"를 지어내 적은 값입니다. 재거나 계산한 것이 아니고, 실제 실종의 통계가 아닙니다.",
+        median: hm(f.all.median_min), shortest: hm(f.all.min_min), longest: hm(f.all.max_min), max_min: f.all.max_min,
+        within_60: f.within_60, within_120: f.within_120, over_120: f.over_120, n: rows.length,
+        groups: [
+          { title: "누가 찾았나", rows: rowsOf(f.by_who) },
+          { title: "확인할 곳 3곳 안에 발견 장소가 있었나", rows: rowsOf(f.by_hit3) },
+          { title: "상황별", rows: rowsOf(f.by_type, (k) => `${k}. ${data.types[k]}`) },
+        ],
+        caveat: "3곳 안에 발견 장소가 있던 사례는 \"보호자가 그 순서대로 돌아 찾았다\"로, 없던 사례는 \"더 지나 시민 제보나 경찰이 찾았다\"로 꾸몄습니다. 두 묶음의 시간 차이는 사례를 그렇게 썼기 때문이고, 앱의 효과를 잰 것이 아닙니다.",
+      };
+    })(),
+    search: {
+      assumptions: [
+        `보호자 한 분이 찾기 시작한 때 집에서 출발해, 확인할 곳을 차례로 걸어서 돈다고 두었습니다 (시속 ${kmh}km).`,
+        `곳마다 ${LOOK_MIN}분 둘러보고, 발견 장소에서 ${NEAR_M}m 안의 곳에 도착하면 찾은 것으로 셌습니다.`,
+        "걷는 거리는 직선이 아니라 실제 도보 거리입니다.",
+        "어르신은 발견 장소에 그대로 계신다고 두었습니다. 여럿이 나눠 찾거나 차를 타는 경우는 넣지 않았습니다. 실제로는 112 신고가 먼저입니다.",
+      ],
+      top3: ss.top3,
+      list: { found_n: ss.list.found_n, code_median_min: ss.list.code_median_min, near_median_min: ss.list.near_median_min,
+        code_faster: ss.list.code_faster.length, same: ss.list.same.length, near_faster: ss.list.near_faster.length },
+      note: "코드 순서는 가던 방향의 예상 경로에 가까운 곳을 앞에 둡니다. 발견 장소가 그 방향에 있으면 빨라지고, 길이 굽어 방향이 어긋났거나 어르신이 방향을 바꾸셨으면 먼 곳부터 들르게 되어 느려집니다.",
+    },
     types: data.types,
     cases: data.scenarios.map((s) => {
       const r = rows.find((x) => x.id === s.id);
@@ -311,6 +499,10 @@ export function publicJson(data, rows, sum) {
         top: r.top.map((c) => ({ name: c.name, source: SOURCE_KO[c.source] ?? c.source, reason: c.reason, to_found: fmt(c.to_found_m), near: c.to_found_m <= NEAR_M })),
         found: r.found, found_registered: r.found_registered, hit1: r.hit1, hit3: r.hit3,
         found_detail: `마지막 위치에서 ${fmt(r.last_to_found_m)} · 걸어서 닿을 수 있는 범위(${fmt(r.reach_m)}) ${r.found_in_reach ? "안" : "밖"}`,
+        search: `나가신 지 ${r.left_ago_min}분 뒤에 찾기 시작 → 3곳을 순서대로 돌면 ${r.search_top3.found ? `${r.search_top3.minutes}분 뒤 ${r.search_top3.stops}곳째에서 발견` : `${r.search_top3.minutes}분을 쓰고도 찾지 못함`}`,
+        search_min: r.search_top3.found ? r.search_top3.minutes : null,
+        ending: `나가신 뒤 ${hm(r.found_after_min)} 만에 발견 — ${r.found_by}: ${r.found_how}`,
+        found_after: hm(r.found_after_min), found_by: r.found_by,
       };
     }),
   };

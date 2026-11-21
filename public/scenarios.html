@@ -9,6 +9,7 @@
   <style>
     /* 색은 모두 테마 색(app.css)으로 — 밝은 화면·어두운 화면 둘 다 읽히게 */
     .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+    .tiles.two { grid-template-columns: repeat(2, 1fr); }
     .tile { background: var(--card); border-radius: 16px; padding: 14px 6px; text-align: center; }
     .tile b { display: block; font-size: 26px; line-height: 1.2; }
     .tile b small { font-size: 15px; font-weight: 600; color: var(--muted); }
@@ -51,11 +52,30 @@
     <h2>묶어서 보기</h2>
     <div id="groups"></div>
 
+    <h2>발견까지 걸린 시간 <span class="badge mock">지어낸 값</span></h2>
+    <p class="small muted" id="ft-note" style="margin-top:0"></p>
+    <p id="ft-median" style="margin:8px 0 0"></p>
+    <div class="tiles" id="ft-tiles"></div>
+    <div id="ft-groups"></div>
+    <p class="small muted" id="ft-caveat"></p>
+
+    <h2>확인할 곳을 순서대로 돌면 <span class="badge src">계산</span></h2>
+    <p class="small muted" style="margin-top:0">실제로 잰 시간이 아니라, 아래처럼 두고 <b>계산한 시간</b>입니다.</p>
+    <div class="tiles two" id="search-tiles"></div>
+    <div class="card">
+      <div class="small" style="font-weight:700;margin-bottom:4px">코드 순서와 "가까운 곳부터"를 견주면</div>
+      <p class="small muted" id="search-list-note" style="margin:0 0 6px"></p>
+      <table class="grp"><thead><tr><th>도는 순서</th><th>발견까지 (가운데 값)</th></tr></thead><tbody id="search-list"></tbody></table>
+      <p class="small" id="search-compare" style="margin:8px 0 0"></p>
+      <p class="small muted" id="search-note" style="margin:6px 0 0"></p>
+    </div>
+    <div class="card tight"><div class="small" style="font-weight:700">이렇게 두고 계산했습니다</div><ul class="plain small muted" id="search-how" style="margin-bottom:0"></ul></div>
+
     <h2>숫자가 말해 주는 것</h2>
     <div class="card"><ul class="plain" id="insights" style="margin:0"></ul></div>
 
     <h2>사례 20개</h2>
-    <p class="small muted" style="margin-top:0">눌러서 펼치면 보호자의 말(지어낸 것), 목걸이 GPS, 코드가 내놓은 확인할 곳 3곳, 발견 장소가 나옵니다.</p>
+    <p class="small muted" style="margin-top:0">눌러서 펼치면 보호자의 말(지어낸 것), 목걸이 GPS, 코드가 내놓은 확인할 곳 3곳, 발견 장소, 발견까지 걸린 시간(지어낸 값)이 나옵니다.</p>
     <div class="chips" id="filter"></div>
     <div id="cases"></div>
 
@@ -115,7 +135,9 @@
         ...row("목걸이 GPS", c.gps),
         ...row("코드가 본 것", c.headline || "–"),
         ...row("확인할 곳 3곳", c.top.length ? top : "없음"),
-        ...row("발견 장소", `${c.found}${c.found_registered ? " (등록해 둔 곳)" : " (등록 안 된 곳)"} — ${c.found_detail}`)));
+        ...row("발견 장소", `${c.found}${c.found_registered ? " (등록해 둔 곳)" : " (등록 안 된 곳)"} — ${c.found_detail}`),
+        ...row("사례의 끝 (지어낸 것)", c.ending),
+        ...row("확인할 곳을 순서대로 돌면 (계산)", c.search)));
   }
 
   try {
@@ -127,6 +149,37 @@
     $("#tiles").append(tile(t.hit1, t.n, "첫째가 발견 장소"), tile(t.hit3, t.n, "3곳 안에 있음"), tile(t.in_reach, t.n, "닿을 범위 안"));
     $("#median").textContent = `확인할 곳 3곳 중 발견 장소에 가장 가까운 곳까지의 거리는 가운데 값으로 ${t.median_nearest_m}m였습니다. "같은 곳"은 발견 장소에서 ${d.near_m}m 안으로 셌습니다.`;
     for (const g of d.groups) $("#groups").append(groupTable(g));
+
+    // 발견까지 걸린 시간 (사례에서 정한 값 — 지어낸 것)
+    const f = d.found_time;
+    $("#ft-note").textContent = f.note;
+    $("#ft-median").append("나가신 뒤 발견까지, 가운데 값 ", el("b", { text: f.median }), ` (가장 짧은 사례 ${f.shortest}, 가장 긴 사례 ${f.longest})`);
+    $("#ft-tiles").append(tile(f.within_60, f.n, "1시간 안에 발견"), tile(f.within_120, f.n, "1~2시간 사이"), tile(f.over_120, f.n, "2시간 넘어 발견"));
+    for (const g of f.groups) {
+      const body = el("tbody");
+      for (const r of g.rows) {
+        const bar = el("i"); bar.style.width = `${f.max_min ? Math.round((r.median_min / f.max_min) * 100) : 0}%`;
+        body.append(el("tr", {}, el("td", { text: r.label }), el("td", { text: `${r.n}개` }),
+          el("td", {}, el("span", { class: "count", text: r.median }), el("div", { class: "meter", role: "img", "aria-label": r.median }, bar), el("span", { class: "small muted", text: r.range }))));
+      }
+      $("#ft-groups").append(el("div", { class: "card" },
+        el("div", { class: "small", style: "font-weight:700;margin-bottom:4px", text: g.title }),
+        el("table", { class: "grp" }, el("thead", {}, el("tr", {}, el("th", { text: "묶음" }), el("th", { text: "사례" }), el("th", { text: "발견까지 (가운데 값)" }))), body)));
+    }
+    $("#ft-caveat").textContent = f.caveat;
+
+    // 찾는 데 걸리는 시간 (계산)
+    const s = d.search, big = (num, unit, label) => { const b = el("b", { text: String(num) }); b.append(el("small", { text: unit })); return el("div", { class: "tile" }, b, el("span", { text: label })); };
+    $("#search-tiles").append(
+      big(s.top3.median_min, "분", `3곳 안에서 찾은 ${s.top3.found_n}개 사례의 가운데 값 (가장 오래 ${s.top3.max_min}분)`),
+      big(s.top3.median_spent_min, "분", `못 찾은 ${s.top3.miss_n}개 사례가 3곳을 도는 데 쓴 시간`));
+    $("#search-list-note").textContent = `코드가 본 모든 곳 안에 발견 장소가 있던 ${s.list.found_n}개 사례에서, 같은 곳들을 두 가지 순서로 돌았을 때입니다.`;
+    $("#search-list").append(
+      el("tr", {}, el("td", { text: "코드 순서" }), el("td", {}, el("span", { class: "count", text: `${s.list.code_median_min}분` }))),
+      el("tr", {}, el("td", { text: "지금 있는 곳에서 가까운 곳부터" }), el("td", {}, el("span", { class: "count", text: `${s.list.near_median_min}분` }))));
+    $("#search-compare").textContent = `코드 순서가 더 빨랐던 사례 ${s.list.code_faster}개 · 같았던 사례 ${s.list.same}개 · 가까운 곳부터가 더 빨랐던 사례 ${s.list.near_faster}개`;
+    $("#search-note").textContent = s.note;
+    for (const a of s.assumptions) $("#search-how").append(el("li", { text: a }));
     for (const s of d.insights) $("#insights").append(el("li", { text: s }));
     for (const s of d.how) $("#how").append(el("li", { text: s }));
     $("#source").textContent = d.source;

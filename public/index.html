@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>REMEMBER WAY AI</title>
-  <meta name="description" content="어르신이 GPS를 끄거나 목걸이·휴대폰을 두고 나가셨을 때, 보호자가 등록한 추억의 장소와 최근 30일 GPS 기록으로 확인할 곳을 정리해 찾기를 돕는 보호자용 프로그램">
+  <meta name="description" content="GPS가 없어도, 가족이 꺼내 둔 어르신의 기억(추억의 장소)과 보호자의 말로 확인할 곳을 정리해 찾기를 돕는 보호자용 프로그램. 목걸이 GPS 기록은 있으면 더합니다">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#f2f4f6">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,7 +17,7 @@
 <main>
   <div id="home-chip-slot" style="margin:2px 0 4px"></div>
   <section class="hero">
-    <p class="hero-sub">등록한 추억의 장소와 최근 GPS 기록으로<br>확인할 곳을 정리해 어르신 찾기를 돕는</p>
+    <p class="hero-sub">GPS가 없어도, 가족의 기억으로<br>확인할 곳을 정리해 어르신 찾기를 돕는</p>
     <h1>어르신이 안 보이시나요?</h1>
     <p class="hero-desc">말하거나 쓰면, 경찰이 쓸 정보로 정리하고 확인할 곳을 지도에 모읍니다.</p>
   </section>
@@ -32,11 +32,16 @@
 
   <div class="card hidden" id="home-setup-card"></div>
 
+  <!-- 평소 할 일: 기억 꺼내기가 이 앱의 중심(GPS 없이 찾기). 목걸이는 아래 '보조 기능'으로 -->
   <div class="home-grid">
+    <a class="btn btn-secondary" href="/memory" id="btn-memory"><span><i data-icon="heart"></i> 기억 꺼내기<small id="memory-sub">AI가 여쭤보고, 예전 집·고향 같은 추억의 장소를 꺼내 둡니다</small></span></a>
     <a class="btn btn-secondary" href="/profile" id="btn-profile"><span><i data-icon="notebook"></i> 평소 등록·매일 일지<small id="profile-sub">한 번 등록하면 다음부터 10초</small></span></a>
+    <a class="btn btn-secondary" href="/record"><span><i data-icon="check"></i> 찾은 뒤 기록<small>다음 실종을 막는 계획을 만듭니다</small></span></a>
+  </div>
+  <p class="small muted home-aux-title">보조 기능 · 목걸이를 쓰실 때만</p>
+  <div class="home-grid home-aux">
     <a class="btn btn-secondary" href="/track"><span><i data-icon="pin"></i> 목걸이 위치 보기<small>어르신 휴대폰을 거쳐 목걸이 GPS 위치가 옵니다</small></span></a>
     <a class="btn btn-secondary" href="/find"><span><i data-icon="bell"></i> 목걸이 찾기<small>어르신 휴대폰을 거쳐 목걸이에서 소리를 울립니다</small></span></a>
-    <a class="btn btn-secondary" href="/record"><span><i data-icon="check"></i> 찾은 뒤 기록<small>다음 실종을 막는 계획을 만듭니다</small></span></a>
   </div>
 
   <div class="card" id="push-card" style="margin-top:20px"></div>
@@ -49,7 +54,7 @@
       <li class="muted">AI로 정리할 때만 말한 내용이 서버를 거쳐 AI 회사로 전달되고, 서버에는 저장하지 않습니다 (처음에 동의를 묻고, 싫으면 서식으로)</li>
     </ul>
   </div>
-  <p class="footer-note">이 앱은 보호자가 말한 것과 등록한 장소, GPS 기록으로 확인할 곳(예상 후보지)을 정리합니다. 후보지는 어르신이 그곳에 계시다는 뜻이 아니며, 안전을 보장하는 제품이 아닙니다. 2026 AI 동행 프로젝트 · 생성형AI 분과 · 그럴게요 팀</p>
+  <p class="footer-note">이 앱은 보호자가 말한 것과 기억 꺼내기·평소 등록으로 모은 장소로 확인할 곳(예상 후보지)을 정리하고, 목걸이 GPS 기록이 있으면 함께 씁니다. 후보지는 어르신이 그곳에 계시다는 뜻이 아니며, 안전을 보장하는 제품이 아닙니다. 2026 AI 동행 프로젝트 · 생성형AI 분과 · 그럴게요 팀</p>
   <p class="footer-note"><a href="/about">이 앱은?</a> · <a href="/settings">설정</a> · <span id="ai-status" class="muted"></span></p>
 </main>
 <script type="module">
@@ -70,6 +75,9 @@
   const d = store.get(KEYS.diary, []);
   if (p) $("#profile-sub").textContent = d.some((x) => x.date === today()) ? `${p.honorific} 등록됨 · 일지 ${d.length}일 · 오늘 기록 완료 ✓` : `${p.honorific} 등록됨 · 일지 ${d.length}일 · 오늘 일지를 아직 안 썼어요`;
   if (p) $("#btn-profile").href = "/diary";
+  // 기억 꺼내기 버튼: 추억의 장소가 몇 곳 모였는지 보여 준다 (등록 전이면 기본 설명 그대로 — memory.html 이 등록부터 안내)
+  const memCount = (p?.places ?? []).filter((x) => x.source === "memory").length;
+  if (p) $("#memory-sub").textContent = memCount ? `추억의 장소 ${memCount}곳 · 더 떠올리면 이어서 꺼내 두세요` : "아직 추억의 장소가 없어요 · AI가 여쭤보면 답만 하시면 됩니다";
   loadConfig().then((c) => { $("#ai-status").textContent = c.ai?.mock ? "모의 응답 모드" : c.ai?.hasKey ? `AI 연결됨 (${c.ai.provider} · ${c.ai.model}${c.ai.chain?.length > 1 ? ` · 대체 ${c.ai.chain.filter((p) => p !== c.ai.provider).join(",")}` : ""})` : "AI 키 없음 → 서식 모드"; });
 </script>
 </body>

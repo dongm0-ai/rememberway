@@ -114,6 +114,13 @@ pre.summary { white-space: pre-wrap; font: inherit; font-size: 16px; background:
 .home-grid { display: grid; gap: 12px; margin-top: 18px; }
 .home-grid .btn { justify-content: flex-start; text-align: left; padding: 18px 26px; }
 .home-grid .btn small { display: block; font-weight: 500; font-size: 15px; opacity: .85; }
+/* 보조 기능(목걸이): 핵심 기능 아래에 한 단계 낮춰 둔다 */
+.home-aux-title { margin: 22px 0 0; }
+.home-aux { margin-top: 8px; }
+.home-aux .btn { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+/* 기억 꺼내기 힌트 칩: 누르면 답 칸에 말머리가 들어간다 */
+.hint-chips { margin: 4px 0 12px; }
+.hint-chips .chip { min-height: 48px; font-size: 17px; }
 .footer-note { font-size: 14px; color: var(--muted); margin-top: 24px; }
 ul.plain { padding-left: 20px; margin: 6px 0; }
 ul.plain li { margin: 4px 0; }

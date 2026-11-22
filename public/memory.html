@@ -26,6 +26,10 @@
       <h2 id="question" style="margin:4px 0 8px"></h2>
       <p class="small" id="note" role="status" aria-live="polite"></p>
       <div id="ask-ui">
+        <div id="hints-box" class="hidden">
+          <p class="small muted" style="margin:0 0 6px">떠오르지 않으시면 눌러 보세요</p>
+          <div class="chips hint-chips" id="hints"></div>
+        </div>
         <button class="mic" id="mic" aria-pressed="false" aria-label="말로 답하기"><i data-icon="mic"></i></button>
         <p class="small muted" id="interim" style="text-align:center;min-height:1.2em"></p>
         <textarea id="answer" style="min-height:90px" aria-label="어르신에 대한 답" placeholder="말로 하거나 글로 적어 주세요. 예) 젊을 때 청주 육거리시장에서 장사하셨어요."></textarea>
@@ -57,7 +61,7 @@
 </main>
 <script type="module">
   import { store, KEYS, api, createSpeech, $, el, mockBanner, icon } from "/js/common.js";
-  import { MEMORY_TOPICS, memoryQuestion } from "/lib/schema.js";
+  import { MEMORY_TOPICS, memoryQuestion, topicParticle } from "/lib/schema.js";
   import { appearsExactly } from "/lib/verify.js";
   import { mountShell } from "/js/shell.js";
   await mountShell({ tab: "memory" });
@@ -102,7 +106,24 @@
     $("#question").textContent = q;
     $("#progress").textContent = `${MEMORY_TOPICS.indexOf(topic) + 1} / ${MEMORY_TOPICS.length} · ${topic.label}`;
     $("#note").textContent = note;
+    renderHints();
     view(["#talk", "#ask-ui", "#nav"]);
+  }
+
+  // 떠올리기 힌트: 주제 질문에만 (AI가 만든 후속 질문에는 안 보임). 누르면 답 칸에 말머리를 넣고, 이어서 말하거나 적게 한다
+  function renderHints() {
+    const box = $("#hints"); box.innerHTML = "";
+    const hints = !followedUp ? (topic?.hints ?? []) : [];
+    $("#hints-box").classList.toggle("hidden", !hints.length);
+    for (const h of hints) box.append(el("button", { type: "button", class: "chip", onclick: () => useHint(h) }, h));
+  }
+  function useHint(h) {
+    const lead = `${h}${topicParticle(h)} `;
+    const cur = ta.value.trim();
+    ta.value = cur ? `${cur} ${lead}` : lead;
+    $("#note").textContent = `"${lead}" 뒤를 이어서 말하거나 적어 주세요.`;
+    if (speech?.listening) speech.stop();
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
   }
 
   async function extract() {

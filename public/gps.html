@@ -127,8 +127,11 @@
     for (const p of places) {
       try { const g = await (await fetch(`/api/geocode?lat=${p.lat}&lng=${p.lng}`)).json(); if (g.ok) { p.dong = (g.label ?? "").split(" ").pop() || null; p.building = g.building && !addressLike(g.building) ? g.building : null; p.addr = g.building || g.road || g.jibun || g.label; } } catch {}
       p.label = p.dong ? `${p.dong} 어딘가` : "이름 모르는 곳";
-      // 미리 채우는 이름은 건물 이름이나 동까지만 — 도로명·지번 주소는 이름으로 넣지 않는다 (일지·추억의 장소는 가족과 같이 보는 서버 데이터)
-      p.name = p.building || (p.dong ? `${p.dong} 근처` : `자주 머문 곳 ${places.indexOf(p) + 1}`);
+      // 대표 장소: 이 자리에서 NEAR_PLACE_M 안에 이미 등록한 장소(추억의 장소·일지 좌표)가 있으면 그 이름 — 보호자가 "어디인지" 바로 알아보게.
+      // AI 질문에 보내는 label 은 그대로 동까지만 (질문 검증이 label 을 대조하므로 바꾸지 않음)
+      p.near = nearestKnown(p);
+      // 미리 채우는 이름은 등록 장소·건물 이름이나 동까지만 — 도로명·지번 주소는 이름으로 넣지 않는다 (일지·추억의 장소는 가족과 같이 보는 서버 데이터)
+      p.name = p.near?.name || p.building || (p.dong ? `${p.dong} 근처` : `자주 머문 곳 ${places.indexOf(p) + 1}`);
       p.question = templateQuestion(p, p.label, tr.period_days); p.byAI = false; p.choice = null;
     }
     render();
@@ -142,6 +145,16 @@
     render();
   }
 
+  // 자주 머문 곳 근처의 이미 등록한 장소 (추억의 장소 좌표 + 일지에 GPS로 넣은 좌표). 가장 가까운 한 곳, NEAR_PLACE_M 안만
+  const NEAR_PLACE_M = 120;
+  function nearestKnown(p) {
+    const known = [];
+    for (const x of store.get(KEYS.profile)?.places ?? []) if (Number.isFinite(x?.lat) && Number.isFinite(x?.lng) && x?.name) known.push({ name: x.name, lat: x.lat, lng: x.lng });
+    for (const e of store.get(KEYS.diary, [])) for (const [name, c] of Object.entries(e?.coords ?? {})) if (Number.isFinite(c?.lat) && Number.isFinite(c?.lng)) known.push({ name, lat: c.lat, lng: c.lng });
+    const best = known.map((k) => ({ name: k.name, d: Math.round(distM(p, k)) })).filter((k) => k.d <= NEAR_PLACE_M && !addressLike(k.name)).sort((a, b) => a.d - b.d)[0];
+    return best ?? null;
+  }
+
   function render() {
     const box = $("#places"); box.innerHTML = "";
     for (const p of places) {
@@ -152,6 +165,8 @@
       box.append(el("div", { class: "card" },
         el("div", { class: "small muted" }, `${p.days.length}일 · 평균 ${p.avg_min}분${p.weekdays.length ? ` · 주로 ${p.weekdays.join("·")}요일` : ""}${p.hour_band ? ` ${p.hour_band}` : ""} · ${p.first_date.slice(5)}~${p.last_date.slice(5)}`),
         el("p", { style: "margin:8px 0" }, el("span", { class: "badge src" }, p.byAI ? "AI 질문" : "기본 질문"), " ", p.question),
+        p.near ? el("div", { style: "margin:2px 0 4px;font-weight:700" }, `가까운 등록 장소: ${p.near.name} (${p.near.d}m)`)
+          : p.building ? el("div", { style: "margin:2px 0 4px;font-weight:700" }, `가까운 건물: ${p.building}`) : "",
         p.addr ? el("div", { class: "small muted" }, `주소 근처: ${p.addr} (이 기기에서만 보임)`) : "",
         name, chips));
     }

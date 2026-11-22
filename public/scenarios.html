@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>꾸민 사례 결과 — REMEMBER WAY AI</title>
+  <link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#f2f4f6">
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    /* 색은 모두 테마 색(app.css)으로 — 밝은 화면·어두운 화면 둘 다 읽히게 */
+    .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+    .tile { background: var(--card); border-radius: 16px; padding: 14px 6px; text-align: center; }
+    .tile b { display: block; font-size: 26px; line-height: 1.2; }
+    .tile b small { font-size: 15px; font-weight: 600; color: var(--muted); }
+    .tile span { display: block; font-size: 14px; line-height: 1.35; color: var(--muted); margin-top: 4px; }
+    .grp td:first-child { width: 46%; }
+    .grp td { vertical-align: top; }
+    .meter { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin-top: 4px; }
+    .meter i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+    .count { font-weight: 700; white-space: nowrap; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    details.case { margin: 8px 0; }
+    details.case summary { cursor: pointer; font-weight: 700; line-height: 1.45; }
+    details.case summary .id { color: var(--muted); font-weight: 600; margin-right: 4px; }
+    details.case dl { margin: 10px 0 0; }
+    details.case dt { font-size: 14px; color: var(--muted); font-weight: 600; margin-top: 10px; }
+    details.case dd { margin: 2px 0 0; font-size: 16px; }
+    details.case ol { margin: 2px 0 0; padding-left: 22px; }
+    details.case ol li { margin: 4px 0; }
+    .say { background: var(--soft); border-radius: 12px; padding: 10px 12px; }
+    .hitmark { color: var(--ok); font-weight: 700; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="topbar"><a class="back" href="/about">← 소개</a><span class="step">꾸민 사례 결과</span></div>
+  <h1>꾸민 사례 20개</h1>
+  <p class="muted" style="margin-top:0">대전 동명중학교를 집으로 두고, 주변의 실제 장소로 상황 20가지를 지어내 코드에 넣어 본 결과입니다.</p>
+
+  <div class="alert" id="warn" style="margin-top:6px">지어낸 사례입니다. 실제 실종에서 얼마나 잘 찾는지를 보여 주는 숫자가 아닙니다.
+    <div class="sub" id="warn-sub">사람·사건·보호자의 말은 모두 지어낸 것이고, 발견 장소도 사례를 만든 사람이 정했습니다.</div>
+  </div>
+
+  <p class="small" id="loading">결과를 불러오는 중…</p>
+
+  <section id="result" class="hidden">
+    <h2>전체</h2>
+    <div class="tiles" id="tiles"></div>
+    <p class="small muted" id="median"></p>
+
+    <h2>묶어서 보기</h2>
+    <div id="groups"></div>
+
+    <h2>숫자가 말해 주는 것</h2>
+    <div class="card"><ul class="plain" id="insights" style="margin:0"></ul></div>
+
+    <h2>사례 20개</h2>
+    <p class="small muted" style="margin-top:0">눌러서 펼치면 보호자의 말(지어낸 것), 목걸이 GPS, 코드가 내놓은 확인할 곳 3곳, 발견 장소가 나옵니다.</p>
+    <div class="chips" id="filter"></div>
+    <div id="cases"></div>
+
+    <h2>어떻게 만들었나</h2>
+    <div class="card"><ul class="plain small" id="how" style="margin:0"></ul></div>
+    <p class="small muted" id="source"></p>
+  </section>
+  <p class="footer-note">2026 AI 동행 프로젝트 · 생성형AI 분과 · 그럴게요 팀 (동명중학교)</p>
+</main>
+<script type="module">
+  // 화면 글은 모두 textContent 로만 넣는다 (자료 파일의 글이 HTML로 해석되지 않게)
+  const $ = (s) => document.querySelector(s);
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) { if (k === "class") n.className = v; else if (k === "text") n.textContent = v; else n.setAttribute(k, v); }
+    for (const k of kids) if (k !== null && k !== undefined && k !== "") n.append(k);
+    return n;
+  };
+  const of = (a, n) => `${n}개 중 ${a}개`;
+
+  function tile(big, total, label) {
+    const b = el("b", { text: String(big) }); b.append(el("small", { text: ` / ${total}` }));
+    return el("div", { class: "tile" }, b, el("span", { text: label }));
+  }
+  function meter(a, n) {
+    const bar = el("i"); bar.style.width = `${n ? Math.round((a / n) * 100) : 0}%`;
+    return el("div", { class: "meter", role: "img", "aria-label": of(a, n) }, bar);
+  }
+  function groupTable(g) {
+    const body = el("tbody");
+    for (const r of g.rows) {
+      body.append(el("tr", {},
+        el("td", { text: r.label }),
+        el("td", {}, el("span", { class: "count", text: of(r.hit3, r.n) }), meter(r.hit3, r.n)),
+        el("td", {}, el("span", { class: "count", text: of(r.hit1, r.n) }), meter(r.hit1, r.n))));
+    }
+    return el("div", { class: "card" },
+      el("div", { class: "small", style: "font-weight:700;margin-bottom:4px", text: g.title }),
+      el("table", { class: "grp" }, el("thead", {}, el("tr", {}, el("th", { text: "묶음" }), el("th", { text: "3곳 안" }), el("th", { text: "첫째" }))), body));
+  }
+  function caseCard(c, types) {
+    const sum = el("summary", {}, el("span", { class: "id", text: c.id }), c.title, " ",
+      el("span", { class: `badge ${c.hit3 ? "ok" : "src"}`, text: c.hit1 ? "첫째로 나옴" : c.hit3 ? "3곳 안" : "3곳 밖" }));
+    const top = el("ol");
+    for (const t of c.top) {
+      const li = el("li", {}, el("b", { text: t.name }), " ", el("span", { class: "badge src", text: t.source }), el("br"),
+        el("span", { class: "small muted", text: `${t.reason} · 발견 장소까지 ${t.to_found}` }));
+      if (t.near) li.append(" ", el("span", { class: "hitmark small", text: "← 발견 장소" }));
+      top.append(li);
+    }
+    const row = (k, v) => [el("dt", { text: k }), el("dd", {}, v)];
+    return el("details", { class: "card tight case", "data-hit": c.hit3 ? "in" : "out" }, sum,
+      el("dl", {},
+        ...row("상황", `${types[c.type]} — ${c.design}`),
+        ...row("보호자의 말 (지어낸 것)", el("div", { class: "say", text: `"${c.utterance}"` })),
+        ...row("등록해 둔 곳", c.registered.join(", ")),
+        ...row("목걸이 GPS", c.gps),
+        ...row("코드가 본 것", c.headline || "–"),
+        ...row("확인할 곳 3곳", c.top.length ? top : "없음"),
+        ...row("발견 장소", `${c.found}${c.found_registered ? " (등록해 둔 곳)" : " (등록 안 된 곳)"} — ${c.found_detail}`)));
+  }
+
+  try {
+    const r = await fetch("/data/scenario_results.json", { cache: "no-cache" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    $("#warn-sub").textContent = d.note;
+    const t = d.total;
+    $("#tiles").append(tile(t.hit1, t.n, "첫째가 발견 장소"), tile(t.hit3, t.n, "3곳 안에 있음"), tile(t.in_reach, t.n, "닿을 범위 안"));
+    $("#median").textContent = `확인할 곳 3곳 중 발견 장소에 가장 가까운 곳까지의 거리는 가운데 값으로 ${t.median_nearest_m}m였습니다. "같은 곳"은 발견 장소에서 ${d.near_m}m 안으로 셌습니다.`;
+    for (const g of d.groups) $("#groups").append(groupTable(g));
+    for (const s of d.insights) $("#insights").append(el("li", { text: s }));
+    for (const s of d.how) $("#how").append(el("li", { text: s }));
+    $("#source").textContent = d.source;
+
+    const cards = d.cases.map((c) => caseCard(c, d.types));
+    $("#cases").append(...cards);
+    const filters = [["all", `전체 ${d.cases.length}`], ["in", `3곳 안 ${d.cases.filter((c) => c.hit3).length}`], ["out", `3곳 밖 ${d.cases.filter((c) => !c.hit3).length}`]];
+    for (const [key, label] of filters) {
+      const b = el("button", { class: "chip", type: "button", "aria-pressed": String(key === "all"), text: label });
+      b.onclick = () => {
+        for (const x of $("#filter").children) x.setAttribute("aria-pressed", String(x === b));
+        for (const card of cards) card.classList.toggle("hidden", key !== "all" && card.dataset.hit !== key);
+      };
+      $("#filter").append(b);
+    }
+    $("#loading").classList.add("hidden");
+    $("#result").classList.remove("hidden");
+  } catch (e) {
+    $("#loading").textContent = "결과를 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침해 주세요.";
+  }
+</script>
+</body>
+</html>

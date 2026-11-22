@@ -119,16 +119,24 @@ export const addressLike = (s) => /\d+\s*(번길|길|로)\s*\d|\d+-\d+|번지|\d
 
 /** 기억 꺼내기 대화(화면 memory.html)의 주제. 순서 고정 — 다음 주제는 AI가 아니라 코드가 이 순서대로 고른다.
  *  근거: 실종 어르신이 발견되는 곳의 유형(옛 집·고향·옛 직장·단골 가게·목욕탕·종교 시설·병원·친구/친척 집) */
+/*  hints: 빈칸 앞에서 막히는 보호자를 위한 떠올리기 힌트(화면의 칩). 누르면 답 칸에 "{힌트}은/는 " 말머리만 들어가고,
+ *  나머지는 보호자가 말한다. AI에게 보내는 것은 보호자가 완성한 답뿐이고, 힌트가 장소를 지어내지 않는다 (고정 문구, 코드). */
 export const MEMORY_TOPICS = [
-  { key: "old_home", label: "예전에 사시던 집·동네" },
-  { key: "hometown", label: "고향" },
-  { key: "old_work", label: "예전 직장·일하시던 곳" },
-  { key: "market", label: "자주 가시던 시장·가게" },
-  { key: "bath", label: "목욕탕·이발소·미용실" },
-  { key: "religion", label: "교회·성당·절" },
-  { key: "hospital", label: "다니시던 병원·복지관·경로당" },
-  { key: "people", label: "자주 찾아가시던 친구·친척 집" },
+  { key: "old_home", label: "예전에 사시던 집·동네", hints: ["결혼하고 처음 사신 집", "자녀를 키우던 동네", "요즘 자주 이야기하시는 옛 동네"] },
+  { key: "hometown", label: "고향", hints: ["태어나고 자라신 마을", "명절마다 가시던 곳", "어릴 적 다니시던 학교"] },
+  { key: "old_work", label: "예전 직장·일하시던 곳", hints: ["가장 오래 일하신 곳", "장사하시던 가게", "출퇴근하시던 길"] },
+  { key: "market", label: "자주 가시던 시장·가게", hints: ["단골 시장", "자주 가시던 식당", "장 보러 가시던 곳"] },
+  { key: "bath", label: "목욕탕·이발소·미용실", hints: ["다니시던 목욕탕", "단골 이발소", "단골 미용실"] },
+  { key: "religion", label: "교회·성당·절", hints: ["지금 다니시는 곳", "예전에 다니시던 곳"] },
+  { key: "hospital", label: "다니시던 병원·복지관·경로당", hints: ["다니시던 병원", "복지관이나 경로당", "약 타러 가시던 곳"] },
+  { key: "people", label: "자주 찾아가시던 친구·친척 집", hints: ["자주 찾아가시던 친구 집", "형제나 친척 집", "친구분들과 모이시던 곳"] },
 ];
+
+/** 받침 있으면 "은", 없으면 "는" (한글이 아닌 끝 글자는 "은") */
+export const topicParticle = (word) => {
+  const last = String(word).charCodeAt(String(word).length - 1);
+  return last >= 0xac00 && last <= 0xd7a3 ? ((last - 0xac00) % 28 !== 0 ? "은" : "는") : "은";
+};
 
 /** 주제 질문: "{호칭}께서 {label}은/는 어디셨나요?" — 받침 있으면 은, 없으면 는 */
 export function memoryQuestion(honorific, topic) {

@@ -30,6 +30,7 @@
   <div class="card after-map">
     <p class="small" style="margin:0 0 4px"><b>어르신은 목적지에 도착하지 못하고 가는 길에서 발견되는 경우가 많습니다. 이 지도는 보호자가 말한 것을 정리한 것입니다.</b></p>
     <p class="notice hidden" id="basic-note" style="margin:8px 0">보호자가 말한 곳이 없어 <b>집 근처 기본 장소</b>(경로당·공원·버스정류장·편의점)를 넣었어요. 어르신이 자주 가시던 곳이 떠오르면 아래에 적어 주세요.</p>
+    <p class="notice hidden" id="memory-note" style="margin:8px 0">등록된 <b>추억의 장소</b>가 없어요. 예전 집·고향·일하시던 곳처럼 어르신이 가실 만한 곳은 GPS가 없어도 가장 큰 단서예요. 지금 떠오르면 아래에 적어 주시고, 찾은 뒤에는 <a href="/memory">기억 꺼내기</a>로 미리 꺼내 두세요.</p>
     <ol class="rank" id="rank"><li><span></span><span class="muted">장소를 찾는 중…</span></li></ol>
     <div class="row" style="margin-top:10px"><input type="text" id="add-place" placeholder="가실 만한 곳 추가 (예: 중앙시장, 옛날 살던 동네)" autocomplete="off"><button class="btn-secondary" id="add-place-btn" style="flex:0 0 auto;width:auto">추가</button></div>
     <p class="small muted" id="tour-total" style="margin-bottom:0"></p>
@@ -299,6 +300,8 @@
       }
       if (places.some((p) => p.source === "basic")) $("#basic-note").classList.remove("hidden");
     }
+    // 추억의 장소가 하나도 없으면(이번 말에도, 평소 등록에도): 기억 꺼내기로 안내. GPS 없이 찾는 가장 큰 단서이기 때문
+    if (!places.some((p) => p.source === "memory") && !(profile?.places ?? []).some((p) => p.source === "memory")) $("#memory-note").classList.remove("hidden");
     renderRank(); drawMarkers();
 
     // 2) 동선: 좌표를 찾은 후보 전부를 점수 높은 묶음부터, 묶음 안에서는 도보 거리 최단 순서로 (보행자 거리표 + 정확한 최단). 경로 위 갈림길은 지도에 ✕로만

@@ -9,6 +9,7 @@
     "dev": "node scripts/dev.js",
     "mock": "node scripts/run_mock.js",
     "mock:fake": "node scripts/run_mock.js --fake",
+    "demo:seed": "node scripts/seed_demo.js --write",
     "test": "node --test tests/*.test.js"
   }
 }

@@ -22,8 +22,8 @@
       <label class="btn btn-secondary" style="cursor:pointer;margin-top:8px">기록 파일 (CSV · GPX)<input type="file" id="file" accept=".csv,.gpx,.txt,text/csv,application/gpx+xml" class="hidden"></label>
       <textarea id="paste" style="min-height:70px;margin-top:8px" placeholder="time,lat,lon&#10;2026-11-15T01:03:00Z,36.31,127.43"></textarea>
       <button class="btn-secondary" id="paste-go" style="margin-top:6px">붙여 넣은 글로 계산</button>
+      <p class="small muted" style="margin:8px 0 0"><a href="#" id="mock">모의 기록으로 시험하기 (가짜 데이터)</a></p>
     </details>
-    <p class="small muted" style="margin-bottom:0"><a href="#" id="mock">모의 기록으로 시험하기 (가짜 데이터)</a></p>
     <p class="small" id="msg"></p>
   </div>
 
@@ -81,6 +81,8 @@
     if (!r?.ok) { $("#msg").textContent = `불러오지 못했어요. ${errText(r?.reason)}`; return; }
     isMock = false; show(r.track, r.places, r.rules, "서버에 모인 목걸이 위치");
   };
+  // 화면을 열면 서버에 모인 기록을 바로 불러온다 (버튼을 누르지 않아도)
+  if (elder && home) $("#server").click();
   $("#file").onchange = async (e) => { const f = e.target.files[0]; if (f) { isMock = false; local(parseTrack(await f.text()), f.name); } };
   $("#paste-go").onclick = () => { isMock = false; local(parseTrack($("#paste").value), "붙여 넣은 글"); };
   $("#mock").onclick = (e) => { e.preventDefault(); isMock = true; local(mockTrack(home), "모의 기록"); };

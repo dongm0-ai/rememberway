@@ -79,6 +79,7 @@
     $("#msg").innerHTML = '<span class="spinner"></span> 서버 기록에서 머문 곳을 계산하는 중…';
     const r = await authFetch({ action: "places", elderId: elder.id }).catch(() => ({ ok: false, reason: "NETWORK" }));
     if (!r?.ok) { $("#msg").textContent = `불러오지 못했어요. ${errText(r?.reason)}`; return; }
+    if (!r.track?.points) { $("#msg").textContent = `${elder.label ?? "이 어르신"}께는 서버에 모인 목걸이 위치가 없어요. 위쪽에서 다른 어르신을 고르셨는지 확인해 주세요.`; return; }
     isMock = false; show(r.track, r.places, r.rules, "서버에 모인 목걸이 위치");
   };
   // 화면을 열면 서버에 모인 기록을 바로 불러온다 (버튼을 누르지 않아도)
